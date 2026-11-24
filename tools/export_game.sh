@@ -6,7 +6,7 @@
 #
 #   tools/export_game.sh "C:/XboxGames/Hollow Knight- Silksong"
 #
-# Environment: ASSETRIPPER (the .exe, default C:/HK3DS/tools/AssetRipper/AssetRipper.GUI.Free.exe), SSDATA (default
+# Environment: ASSETRIPPER (the AssetRipper.GUI.Free executable; default: found on PATH), SSDATA (default
 # ../ssdata next to the repository), PORT (default 5556, so it can run next to an HK3DS export on 5555).
 # Needs a lot of memory (the game is 7.7 GB of bundles: plan 16-24 GB free) and ~60 GB of disk.
 set -eo pipefail
@@ -16,7 +16,8 @@ GAME=${1:-$SILKSONG}
 DATA=""
 for d in "$GAME"/*_Data "$GAME"/Content/*_Data; do [ -f "$d/globalgamemanagers" ] && { DATA=$d; break; }; done
 [ -f "$DATA/globalgamemanagers" ] || { echo "no Silksong _Data folder in $GAME"; exit 1; }
-AR=${ASSETRIPPER:-C:/HK3DS/tools/AssetRipper/AssetRipper.GUI.Free.exe}
+AR=${ASSETRIPPER:-$(command -v AssetRipper.GUI.Free.exe || command -v AssetRipper.GUI.Free)}
+[ -n "$AR" ] && [ -x "$AR" ] || { echo "AssetRipper not found: set ASSETRIPPER to AssetRipper.GUI.Free(.exe)"; exit 1; }
 PORT=${PORT:-5556}
 SSDATA=${SSDATA:-$TOP/../ssdata}
 mkdir -p "$SSDATA"; SSDATA=$(cd "$SSDATA" && pwd -W 2>/dev/null || pwd)

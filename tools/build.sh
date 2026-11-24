@@ -9,7 +9,7 @@
 #   tools/build.sh --list           the steps
 #
 # Environment: SILKSONG (the game folder), SSDATA (the exports, default ../ssdata), PYTHON (default python3),
-# MKROMFS (default mkromfs3ds; e.g. "python C:/HK3DS/tools/mkromfs.py"), LANGS (default "EN FR"), JOBS (rooms
+# MKROMFS (default mkromfs3ds, else tools/mkromfs.py), LANGS (default "EN FR"), JOBS (rooms
 # converted at once, default 6).
 # Each step logs to work/logs/<step>.log; finished steps are remembered in work/done/, so running the same command
 # again carries on from the step that failed. The converted data goes to romfs/, then 3dsilksong.romfs.
@@ -59,13 +59,16 @@ step_sprites() {
   # tools/data/sprites.txt: one set per line, "<file>|<library>[+<library>...]|<clips, or empty for all>"
   grep -v '^\s*#' "$T/data/sprites.txt" | grep . | while IFS='|' read -r out lib clips; do
     (cd "$T" && $PY build_sprites.py "$R/sprites/$out.sss" "$lib" ${clips:+--clips "$clips"}) || exit 1
-  done
+  done || return 1
+  # and every animation library the rooms' objects use (enemies, NPCs, interactables...)
+  (cd "$T" && $PY build_sprites.py --objects "$R" --jobs "${JOBS:-6}")
 }
 step_music()     { (cd "$T" && $PY build_music.py "$R"); }
 step_text()      { (cd "$T" && $PY build_text.py "$R" ${LANGS:-EN FR}); }
 step_data() {      # the same as "make data", without needing make (it comes with devkitPro)
   sed -n 's/.*SS_VERSION "\(.*\)"/\1/p' "$TOP/source/version.h" > "$R/version.txt"
-  (cd "$TOP" && ${MKROMFS:-mkromfs3ds} romfs 3dsilksong.romfs) && ls -l "$TOP/3dsilksong.romfs"
+  local mk=${MKROMFS:-$(command -v mkromfs3ds || echo "$PY $T/mkromfs.py")}
+  (cd "$TOP" && $mk romfs 3dsilksong.romfs) && ls -l "$TOP/3dsilksong.romfs"
 }
 step_compile() {
   if [ -z "$DEVKITARM" ]; then echo "no devkitPro (DEVKITARM unset): skipped, the game data is ready"; return 0; fi

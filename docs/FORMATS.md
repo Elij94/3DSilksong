@@ -10,12 +10,17 @@ romfs/
   version.txt                 la version (source/version.h), écrite par l'étape data
   rooms/<Scène>.ssr           une salle : collisions, sorties, déclencheurs, table des couches de décor
   rooms/<Scène>.ssl           les tuiles de décor de la salle
-  rooms/<Scène>.json          la même chose en lisible (pas utilisé par le jeu)
-  sprites/<nom>.sss           un jeu de sprites tk2d avec ses animations
+  rooms/<Scène>.sso           les objets vivants de la salle (ennemis, objets cassables, PNJ, interactifs…)
+  fsm/<Scène>.json            les machines à états PlayMaker de la salle, décodées
+  fsm/templates/<guid>.json   les modèles de FSM lancés par les actions RunFSM
+  sprites/<nom>.sss           un jeu de sprites tk2d avec ses animations (le héros, et chaque bibliothèque
+                              qu'utilisent les objets : <nom> = nom de la bibliothèque en minuscules, avec des _)
   music/<cue>.ogg             musiques et ambiances (Ogg Vorbis, 32 kHz, stéréo)
   sfx/<clip>.ogg              sons (Ogg Vorbis, 32 kHz, mono)
   text/<langue>/<Feuille>.txt les textes
 ```
+
+Des copies lisibles en JSON de chaque salle et de ses objets sont écrites dans `work/rooms/`, hors du RomFS.
 
 ## Textures (`tools/ctrtex.py`)
 
@@ -57,17 +62,58 @@ bas-gauche), `f32 entry_dx, entry_dy` (`entryOffset`), `u8 always_enter_left, al
 - `3` : verrou de caméra (`CameraLockArea`), `extra` = `cameraXMin, cameraXMax, cameraYMin, cameraYMax`.
 
 **Les couches de décor**, 40 octets chacune, suivies de leur table de tuiles :
-`char name[8]` (`front`, `main`, `bg1`…`bg4`), `f32 z`, `f32 parallax`, `f32 ox, oy`, `f32 ppu`, `u16 tile`,
-`u16 ntx, nty`, `u16 n_tiles`, `u8 fmt`, `u8 pad[3]`. Puis, pour chacune des `n_tiles` tuiles : `u16 tx, ty`,
-`u32 offset, size`, qui pointent dans le `.ssl` vers les données d'une tuile `tile`×`tile` compressées en zlib.
+`char name[8]`, `f32 z`, `f32 parallax`, `f32 ox, oy`, `f32 ppu`, `u16 tile`, `u16 ntx, nty`, `u16 n_tiles`,
+`u8 fmt`, `u8 blend`, `u8 pad[2]`. Puis, pour chacune des `n_tiles` tuiles : `u16 tx, ty`, `u32 offset, size`, qui
+pointent dans le `.ssl` vers les données d'une tuile `tile`×`tile` compressées en zlib.
+- Noms : `front`, `main`, `bg1`…`bg4` selon la profondeur, suivis de `+` pour une couche additive et de `*` pour une
+  couche multiplicative.
+- `blend` : `0` = alpha normal ; `1` = additif (matériaux additifs ou « screen » : lueurs, rayons de lumière), à dessiner
+  avec `GPU_SRC_ALPHA, GPU_ONE` ; `2` = multiplication (ombres, « darkness »), à dessiner avec `GPU_DST_COLOR, GPU_ZERO`.
+- `ppu` peut être plus petit que celui demandé : une couche de plus de 60 Mpx est dessinée en plus basse résolution.
+- Une couche ne garde que ce que la caméra peut montrer depuis la salle : la salle ± la moitié de la vue / `parallax`.
 - La tuile `(tx, ty)` couvre en monde `x ∈ [ox + tx·tile/ppu, ox + (tx+1)·tile/ppu]` et
   `y ∈ [oy − (ty+1)·tile/ppu, oy − ty·tile/ppu]` (`ty` compte **vers le bas** depuis le haut de la couche).
 - Les tuiles entièrement transparentes ne sont pas stockées.
 - **Parallaxe :** pour une caméra centrée en `(cx, cy)` sur le plan de jeu, un point `p` de la couche s'affiche à
   `c + (p − c) · parallax` en unités du plan de jeu. `parallax = d / (d + z)`, avec `d = 38,1`. Les couches `z < 0` sont
   devant le joueur.
-- **Ordre de dessin :** `bg4` … `bg1`, `main`, (joueur et objets), `front`. Dans une couche, les sprites ont été
-  dessinés dans l'ordre de Unity : calque de tri, ordre dans le calque, puis du plus loin au plus proche.
+- **Ordre de dessin :** `bg4` … `bg1`, `main`, (joueur et objets), `front`, chaque profondeur dans l'ordre où les
+  couches sont rangées (normale, `+`, `*`). Dans une couche, les sprites ont été dessinés dans l'ordre de Unity :
+  calque de tri, ordre dans le calque, puis du plus loin au plus proche.
+
+## Objets : `.sso` (`tools/objects.py`, écrit par `build_room.py`)
+
+En-tête : `'SSOB'`, `u16 version (1)`, `u16 n`. Puis `n` objets de 244 octets :
+
+| Champ | Type |
+|---|---|
+| flags | u16 : `1` ennemi (`HealthManager`), `2` cassable (`Breakable`), `4` interactif (PNJ, banc, levier, porte, coffre, objet…), `8` animé (tk2d), `16` a une FSM, `32` fait des dégâts (`DamageHero`), `64` inactif au chargement |
+| parent | s16 : l'objet listé le plus proche parmi ses ancêtres, `-1` sinon (les morceaux d'un même ennemi) |
+| x, y, z | f32 : position en monde |
+| scale_x, scale_y | f32 : échelle en monde (`scale_x < 0` : retourné) |
+| rect | f32 ×4 : `x, y, w, h`, union de ses colliders (sinon un rectangle vide à sa position) |
+| hp, damage | s32 : points de vie (`HealthManager.hp`), dégâts infligés (`DamageHero.damageDealt`) |
+| sprite_id | u16 : sprite tk2d fixe (`0xFFFF` : aucun) |
+| (pad) | 2 octets |
+| name | `char[32]` |
+| sprite_set | `char[32]` : le fichier `sprites/<sprite_set>.sss` de son animation |
+| clip | `char[32]` : le clip par défaut de l'animateur |
+| collection | `char[32]` : la collection tk2d du sprite fixe |
+| fsms | `char[64]` : les noms de ses FSM, séparés par des virgules |
+
+## Machines à états : `fsm/<Scène>.json` (`tools/fsm_extract.py`, d'après HK3DS)
+
+Une liste de FSM. Chacune contient `fsm` (son nom), `owner` (le chemin de l'objet dans la scène), `start`, `events`,
+`global` (transitions globales), `variables` (`{nom: {type, value}}`) et `states`. Chaque état a `name`, `transitions`
+(`{event, to}`) et `actions` (`{type, enabled, params}`).
+Valeurs des paramètres :
+- des nombres ou des chaînes ;
+- `{"var": nom}` pour une variable de la FSM ;
+- `{"owner": true}` ou `{"go": fileID}` pour un objet ;
+- `{"event": nom}` pour un événement ;
+- `{"template", "name", "inputs"}` pour un `RunFSM`, le modèle étant alors dans `fsm/templates/<template>.json`.
+
+Les FSM construites sur un `FsmTemplate` sont déjà fusionnées : états du modèle, variables du composant.
 
 ## Jeu de sprites : `.sss` (`tools/build_sprites.py`)
 

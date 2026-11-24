@@ -3,14 +3,18 @@
   <out>/rooms/<Scene>.ssr   collision grid, gates (TransitionPoint), triggers (hazards, camera locks, respawn points),
                             and the table of the scenery layers
   <out>/rooms/<Scene>.ssl   the scenery layers' tiles, GPU-ready and zlib-compressed
-  <out>/rooms/<Scene>.json  the same information, readable (for checking and for other tools)
+  <out>/rooms/<Scene>.sso   the room's live objects: enemies, breakables, NPCs, interactables, animated objects
+  <out>/fsm/<Scene>.json    the room's PlayMaker FSMs (states, transitions, decoded actions; templates resolved)
+  <out>/fsm/templates/<guid>.json   the FSM templates that RunFSM actions start
+  work/rooms/<Scene>.json, <Scene>.objs.json   readable copies (for checking and other tools; not in the RomFS)
 
   python tools/build_room.py <out_dir> Tut_01 [Tut_02 ...]      (or --list tools/data/all_rooms.txt)
 Options:
   --ppu N        scenery pixels per world unit (default 28: the HD top screen shows about 28 units across 800 px)
   --cpu N        collision cells per world unit (default 4)
   --fmt F        scenery texture format, rgba8 or rgba4 (default rgba4: half the size)
-  --no-art       collisions, gates and triggers only (fast)
+  --no-art       no scenery (fast)
+  --no-objects   no objects and no FSMs
   --preview PNG  also draw the room's geometry (solid cells, gates, triggers, layer tiles) to a PNG, for checking
 
 Scenery: every enabled SpriteRenderer and tk2dSprite of an active object is drawn, in Unity's order (sorting layer,
@@ -21,8 +25,8 @@ materials are drawn as normal alpha for now."""
 import os, sys, re, json, math, struct, zlib, argparse, collections
 import numpy as np
 from PIL import Image, ImageDraw
-from sscommon import ROOT, EX, guidmap, yaml_file, load_yaml_docs, f
-import tk2d, ctrtex
+from sscommon import ROOT, EX, WORK, guidmap, yaml_file, load_yaml_docs, f
+import tk2d, ctrtex, objects, fsm_extract
 
 Image.MAX_IMAGE_PIXELS = None          # our own canvases can be big; their size is capped below (MAX_PIXELS)
 TERRAIN_LAYER = 8
@@ -255,6 +259,39 @@ def sprite_image(guid, fileid):
     return crop, (x0, y0, x0 + crop.shape[1] / ppu, y0 + crop.shape[0] / ppu)
 
 
+BLEND_NORMAL, BLEND_ADD, BLEND_MUL = 0, 1, 2
+BLEND_SUFFIX = {BLEND_NORMAL: '', BLEND_ADD: '+', BLEND_MUL: '*'}
+
+
+@__import__('functools').lru_cache(None)
+def material_blend(guid):
+    """How a material blends, from its shader's name: additive / screen (glows, light shafts) -> BLEND_ADD,
+    multiply / darkness -> BLEND_MUL, anything else -> BLEND_NORMAL"""
+    p = guidmap().get(guid)
+    if not p or not p.endswith('.mat'):
+        return BLEND_NORMAL
+    for t, v in yaml_file(p).values():
+        if t == 'Material':
+            sp = guidmap().get((v.get('m_Shader') or {}).get('guid'))
+            name = (v.get('m_Name') or '') + ' '
+            if sp and os.path.exists(sp):
+                with open(sp, errors='replace') as fh:
+                    m = re.search(r'Shader "([^"]+)"', fh.read(600))
+                name += m.group(1) if m else os.path.basename(sp)
+            n = name.lower()
+            if re.search(r'additive|screen|add|glow', n):
+                return BLEND_ADD
+            if re.search(r'multiply|darkness', n):
+                return BLEND_MUL
+    return BLEND_NORMAL
+
+
+def blend_of(v):
+    ms = v.get('m_Materials') or []
+    g = (ms[0] or {}).get('guid') if ms else None
+    return material_blend(g) if g else BLEND_NORMAL
+
+
 def renderables(sc, scripts, sorting):
     out = []
     for gid, comps in sc.comps.items():
@@ -275,7 +312,7 @@ def renderables(sc, scripts, sorting):
                 out.append(dict(kind='sprite', gid=gid, m=m, z=m[2, 3], src=(sp['guid'], sp.get('fileID')), color=col,
                                 flip=(int(v.get('m_FlipX') or 0), int(v.get('m_FlipY') or 0)),
                                 size=(f((v.get('m_Size') or {}).get('x')), f((v.get('m_Size') or {}).get('y'))),
-                                draw=int(v.get('m_DrawMode') or 0),
+                                draw=int(v.get('m_DrawMode') or 0), blend=blend_of(v),
                                 sort=(sorting.get(int(v.get('m_SortingLayerID') or 0), 0), int(v.get('m_SortingOrder') or 0))))
             elif t == 'MonoBehaviour' and scripts.get((v.get('m_Script') or {}).get('guid')) == 'TeamCherry.TK2D' \
                     and 'collection' in v and '_spriteId' in v:
@@ -289,7 +326,7 @@ def renderables(sc, scripts, sorting):
                     continue
                 out.append(dict(kind='tk2d', gid=gid, m=m, z=m[2, 3], src=((v.get('collection') or {}).get('guid'),
                                 int(v.get('_spriteId') or 0)), color=col,
-                                scale=(f(sc_.get('x', 1)) or 1, f(sc_.get('y', 1)) or 1),
+                                scale=(f(sc_.get('x', 1)) or 1, f(sc_.get('y', 1)) or 1), blend=blend_of(mr),
                                 sort=(sorting.get(int(mr.get('m_SortingLayerID') or 0), 0), int(mr.get('m_SortingOrder') or 0))))
     # Unity's order for transparent sprites: sorting layer, order in layer, then far to near
     out.sort(key=lambda r: (r['sort'][0], r['sort'][1], -r['z']))
@@ -421,7 +458,8 @@ def sorting_layers():
 
 # ---------------------------------------------------------------- output
 def s(txt, n):
-    return (txt or '').encode('utf-8')[:n - 1].ljust(n, b'\0')
+    txt = '' if txt is None else str(txt)       # YAML may give a name as a bool or a number
+    return txt.encode('utf-8')[:n - 1].ljust(n, b'\0')
 
 
 def find_scene(name):
@@ -444,11 +482,13 @@ def build(name, out, a, scripts, sorting):
     layers, stats = [], collections.Counter()
     if not a.no_art:
         rs = renderables(sc, scripts, sorting)
-        for lname, z0, z1 in LAYERS:
-            items = [r for r in rs if z0 <= r['z'] < z1]
+        for (base_name, z0, z1), blend in ((L, bl) for L in LAYERS for bl in (BLEND_NORMAL, BLEND_ADD, BLEND_MUL)):
+            # each depth gives up to three layers: normal sprites, then additive ('+'), then multiply ('*')
+            lname = base_name + BLEND_SUFFIX[blend]
+            items = [r for r in rs if z0 <= r['z'] < z1 and r.get('blend', 0) == blend]
             if not items:
                 continue
-            z_l = 0.0 if lname == 'main' else float(np.median([r['z'] for r in items]))
+            z_l = 0.0 if base_name == 'main' else float(np.median([r['z'] for r in items]))
             par = CAM_Z / (CAM_Z + z_l)
             # what the camera can show of this layer while it stays in the room: room +- view / parallax
             rx0, ry0 = gx, gy
@@ -459,11 +499,48 @@ def build(name, out, a, scripts, sorting):
                 continue
             arr, ox, oy, lppu = got
             tiles, ntx, nty = tiles_of(arr, ctrtex.FORMATS[a.fmt])
-            layers.append(dict(name=lname, z=z_l, parallax=par, ox=ox, oy=oy, ppu=lppu,
+            layers.append(dict(name=lname, blend=blend, z=z_l, parallax=par, ox=ox, oy=oy, ppu=lppu,
                                ntx=ntx, nty=nty, tiles=tiles, count=len(items)))
 
     os.makedirs(os.path.join(out, 'rooms'), exist_ok=True)
+    os.makedirs(os.path.join(WORK, 'rooms'), exist_ok=True)
     base = os.path.join(out, 'rooms', name)
+    info_base = os.path.join(WORK, 'rooms', name)        # readable copies, kept out of the RomFS
+
+    # live objects, and the PlayMaker FSMs (templates resolved) of the room
+    objs = [] if a.no_objects else objects.gather_objects(sc, scripts, collider_shapes, rect_of)
+    if objs:
+        objects.write(base + '.sso', objs)
+        json.dump([{k: v for k, v in o.items() if k != 'gid'} for o in objs], open(info_base + '.objs.json', 'w'), indent=1)
+    nfsm = 0
+    if not a.no_objects:
+        try:
+            fsms, _ = fsm_extract.extract(path)
+        except Exception as ex:
+            fsms = []
+            print(f'{name}: FSMs not read ({ex})')
+        if fsms:
+            os.makedirs(os.path.join(out, 'fsm', 'templates'), exist_ok=True)
+            with open(os.path.join(out, 'fsm', name + '.json'), 'w', encoding='utf-8') as fh:
+                json.dump(fsms, fh, separators=(',', ':'), default=str)
+            nfsm = len(fsms)
+            # the templates their RunFSM actions start (and the ones those start): fsm/templates/<guid>.json, once
+            todo, seen = list(fsm_extract.template_refs(fsms)), set()
+            while todo:
+                g = todo.pop()
+                if g in seen:
+                    continue
+                seen.add(g)
+                tpath = os.path.join(out, 'fsm', 'templates', g + '.json')
+                d = fsm_extract.decode_template(g)
+                if d is None:
+                    continue
+                todo += list(fsm_extract.template_refs(d))
+                if not os.path.exists(tpath):
+                    tmp = f'{tpath}.{os.getpid()}'
+                    with open(tmp, 'w', encoding='utf-8') as fh:
+                        json.dump(d, fh, separators=(',', ':'), default=str)
+                    os.replace(tmp, tpath)
     rowb = (gw + 7) // 8
     bits = np.packbits(np.pad(grid, ((0, 0), (0, rowb * 8 - gw))), axis=1, bitorder='little')
     b = bytearray()
@@ -479,8 +556,8 @@ def build(name, out, a, scripts, sorting):
         b += struct.pack('<B3x4f4f', KIND[t['kind']], *t['rect'], *extra) + s(t['name'], 32)
     data, off = bytearray(), 0
     for L in layers:
-        b += s(L['name'], 8) + struct.pack('<5fHHHHB3x', L['z'], L['parallax'], L['ox'], L['oy'], L['ppu'], TILE,
-                                         L['ntx'], L['nty'], len(L['tiles']), ctrtex.FORMATS[a.fmt])
+        b += s(L['name'], 8) + struct.pack('<5fHHHHBB2x', L['z'], L['parallax'], L['ox'], L['oy'], L['ppu'], TILE,
+                                         L['ntx'], L['nty'], len(L['tiles']), ctrtex.FORMATS[a.fmt], L['blend'])
         for tx, ty, blob in L['tiles']:
             b += struct.pack('<HHII', tx, ty, off, len(blob))
             data += blob
@@ -492,10 +569,13 @@ def build(name, out, a, scripts, sorting):
                 spawn=[float(spawn[0]), float(spawn[1])], gates=gates, triggers=triggers,
                 layers=[{k: v for k, v in L.items() if k != 'tiles'} | {'tiles': len(L['tiles'])} for L in layers],
                 sprites=dict(drawn=stats['drawn'], missing=stats['missing']))
-    json.dump(info, open(base + '.json', 'w'), indent=1)
+    info['objects'] = len(objs)
+    info['fsms'] = nfsm
+    json.dump(info, open(info_base + '.json', 'w'), indent=1)
     if a.preview:
         preview(info, grid, a.preview if len(a.scenes) == 1 else a.preview.replace('.png', f'_{name}.png'))
     print(f'{name}: {gw}x{gh} cells, {len(solids)} solid shapes, {len(gates)} gates, {len(triggers)} triggers, '
+          f'{len(objs)} objects, {nfsm} FSMs, '
           f'{len(layers)} layers / {sum(len(L["tiles"]) for L in layers)} tiles ({len(data) / 1048576:.1f} MB), '
           f'{stats["drawn"]} sprites drawn, {stats["missing"]} missing, {stats["clipped"]} out of view'
           + (f', {stats["lowres"]} layer(s) at lower resolution' if stats['lowres'] else ''))
@@ -540,6 +620,7 @@ def main():
     ap.add_argument('--cpu', type=int, default=4)
     ap.add_argument('--fmt', choices=list(ctrtex.FORMATS), default='rgba4')
     ap.add_argument('--no-art', action='store_true')
+    ap.add_argument('--no-objects', action='store_true')
     ap.add_argument('--preview')
     a = ap.parse_args()
     if a.list:

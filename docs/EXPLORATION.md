@@ -121,5 +121,6 @@ Résultat : `ex/Scenes/Hornet/Tut_01.unity` (21 Mo de YAML, 12 140 objets) :
    `build_music.py`, `build_text.py`), testés sur `Tut_01`. Les formats sont dans [FORMATS.md](FORMATS.md).
 3. Une fois l'export complet fait : lancer `tools/build.sh` sur les 590 salles et surveiller la taille du RomFS
    (limite de 4 Go par fichier en FAT32).
-4. Restent à convertir : les objets des salles (ennemis, PNJ, objets cassables) et les FSM PlayMaker (`FsmTemplate`).
-   Les matériaux additifs du décor sont pour l'instant dessinés en alpha normal.
+4. ~~Objets des salles, FSM PlayMaker (`FsmTemplate`, `RunFSM`), décor additif, sprites de tous les objets~~ :
+   faits. Conversion complète : 590 salles, 17 160 FSM (2 illisibles), 38 modèles, 398 jeux de sprites,
+   RomFS de 2,18 Go.

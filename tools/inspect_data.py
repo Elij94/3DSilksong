@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read back converted files and check them against the formats of docs/FORMATS.md (a reference reader for the
 game's loaders, too).
-  python tools/inspect_data.py romfs/rooms/Tut_01.ssr [romfs/sprites/hero.sss ...]"""
+  python tools/inspect_data.py romfs/rooms/Tut_01.ssr [romfs/rooms/Tut_01.sso romfs/sprites/hero.sss ...]"""
 import os, sys, struct, zlib
 
 
@@ -33,14 +33,14 @@ def room(path):
     data = open(path[:-4] + '.ssl', 'rb').read() if nl else b''
     for _ in range(nl):
         name = cstr(b[o:o + 8])
-        z, par, ox, oy, ppu, tile, ntx, nty, n, fmt = struct.unpack_from('<5fHHHHB3x', b, o + 8)
-        o += 8 + struct.calcsize('<5fHHHHB3x')
+        z, par, ox, oy, ppu, tile, ntx, nty, n, fmt, blend = struct.unpack_from('<5fHHHHBB2x', b, o + 8)
+        o += 8 + struct.calcsize('<5fHHHHBB2x')
         tiles = [struct.unpack_from('<HHII', b, o + 12 * i) for i in range(n)]
         o += 12 * n
         size = tile * tile * (4 if fmt == 0 else 2)
         for tx, ty, off, ln in tiles[:3] + tiles[-1:]:
             assert len(zlib.decompress(data[off:off + ln])) == size, 'bad tile'
-        print(f'  layer {name:5s} z {z:6.2f} parallax {par:.3f}  {ntx}x{nty} tiles of {tile}, {n} stored, fmt {fmt}')
+        print(f'  layer {name:5s} z {z:6.2f} parallax {par:.3f}  {ntx}x{nty} tiles of {tile}, {n} stored, fmt {fmt}, blend {('normal', 'add', 'multiply')[blend]}')
     assert o == len(b), f'{len(b) - o} bytes left over'
 
 
@@ -69,6 +69,22 @@ def sprites(path):
           ', '.join(f'{n} ({c} @ {fps:g} fps)' for n, c, fps in clips[:8]) + (' ...' if nc > 8 else ''))
 
 
+def objs(path):
+    b = open(path, 'rb').read()
+    assert b[:4] == b'SSOB', 'not an objects file'
+    ver, n = struct.unpack_from('<HH', b, 4)
+    rec = struct.calcsize('<HhfffffffffiiH2x') + 32 * 4 + 64
+    assert len(b) == 8 + n * rec, f'size {len(b)} != {8 + n * rec}'
+    kinds = {}
+    for i in range(n):
+        fl, parent = struct.unpack_from('<Hh', b, 8 + i * rec)
+        assert -1 <= parent < n
+        for bit, k in ((1, 'enemy'), (2, 'breakable'), (4, 'interact'), (8, 'animated'), (16, 'fsm'), (32, 'hazard')):
+            if fl & bit:
+                kinds[k] = kinds.get(k, 0) + 1
+    print(f'{os.path.basename(path)}: v{ver}, {n} objects', kinds)
+
+
 if __name__ == '__main__':
     for p in sys.argv[1:]:
-        (room if p.endswith('.ssr') else sprites)(p)
+        {'.ssr': room, '.sso': objs}.get(os.path.splitext(p)[1], sprites)(p)

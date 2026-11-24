@@ -5,6 +5,9 @@ the frames their clips use, cut upright out of the tk2d atlases, packed into GPU
 
   python tools/build_sprites.py <out.sss> "<library name>" [--clips Idle,Run,...] [--scale 0.5] [--fmt rgba4]
   python tools/build_sprites.py --list [pattern]        the animation libraries of the export, with their clip count
+  python tools/build_sprites.py --objects <out_dir>     every library the converted rooms' objects use (enemies, NPCs,
+                                                         interactables...), as <out_dir>/sprites/<name>.sss; sets
+                                                         already made are kept. Run after build_room.py.
 
 <library name> is the prefab's name ("Hornet Anim", "Bone Thumper Anim", ...). Several can be given, separated
 by '+', to make one set from several libraries (clip names must then be unique).
@@ -98,6 +101,15 @@ def build(out, names, clips_wanted, scale, fmt, page):
     if not frames:
         raise SystemExit('no frame could be cut (are the atlases in the export?)')
 
+    # a frame bigger than a page: bigger pages (up to the GPU's 1024), then the frame shrunk to fit
+    biggest = max(max(im.shape[:2]) for im in images) + 2
+    if biggest > page:
+        page = min(1024, ctrtex.pow2(biggest))
+    for i, im in enumerate(images):
+        if max(im.shape[:2]) + 2 > page:
+            k = (page - 2) / max(im.shape[:2])
+            images[i] = np.asarray(Image.fromarray(im).resize((max(1, int(im.shape[1] * k)), max(1, int(im.shape[0] * k))),
+                                                              Image.LANCZOS))
     sizes = [(im.shape[1] + 2, im.shape[0] + 2) for im in images]       # 1 px of padding around each image
     pos, npages = pack(sizes, page)
     canv = [np.zeros((page, page, 4), np.uint8) for _ in range(npages)]
@@ -126,6 +138,36 @@ def build(out, names, clips_wanted, scale, fmt, page):
           f'{npages} page(s) of {page}x{page}, {os.path.getsize(out) / 1048576:.2f} MB' + (f', {lost} frames lost' if lost else ''))
 
 
+def _one(job):
+    out, lib, scale, fmt, page = job
+    try:
+        build(out, [lib], None, scale, fmt, page)
+        return None
+    except SystemExit as ex:
+        return f'{lib}: {ex}'
+    except Exception as ex:
+        return f'{lib}: {type(ex).__name__}: {ex}'
+
+
+def from_objects(a):
+    import json
+    from concurrent.futures import ProcessPoolExecutor
+    from sscommon import WORK
+    from objects import safe
+    libs = set()
+    for p in glob.glob(os.path.join(WORK, 'rooms', '*.objs.json')):
+        libs |= {o['library'] for o in json.load(open(p)) if o.get('library')}
+    jobs = [(os.path.join(a.objects, 'sprites', safe(l) + '.sss'), l, a.scale, ctrtex.FORMATS[a.fmt], a.page)
+            for l in sorted(libs)]
+    todo = [j for j in jobs if not os.path.exists(j[0])]
+    print(f'{len(libs)} libraries used by the objects, {len(todo)} to convert')
+    with ProcessPoolExecutor(max_workers=max(1, a.jobs)) as ex:
+        errors = [e for e in ex.map(_one, todo) if e]
+    for e in errors:
+        print('failed:', e)
+    print(f'sprites: {len(jobs) - len(errors)} of {len(jobs)} sets')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('out', nargs='?')
@@ -135,7 +177,11 @@ def main():
     ap.add_argument('--fmt', choices=list(ctrtex.FORMATS), default='rgba4')
     ap.add_argument('--page', type=int, default=512)
     ap.add_argument('--list', nargs='?', const='', metavar='PATTERN')
+    ap.add_argument('--objects', metavar='OUT_DIR')
+    ap.add_argument('--jobs', type=int, default=6)
     a = ap.parse_args()
+    if a.objects:
+        return from_objects(a)
     if a.list is not None:
         for p in sorted(glob.glob(f'{EX}/**/*.prefab', recursive=True)):
             n = os.path.basename(p)[:-7]

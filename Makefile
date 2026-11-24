@@ -93,7 +93,7 @@ cia: all
 	@echo built ... $(TARGET).cia
 
 # the game data file for the SD card (SD:/3ds/3dsilksong/$(DATAFILE)): $(ROMFS)/ as one RomFS image.
-# MKROMFS defaults to mkromfs3ds; on Windows without it: make data MKROMFS="python C:/HK3DS/tools/mkromfs.py"
+# MKROMFS defaults to mkromfs3ds; without it: make data MKROMFS="python tools/mkromfs.py"
 MKROMFS ?= mkromfs3ds
 data:
 	@mkdir -p $(ROMFS); echo $(VERSION) > $(ROMFS)/version.txt
