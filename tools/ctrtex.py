@@ -2,11 +2,12 @@
 # texture (no conversion on the console). The Morton order is the same as HK3DS's lyr_split.py (MIT).
 #   - the image is flipped vertically first (the GPU's texture origin is the bottom-left corner)
 #   - then it is cut into 8x8 blocks, row by row, each block's texels in Morton (Z) order
-#   - RGBA8: u32 little-endian (R << 24 | G << 16 | B << 8 | A); RGBA4: u16 (R4 << 12 | G4 << 8 | B4 << 4 | A4)
+#   - RGBA8: u32 little-endian (R << 24 | G << 16 | B << 8 | A); RGBA4: u16 (R4 << 12 | G4 << 8 | B4 << 4 | A4);
+#     A8: one byte per texel (the alpha channel: font distance fields)
 # Width and height must be powers of two, 8 to 1024.
 import numpy as np
 
-FMT_RGBA8, FMT_RGBA4 = 0, 4          # the GPU_TEXCOLOR values
+FMT_RGBA8, FMT_RGBA4, FMT_A8 = 0, 4, 8      # the GPU_TEXCOLOR values
 FORMATS = {'rgba8': FMT_RGBA8, 'rgba4': FMT_RGBA4}
 
 _M = None
@@ -47,6 +48,8 @@ def encode(rgba, fmt=FMT_RGBA8):
     if fmt == FMT_RGBA4:
         q = lambda c: (c * 15 + 127) // 255
         return _swizzle(((q(r) << 12) | (q(g) << 8) | (q(b) << 4) | q(al)).astype(np.uint16)).astype('<u2').tobytes()
+    if fmt == FMT_A8:
+        return _swizzle(al.astype(np.uint8)).astype(np.uint8).tobytes()
     raise ValueError(f'unknown texture format {fmt}')
 
 

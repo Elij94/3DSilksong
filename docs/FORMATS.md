@@ -11,6 +11,11 @@ romfs/
   rooms/<Scène>.ssr           une salle : collisions, sorties, déclencheurs, table des couches de décor
   rooms/<Scène>.ssl           les tuiles de décor de la salle
   rooms/<Scène>.sso           les objets vivants de la salle (ennemis, objets cassables, PNJ, interactifs…)
+  rooms/<Scène>.spt           les émetteurs de particules de la salle
+  particles/textures.sss      les textures de particules (un clip d'une image par texture)
+  ui/<atlas>.sss              les sprites d'interface d'un atlas (HUD, inventaire, carte, menus…), un clip par sprite
+  fonts/<police>.ssf          une police : table des glyphes et atlas de distance (SDF) en A8
+  sfx/index.txt               guid du son -> fichier, pour les {"guid": …} des paramètres de FSM
   fsm/<Scène>.json            les machines à états PlayMaker de la salle, décodées
   fsm/templates/<guid>.json   les modèles de FSM lancés par les actions RunFSM
   sprites/<nom>.sss           un jeu de sprites tk2d avec ses animations (le héros, et chaque bibliothèque
@@ -28,8 +33,8 @@ Elles sont déjà dans l'ordre du GPU : il suffit d'un `memcpy` dans un `C3D_Tex
 format, comme `tex_upload` dans HK3DS.
 - L'image est d'abord retournée verticalement, car l'origine des textures du GPU est en bas à gauche.
 - Elle est ensuite découpée en blocs de 8x8, ligne par ligne, et les texels de chaque bloc sont rangés en ordre de Morton.
-- Formats : `0` = RGBA8 (`u32` : R<<24 | G<<16 | B<<8 | A) et `4` = RGBA4 (`u16` : R<<12 | G<<8 | B<<4 | A), soit les
-  valeurs de `GPU_TEXCOLOR`.
+- Formats : `0` = RGBA8 (`u32` : R<<24 | G<<16 | B<<8 | A), `4` = RGBA4 (`u16` : R<<12 | G<<8 | B<<4 | A) et
+  `8` = A8 (un octet par texel, pour les polices), soit les valeurs de `GPU_TEXCOLOR`.
 
 ## Salle : `.ssr` (`tools/build_room.py`)
 
@@ -100,6 +105,44 @@ En-tête : `'SSOB'`, `u16 version (1)`, `u16 n`. Puis `n` objets de 244 octets :
 | clip | `char[32]` : le clip par défaut de l'animateur |
 | collection | `char[32]` : la collection tk2d du sprite fixe |
 | fsms | `char[64]` : les noms de ses FSM, séparés par des virgules |
+
+## Particules : `.spt` (`tools/particles.py`, écrit par `build_room.py`)
+
+En-tête : `'SSPT'`, `u16 version (1)`, `u16 n`. Puis `n` émetteurs, chacun suivi de `char texture[32]` (le clip
+de `particles/textures.sss`) et de `char name[32]` :
+
+| Champ | Type |
+|---|---|
+| flags | u16 : `1` en boucle, `2` préchauffé, `4` démarre seul, `8` particules en coordonnées monde, `16` inactif au chargement |
+| blend | u8 : comme les couches de décor (`0` normal, `1` additif, `2` multiplication) |
+| shape | s8 : forme Unity (`0` sphère, `4` cône, `5` boîte, `10` cercle, `12` segment, `17` rectangle ; `-1` : un point) |
+| x, y, z, rotation | f32 ×4 (rotation en degrés) |
+| duration, rate | f32 : durée d'un cycle (s), particules par seconde |
+| max_particles, burst_count | u16 ×2 |
+| burst_time | f32 |
+| life, speed, size, start_rotation | (f32 min, f32 max) ×4 |
+| gravity, radius, angle | f32 ×3 |
+| box | f32 ×2 : échelle de la forme |
+| color0, color1 | f32 ×4 ×2 : couleur de départ, tirée entre les deux |
+| end_color | f32 ×4 : couleur en fin de vie (si le module Color est actif, sinon blanc) |
+| end_size | f32 : multiplicateur de taille en fin de vie |
+| tiles_x, tiles_y | u8 ×2 : la texture est une planche d'animation de `tiles_x × tiles_y` images |
+| (pad) | u16 |
+
+Les courbes de Unity sont réduites à leur intervalle (min, max).
+
+## Polices : `.ssf` (`tools/build_font.py`)
+
+En-tête : `'SSFN'`, `u16 version (1)`, `u16 n_glyphs`, `f32 point_size, line_height, ascender, descender, padding`,
+`u16 atlas_w, atlas_h`, `u8 fmt (8 = A8)`, `u8 pad[3]`, `u32 taille compressée`. Puis `n_glyphs` glyphes :
+`u32 code (Unicode)`, `f32 u0, v0, u1, v1`, `f32 x_offset, y_offset, width, height, x_advance` (en points de la
+police : multiplier par `taille voulue / point_size`). Viennent ensuite les données de l'atlas (A8, zlib).
+L'atlas est un champ de distance : dessiner avec un test alpha autour de 0,5, ou un `smoothstep` pour adoucir les bords.
+
+## Sons des FSM : `sfx/index.txt` (`tools/build_music.py --fsm-sfx`)
+
+Une ligne par son, `guid<TAB>fichier.ogg`. Les paramètres d'action de FSM qui désignent un son (`PlayAudioEvent`,
+`AudioPlayerOneShotSingle`…) portent `{"guid": …}` : cet index donne le fichier de `sfx/` correspondant.
 
 ## Machines à états : `fsm/<Scène>.json` (`tools/fsm_extract.py`, d'après HK3DS)
 

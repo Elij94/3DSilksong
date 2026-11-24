@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read back converted files and check them against the formats of docs/FORMATS.md (a reference reader for the
 game's loaders, too).
-  python tools/inspect_data.py romfs/rooms/Tut_01.ssr [romfs/rooms/Tut_01.sso romfs/sprites/hero.sss ...]"""
+  python tools/inspect_data.py romfs/rooms/Tut_01.ssr [.sso .spt .sss .ssf ...]"""
 import os, sys, struct, zlib
 
 
@@ -85,6 +85,29 @@ def objs(path):
     print(f'{os.path.basename(path)}: v{ver}, {n} objects', kinds)
 
 
+PT_REC = '<HBb3ff f f HHf 2f2f2f2f f f f 2f 4f4f4f f BBH'
+
+
+def parts(path):
+    b = open(path, 'rb').read()
+    assert b[:4] == b'SSPT', 'not a particles file'
+    ver, n = struct.unpack_from('<HH', b, 4)
+    rec = struct.calcsize(PT_REC) + 64
+    assert len(b) == 8 + n * rec, f'size {len(b)} != {8 + n * rec}'
+    tex = {cstr(b[8 + i * rec + struct.calcsize(PT_REC):][:32]) for i in range(n)}
+    print(f'{os.path.basename(path)}: v{ver}, {n} emitters, {len(tex)} textures')
+
+
+def font(path):
+    b = open(path, 'rb').read()
+    assert b[:4] == b'SSFN', 'not a font'
+    ver, n, ps, lh, asc, desc, pad, w, h, fmt, size = struct.unpack_from('<HHfffffHHB3xI', b, 4)
+    o = 4 + struct.calcsize('<HHfffffHHB3xI') + n * struct.calcsize('<I4f5f')
+    assert len(zlib.decompress(b[o:o + size])) == w * h * (1 if fmt == 8 else 2 if fmt == 4 else 4)
+    assert o + size == len(b), f'{len(b) - o - size} bytes left over'
+    print(f'{os.path.basename(path)}: v{ver}, {n} glyphs, point size {ps:g}, line {lh:g}, atlas {w}x{h} fmt {fmt}')
+
+
 if __name__ == '__main__':
     for p in sys.argv[1:]:
-        {'.ssr': room, '.sso': objs}.get(os.path.splitext(p)[1], sprites)(p)
+        {'.ssr': room, '.sso': objs, '.spt': parts, '.ssf': font}.get(os.path.splitext(p)[1], sprites)(p)

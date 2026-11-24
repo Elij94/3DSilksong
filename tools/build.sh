@@ -10,12 +10,12 @@
 #
 # Environment: SILKSONG (the game folder), SSDATA (the exports, default ../ssdata), PYTHON (default python3),
 # MKROMFS (default mkromfs3ds, else tools/mkromfs.py), LANGS (default "EN FR"), JOBS (rooms
-# converted at once, default 6).
+# converted at once, default 6), FONTS_ALL=1 (also the Chinese, Japanese and Korean fonts).
 # Each step logs to work/logs/<step>.log; finished steps are remembered in work/done/, so running the same command
 # again carries on from the step that failed. The converted data goes to romfs/, then 3dsilksong.romfs.
 set -o pipefail
 TOP=$(cd "$(dirname "$0")/.." && pwd); T=$TOP/tools; W=$TOP/work; R=$TOP/romfs
-STEPS="check inventory export index rooms sprites music text data compile"
+STEPS="check inventory export index rooms sprites particles ui fonts music text data compile"
 ONLY=""; FROM=""; ROOMS=$T/data/all_rooms.txt
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -63,7 +63,10 @@ step_sprites() {
   # and every animation library the rooms' objects use (enemies, NPCs, interactables...)
   (cd "$T" && $PY build_sprites.py --objects "$R" --jobs "${JOBS:-6}")
 }
-step_music()     { (cd "$T" && $PY build_music.py "$R"); }
+step_particles() { (cd "$T" && $PY build_particles.py "$R"); }
+step_ui()        { (cd "$T" && $PY build_ui.py "$R"); }
+step_fonts()     { (cd "$T" && $PY build_font.py "$R" ${FONTS_ALL:+--all}); }
+step_music()     { (cd "$T" && $PY build_music.py "$R" --fsm-sfx); }
 step_text()      { (cd "$T" && $PY build_text.py "$R" ${LANGS:-EN FR}); }
 step_data() {      # the same as "make data", without needing make (it comes with devkitPro)
   sed -n 's/.*SS_VERSION "\(.*\)"/\1/p' "$TOP/source/version.h" > "$R/version.txt"

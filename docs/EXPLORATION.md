@@ -122,5 +122,6 @@ Résultat : `ex/Scenes/Hornet/Tut_01.unity` (21 Mo de YAML, 12 140 objets) :
 3. Une fois l'export complet fait : lancer `tools/build.sh` sur les 590 salles et surveiller la taille du RomFS
    (limite de 4 Go par fichier en FAT32).
 4. ~~Objets des salles, FSM PlayMaker (`FsmTemplate`, `RunFSM`), décor additif, sprites de tous les objets~~ :
-   faits. Conversion complète : 590 salles, 17 160 FSM (2 illisibles), 38 modèles, 398 jeux de sprites,
-   RomFS de 2,18 Go.
+   faits, ainsi que les particules, l'interface, les polices et les sons des FSM. Conversion complète : 590 salles,
+   17 160 FSM (2 illisibles), 397 jeux de sprites, 219 textures de particules, 56 atlas d'interface, 11 polices,
+   2071 sons, RomFS de 2,25 Go.

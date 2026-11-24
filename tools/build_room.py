@@ -4,6 +4,7 @@
                             and the table of the scenery layers
   <out>/rooms/<Scene>.ssl   the scenery layers' tiles, GPU-ready and zlib-compressed
   <out>/rooms/<Scene>.sso   the room's live objects: enemies, breakables, NPCs, interactables, animated objects
+  <out>/rooms/<Scene>.spt   the room's particle emitters (textures: tools/build_particles.py)
   <out>/fsm/<Scene>.json    the room's PlayMaker FSMs (states, transitions, decoded actions; templates resolved)
   <out>/fsm/templates/<guid>.json   the FSM templates that RunFSM actions start
   work/rooms/<Scene>.json, <Scene>.objs.json   readable copies (for checking and other tools; not in the RomFS)
@@ -14,7 +15,7 @@ Options:
   --cpu N        collision cells per world unit (default 4)
   --fmt F        scenery texture format, rgba8 or rgba4 (default rgba4: half the size)
   --no-art       no scenery (fast)
-  --no-objects   no objects and no FSMs
+  --no-objects   no objects, particles or FSMs
   --preview PNG  also draw the room's geometry (solid cells, gates, triggers, layer tiles) to a PNG, for checking
 
 Scenery: every enabled SpriteRenderer and tk2dSprite of an active object is drawn, in Unity's order (sorting layer,
@@ -26,7 +27,7 @@ import os, sys, re, json, math, struct, zlib, argparse, collections
 import numpy as np
 from PIL import Image, ImageDraw
 from sscommon import ROOT, EX, WORK, guidmap, yaml_file, load_yaml_docs, f
-import tk2d, ctrtex, objects, fsm_extract
+import tk2d, ctrtex, objects, fsm_extract, particles
 
 Image.MAX_IMAGE_PIXELS = None          # our own canvases can be big; their size is capped below (MAX_PIXELS)
 TERRAIN_LAYER = 8
@@ -512,6 +513,10 @@ def build(name, out, a, scripts, sorting):
     if objs:
         objects.write(base + '.sso', objs)
         json.dump([{k: v for k, v in o.items() if k != 'gid'} for o in objs], open(info_base + '.objs.json', 'w'), indent=1)
+    parts = [] if a.no_objects else particles.gather_particles(sc, material_blend)
+    if parts:
+        particles.write(base + '.spt', parts)
+        json.dump(parts, open(info_base + '.parts.json', 'w'), indent=1)
     nfsm = 0
     if not a.no_objects:
         try:
@@ -570,12 +575,13 @@ def build(name, out, a, scripts, sorting):
                 layers=[{k: v for k, v in L.items() if k != 'tiles'} | {'tiles': len(L['tiles'])} for L in layers],
                 sprites=dict(drawn=stats['drawn'], missing=stats['missing']))
     info['objects'] = len(objs)
+    info['particles'] = len(parts)
     info['fsms'] = nfsm
     json.dump(info, open(info_base + '.json', 'w'), indent=1)
     if a.preview:
         preview(info, grid, a.preview if len(a.scenes) == 1 else a.preview.replace('.png', f'_{name}.png'))
     print(f'{name}: {gw}x{gh} cells, {len(solids)} solid shapes, {len(gates)} gates, {len(triggers)} triggers, '
-          f'{len(objs)} objects, {nfsm} FSMs, '
+          f'{len(objs)} objects, {len(parts)} particle emitters, {nfsm} FSMs, '
           f'{len(layers)} layers / {sum(len(L["tiles"]) for L in layers)} tiles ({len(data) / 1048576:.1f} MB), '
           f'{stats["drawn"]} sprites drawn, {stats["missing"]} missing, {stats["clipped"]} out of view'
           + (f', {stats["lowres"]} layer(s) at lower resolution' if stats['lowres'] else ''))

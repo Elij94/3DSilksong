@@ -28,7 +28,13 @@ See [the summary in English](#english) at the end.*
      décodées et variables, modèles (`FsmTemplate`, `RunFSM`) compris ;
    - **sprites** (`build_sprites.py`) : n'importe quelle bibliothèque d'animations tk2d en pages de texture GPU avec
      ses clips, dont toutes celles qu'utilisent les objets des salles ;
-   - **musique et sons** (`build_music.py`) : cues de musique et d'ambiance mixés en Ogg Vorbis ;
+   - **particules** (`particles.py`, appelé par `build_room.py`, et `build_particles.py` pour leurs textures) :
+     chaque émetteur des salles avec sa forme, son débit, sa durée de vie, sa vitesse, sa taille et ses couleurs ;
+   - **interface** (`build_ui.py`) : les atlas de sprites du HUD, de l'inventaire, de la carte, des menus, des invites,
+     du journal…, un sprite nommé par entrée ;
+   - **polices** (`build_font.py`) : les polices TextMeshPro du jeu, glyphes et atlas de distance (SDF) ;
+   - **musique et sons** (`build_music.py`) : cues de musique et d'ambiance mixés en Ogg Vorbis, et tous les sons que
+     jouent les machines à états, avec un index qui les relie à leurs actions ;
    - **textes** (`build_text.py`) : les feuilles de langue du jeu, déchiffrées, en fichiers `CLÉ<TAB>texte`.
 3. **Paquet** : tout est réuni dans un seul fichier RomFS, `3dsilksong.romfs`, à copier dans `SD:/3ds/3dsilksong/`.
 
@@ -88,8 +94,9 @@ Sous Windows, les scripts tournent dans Git Bash. `SSDATA` choisit le dossier de
 - Les options de `build_room.py` (`--ppu`, `--cpu`, `--fmt`) règlent la finesse du décor et des collisions, et donc la
   taille des données. Avec les réglages par défaut, `Tut_01` fait 6,1 Mo de décor (1184 tuiles RGBA4).
 - Ordre de grandeur d'une conversion complète (16 threads, 32 Go) : export ~15 min, salles ~30 min avec `JOBS=6`.
-  Résultat : 590 salles, ~17 000 FSM, ~400 jeux de sprites, 109 musiques, un RomFS d'environ 2,2 Go (sous la limite
-  de 4 Go par fichier des cartes SD en FAT32).
+  Résultat : 590 salles, 575 avec des particules, ~17 000 FSM, 397 jeux de sprites, 56 atlas d'interface,
+  11 polices, 2071 sons, 109 musiques, un RomFS d'environ 2,25 Go (sous la limite de 4 Go par fichier des cartes SD
+  en FAT32).
 - `tools/build.sh` reprend là où il s'est arrêté ; une salle qui échoue est notée dans `work/rooms_failed.txt` sans
   bloquer le reste.
 
@@ -108,6 +115,9 @@ docs/          EXPLORATION.md (ce que contient le jeu), FORMATS.md (les fichiers
 - Il n'y a pas de moteur de jeu : les données sont prêtes, mais rien sur 3DS ne les lit encore. `source/` est un
   squelette qui n'a pas encore été compilé.
 - Les cinématiques (vidéos) ne sont pas converties.
+- Particules : les courbes de Unity (vitesse, taille, couleur au cours de la vie) sont réduites à leurs valeurs de
+  début et de fin ; les modules plus rares (bruit, collisions, sous-émetteurs, traînées) ne sont pas lus.
+- Polices : les polices chinoises, japonaises et coréennes ne sont converties qu'avec `FONTS_ALL=1`.
 - Quelques frames d'animation ne peuvent pas être découpées de leur atlas (elles valent `-1` dans les clips), et deux
   FSM sur environ 17 000 ne se décodent pas (elles sont marquées `error`).
 - Testé avec la version Game Pass du jeu (Unity 6000.0.50f1) sous Windows 11 et Git Bash.
@@ -123,8 +133,8 @@ textures, `sscommon.py`, `index_export.py`, le déchiffrement des textes) est ad
 Unofficial fan tools, **not affiliated with Team Cherry**, modelled on the tools of
 [HK3DS](https://github.com/silviognotti/HK3DS). They turn **your own PC copy** of Hollow Knight: Silksong into data
 for the New 3DS family: an AssetRipper export (`tools/export_game.sh`), then converters for rooms (collision grid,
-gates, triggers, parallax scenery as 3DS GPU tiles), room objects, PlayMaker state machines, tk2d sprite sets, music
-and text, packed by `tools/build.sh` into one RomFS file, `3dsilksong.romfs`. The file formats are in
+gates, triggers, parallax scenery as 3DS GPU tiles), room objects, particle emitters, PlayMaker state machines, tk2d sprite sets, interface atlases, fonts, music,
+sounds and text, packed by `tools/build.sh` into one RomFS file, `3dsilksong.romfs`. The file formats are in
 [docs/FORMATS.md](docs/FORMATS.md) (in French).
 
 No game file is in this repository, and **the converted data must not be shared**: it holds the game's art, music

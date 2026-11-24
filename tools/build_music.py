@@ -7,6 +7,10 @@ out); the cue is mixed down to the channels given (default: channel 0, the main 
   python tools/build_music.py <out_dir> [cue ...]               the cues (default: every cue in the export)
   python tools/build_music.py <out_dir> --channels 0,2 MossCave mix channels 0 and 2
   python tools/build_music.py <out_dir> --sfx LIST.txt          also the sound clips named in LIST.txt (one per line)
+  python tools/build_music.py <out_dir> --fsm-sfx              every sound the rooms' FSMs play (run after
+                                                                build_room.py): <out>/sfx/<clip>.ogg, and
+                                                                <out>/sfx/index.txt, 'guid<TAB>file' per line, to
+                                                                resolve the {"guid": ...} of FSM parameters
   python tools/build_music.py --list                            the cues, with their channels
 Needs ffmpeg on PATH (or FFMPEG=...)."""
 import os, re, sys, glob, argparse, subprocess
@@ -45,6 +49,48 @@ def encode(inputs, dst, mono=False):
     return subprocess.run(cmd).returncode == 0
 
 
+AUDIO = ('.ogg', '.wav', '.mp3')
+
+
+def _guids(x, out):
+    if isinstance(x, dict):
+        g = x.get('guid')
+        if isinstance(g, str):
+            out.add(g)
+        for v in x.values():
+            _guids(v, out)
+    elif isinstance(x, list):
+        for v in x:
+            _guids(v, out)
+    return out
+
+
+def fsm_sfx(out):
+    """the sounds the converted FSMs refer to -> <out>/sfx/*.ogg + index.txt"""
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    gm = guidmap()
+    guids = set()
+    for p in glob.glob(os.path.join(out, 'fsm', '**', '*.json'), recursive=True):
+        _guids(json.load(open(p, encoding='utf-8')), guids)
+    clips = sorted((g, gm[g]) for g in guids if gm.get(g, '').lower().endswith(AUDIO))
+    os.makedirs(os.path.join(out, 'sfx'), exist_ok=True)
+    names, jobs = {}, []
+    for g, path in clips:
+        n = safe(os.path.basename(path).rsplit('.', 1)[0])
+        if n in names.values():
+            n = f'{n}_{g[:6]}'
+        names[g] = n
+        dst = os.path.join(out, 'sfx', n + '.ogg')
+        if not os.path.exists(dst):
+            jobs.append((path, dst))
+    with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as ex:
+        ok = list(ex.map(lambda j: encode([j[0]], j[1], mono=True), jobs))
+    with open(os.path.join(out, 'sfx', 'index.txt'), 'w', encoding='utf-8', newline='\n') as fh:
+        fh.write(''.join(f'{g}\t{n}.ogg\n' for g, n in sorted(names.items())))
+    print(f'fsm sfx: {len(clips)} sounds referenced, {sum(ok)} converted now, {len(ok) - sum(ok)} failed')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('out', nargs='?')
@@ -52,6 +98,8 @@ def main():
     ap.add_argument('--channels', default='0')
     ap.add_argument('--sfx')
     ap.add_argument('--list', action='store_true')
+    ap.add_argument('--fsm-sfx', action='store_true')
+    ap.add_argument('--no-music', action='store_true')
     a = ap.parse_args()
     all_cues = cues()
     if a.list:
@@ -60,6 +108,10 @@ def main():
         return
     if not a.out:
         ap.error('give an output folder (or --list)')
+    if a.fsm_sfx:
+        fsm_sfx(a.out)
+    if a.no_music:
+        return
     want = [int(c) for c in a.channels.split(',')]
     os.makedirs(os.path.join(a.out, 'music'), exist_ok=True)
     done = empty = failed = 0

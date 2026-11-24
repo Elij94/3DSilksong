@@ -13,4 +13,7 @@
 - Music and sound (`build_music.py`), language sheets (`build_text.py`).
 - One RomFS file (`tools/mkromfs.py` when `mkromfs3ds` isn't installed); everything chained, resumable and in
   parallel by `tools/build.sh`; files checked by `inspect_data.py`. Formats in `docs/FORMATS.md`.
+- Particles (`particles.py` per room, `build_particles.py` for their textures), interface atlases (`build_ui.py`),
+  TextMeshPro fonts as SDF A8 atlases (`build_font.py`), every sound the FSMs play with a guid index
+  (`build_music.py --fsm-sfx`).
 - `source/`: 3DS skeleton that mounts the data file from the SD card and sets the 800x240 mode (not compiled yet).

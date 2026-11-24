@@ -100,7 +100,31 @@ def build(out, names, clips_wanted, scale, fmt, page):
             frames.append((seen[hsh], quad))
     if not frames:
         raise SystemExit('no frame could be cut (are the atlases in the export?)')
+    out_clips = {n: dict(fps=c['fps'], loop_start=c['loop_start'], wrap=c['wrap'], ids=[frame_of[k] for k in c['frames']])
+                 for n, c in clips.items()}
+    lost = sum(1 for v in frame_of.values() if v < 0)
+    write_set(out, out_clips, frames, images, fmt, page, lost)
 
+
+def add_image(img, quad, frames, images, seen, trim=True):
+    """one frame (RGBA array, quad in units) -> its index; transparent border trimmed, identical images shared"""
+    ys, xs = np.nonzero(img[..., 3]) if trim else ([], [])
+    if len(xs):
+        h, w = img.shape[:2]
+        x0, y0, x1, y1 = quad
+        ux, uy = (x1 - x0) / w, (y1 - y0) / h
+        quad = (x0 + xs.min() * ux, y1 - (ys.max() + 1) * uy, x0 + (xs.max() + 1) * ux, y1 - ys.min() * uy)
+        img = img[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    hsh = hashlib.sha1(img.tobytes() + str(img.shape).encode()).hexdigest()
+    if hsh not in seen:
+        seen[hsh] = len(images)
+        images.append(img)
+    frames.append((seen[hsh], quad))
+    return len(frames) - 1
+
+
+def write_set(out, clips, frames, images, fmt, page=512, lost=0):
+    """Write a .sss: clips {name: dict(fps, loop_start, wrap, ids)}, frames [(image index, quad)], images [RGBA]"""
     # a frame bigger than a page: bigger pages (up to the GPU's 1024), then the frame shrunk to fit
     biggest = max(max(im.shape[:2]) for im in images) + 2
     if biggest > page:
@@ -125,7 +149,7 @@ def build(out, names, clips_wanted, scale, fmt, page):
         v1, v0 = 1 - (y + 1) / page, 1 - (y + 1 + h) / page               # v from the bottom (GPU)
         tables += struct.pack('<HH4f4f', p, 0, u0, v0, u1, v1, x0, y0, x1, y1)
     for cname, c in clips.items():
-        ids = [frame_of[k] for k in c['frames']]
+        ids = c['ids']
         tables += s(cname, 32) + struct.pack('<fHBBH', c['fps'], c['loop_start'], c['wrap'], 0, len(ids))
         tables += struct.pack(f'<{len(ids)}h', *ids)
     blobs = [zlib.compress(ctrtex.encode(cv, fmt), 9) for cv in canv]
@@ -133,7 +157,6 @@ def build(out, names, clips_wanted, scale, fmt, page):
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     with open(out, 'wb') as fh:
         fh.write(head + page_table + tables + b''.join(blobs))
-    lost = sum(1 for v in frame_of.values() if v < 0)
     print(f'{os.path.basename(out)}: {len(clips)} clips, {len(frames)} frames ({len(images)} distinct images), '
           f'{npages} page(s) of {page}x{page}, {os.path.getsize(out) / 1048576:.2f} MB' + (f', {lost} frames lost' if lost else ''))
 
