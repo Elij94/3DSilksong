@@ -12,3 +12,5 @@ void game_save(void);
 void game_end(void);
 // puts Hornet in a room at (x, y) (tests)
 void game_warp(const char *scene, float x, float y);
+// true once the player chose to quit (title or pause)
+bool game_quit(void);

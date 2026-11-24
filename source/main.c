@@ -106,7 +106,6 @@ int main(void) {
         in.down = hidKeysDown();
         in.held = hidKeysHeld();
         in.up = hidKeysUp();
-        if (in.down & KEY_START) break;
 
         u64 now = osGetTime();
         float dt = (now - last) / 1000.0f;
@@ -125,6 +124,7 @@ int main(void) {
         u64 t0 = svcGetSystemTick();
         g_view.frame++;
         game_update(&in, dt);
+        if (game_quit()) { C3D_FrameEnd(0); break; }
         audio_update(dt);
         C2D_TargetClear(top, clear);
         C2D_SceneBegin(top);

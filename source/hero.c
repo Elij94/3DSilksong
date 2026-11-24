@@ -184,6 +184,16 @@ void hero_respawn(Hero *h, float x, float y) {
     body(h, "Hazard Respawn", true);
 }
 
+void hero_sit(Hero *h, float x) {
+    h->x = x;
+    h->vx = h->vy = 0;
+    h->state = HS_SIT;
+    h->st = 0;
+    h->attack = ATK_NONE;
+    h->fx_on = false;
+    body(h, "Sit", true);
+}
+
 bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
     bool hit_frame = false;
     int dir = (in->held & KEY_RIGHT ? 1 : 0) - (in->held & KEY_LEFT ? 1 : 0);
@@ -202,6 +212,14 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         h->vy = fmaxf(h->vy - GRAV_DOWN * dt, -MAX_FALL);
         if (move_y(h, r, h->vy * dt) && h->vy < 0) h->vy = 0;
         anim_update(&h->body, dt);
+        return false;
+    case HS_SIT:
+        anim_update(&h->body, dt);
+        if (h->st > 0.4f && (dir || jump_down || atk_down || dash_down)) {
+            h->state = HS_NORMAL;
+            body(h, "Get Off", true);
+            break;
+        }
         return false;
     case HS_RESPAWN:
         anim_update(&h->body, dt);

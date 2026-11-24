@@ -9,7 +9,7 @@
 #define HERO_FOOT (-1.53f)
 #define HERO_HEAD 0.30f
 
-enum { HS_NORMAL, HS_DASH, HS_HURT, HS_RESPAWN, HS_DEAD };
+enum { HS_NORMAL, HS_DASH, HS_HURT, HS_RESPAWN, HS_DEAD, HS_SIT };
 enum { ATK_NONE, ATK_SIDE, ATK_UP, ATK_DOWN };
 
 typedef struct {
@@ -48,6 +48,8 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]);
 void hero_pogo(Hero *h);          // a down attack connected
 void hero_hurt(Hero *h, int dmg, float from_x);
 void hero_respawn(Hero *h, float x, float y);
+// sits on a bench at x (any input gets her up)
+void hero_sit(Hero *h, float x);
 void hero_draw(Hero *h);
 bool hero_box_free(const Room *r, float x, float y);
 // drops onto the floor below (up to 'range' units), or pushes out of the ground; for room entries

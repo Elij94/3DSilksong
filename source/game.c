@@ -37,6 +37,17 @@ static float s_safe_x, s_safe_y;
 static char s_msg[64];
 static float s_msg_t;
 
+// title, play, pause
+enum { GS_TITLE, GS_PLAY, GS_PAUSE };
+static int s_mode = GS_TITLE;
+static int s_pause_sel;
+static bool s_quit;
+// the last bench sat on: where Hornet comes back after dying
+static char s_bench_scene[48];
+static float s_bench_x, s_bench_y;
+static bool s_bench_prompt;
+static C2D_TextBuf s_tbuf;
+
 // the room menu
 static bool s_menu;
 static char (*s_rooms)[33];
@@ -252,6 +263,7 @@ void game_save(void) {
     FILE *f = fopen(SAVE_PATH, "w");
     if (!f) return;
     fprintf(f, "%s %.3f %.3f %d\n", s_room.scene, s_safe_x, s_safe_y, s_hero.hp);
+    if (s_bench_scene[0]) fprintf(f, "bench %s %.3f %.3f\n", s_bench_scene, s_bench_x, s_bench_y);
     fclose(f);
 }
 
@@ -284,6 +296,10 @@ bool game_start(void) {
     FILE *f = fopen(SAVE_PATH, "r");
     if (f) {
         saved = fscanf(f, "%47s %f %f %d", scene, &x, &y, &hp) >= 3;
+        char kw[8];
+        if (fscanf(f, "%7s %47s %f %f", kw, s_bench_scene, &s_bench_x, &s_bench_y) != 4 || strcmp(kw, "bench") ||
+            !room_exists(s_bench_scene))
+            s_bench_scene[0] = 0;
         fclose(f);
     }
     if (!saved || !room_exists(scene)) { strcpy(scene, FIRST_ROOM); saved = false; }
@@ -298,6 +314,8 @@ bool game_start(void) {
     }
     for (int i = 0; i < s_nrooms; i++)
         if (!strcmp(s_rooms[i], s_room.scene)) s_menu_sel = i;
+    s_tbuf = C2D_TextBufNew(512);
+    s_mode = autotest_on() ? GS_PLAY : GS_TITLE;
     return true;
 }
 
@@ -343,7 +361,12 @@ static void play(const Input *in, float dt) {
             char sc[48];
             snprintf(sc, sizeof sc, "%s", s_room.scene);
             s_fade = 1;
-            go(sc, NULL);
+            if (s_bench_scene[0]) {   // back at the last bench
+                go(s_bench_scene, NULL);
+                hero_place(h, s_bench_x, s_bench_y, 0);
+                hero_settle(h, &s_room, 3);
+                camera_snap();
+            } else go(sc, NULL);
             h->hp = max;
             h->state = HS_NORMAL;
         }
@@ -366,6 +389,30 @@ static void play(const Input *in, float dt) {
     float ex;
     int dmg = objects_touch_damage(&s_objs, x0, y0, x1, y1, &ex);
     if (dmg) hero_hurt(h, dmg > 1 ? 1 : dmg, ex);   // contact damage: one mask, as in the game
+
+    // benches: Up to sit, heal and make it the place to come back to
+    s_bench_prompt = false;
+    if (h->state == HS_NORMAL && h->ground) {
+        for (int i = 0; i < s_objs.n; i++) {
+            const Obj *o = &s_objs.o[i];
+            if (strncmp(o->name, "RestBench", 9) || !o->alive || o->rw <= 0) continue;
+            if (!rects_overlap(x0 - 0.6f, y0 - 0.5f, x1 - x0 + 1.2f, y1 - y0 + 1.0f, o->rx, o->ry, o->rw, o->rh + 2.0f))
+                continue;
+            s_bench_prompt = true;
+            if (in->down & KEY_UP) {
+                hero_sit(h, o->rx + o->rw * 0.5f);
+                h->hp = h->maxhp;
+                snprintf(s_bench_scene, sizeof s_bench_scene, "%s", s_room.scene);
+                s_bench_x = h->x;
+                s_bench_y = h->y;
+                s_safe_x = h->x;
+                s_safe_y = h->y;
+                game_save();
+                message("Rested. Hornet will come back here.");
+            }
+            break;
+        }
+    }
 
     // gates
     if (s_gate_lock > 0) {
@@ -430,8 +477,39 @@ static void log_state(void) {
     autotest_log(s_room.scene, h->x, h->y, h->vx, h->vy, h->ground, h->state, clip, g_view.cx, g_view.cy);
 }
 
+bool game_quit(void) { return s_quit; }
+
+static void new_game(void) {
+    s_bench_scene[0] = 0;
+    s_fade = 1;
+    go(FIRST_ROOM, NULL);
+    s_hero.hp = s_hero.maxhp;
+    s_hero.state = HS_NORMAL;
+}
+
+static const char *const PAUSE_ITEMS[] = {"Resume", "Rooms", "Save and quit"};
+
+static void pause_update(const Input *in) {
+    if (in->down & KEY_DOWN) s_pause_sel = (s_pause_sel + 1) % 3;
+    if (in->down & KEY_UP) s_pause_sel = (s_pause_sel + 2) % 3;
+    if (in->down & (KEY_B | KEY_START)) s_mode = GS_PLAY;
+    if (in->down & KEY_A) {
+        if (s_pause_sel == 0) s_mode = GS_PLAY;
+        else if (s_pause_sel == 1) { s_mode = GS_PLAY; s_menu = true; }
+        else { game_save(); s_quit = true; }
+    }
+}
+
 void game_update(const Input *in, float dt) {
     log_state();
+    if (s_mode == GS_TITLE) {
+        if (in->down & KEY_A) { s_mode = GS_PLAY; s_fade = 1; }
+        if (in->down & KEY_X) { new_game(); s_mode = GS_PLAY; }
+        if (in->down & KEY_START) s_quit = true;
+        return;
+    }
+    if (s_mode == GS_PAUSE) { pause_update(in); return; }
+    if ((in->down & KEY_START) && !s_menu) { s_mode = GS_PAUSE; s_pause_sel = 0; return; }
     if (s_msg_t > 0) s_msg_t -= dt;
     if (in->down & KEY_SELECT) s_menu = !s_menu;
     if (s_menu) { menu_update(in); return; }
@@ -504,6 +582,18 @@ static void draw_hud(void) {
     }
 }
 
+// a centred line of text in the system font (title, pause)
+static void draw_text(const char *str, float cx, float y, float size, u32 color) {
+    if (!s_tbuf) return;
+    C2D_Text t;
+    C2D_TextBufClear(s_tbuf);
+    C2D_TextParse(&t, s_tbuf, str);
+    C2D_TextOptimize(&t);
+    float ax = g_view.sx / g_view.sy, w, h;
+    C2D_TextGetDimensions(&t, size * ax, size, &w, &h);
+    C2D_DrawText(&t, C2D_WithColor, cx - w * 0.5f, y, 0.95f, size * ax, size, color);
+}
+
 static void draw_band(float zmin, float zmax) {
     objects_draw(&s_objs, zmin, zmax);
     particles_draw(zmin, zmax);
@@ -540,8 +630,30 @@ void game_draw(void) {
     draw_band(-1e30f, zcur);
     gfx_blend(BLEND_NORMAL);
     draw_hud();
+    if (s_bench_prompt && s_mode == GS_PLAY) {   // a small arrow over Hornet: Up to sit
+        float px = g_view.sw * 0.5f + (s_hero.x - g_view.cx) * g_view.sx;
+        float py = g_view.sh * 0.5f - (s_hero.y + 1.9f - g_view.cy) * g_view.sy;
+        float w = 5 * g_view.sx / g_view.sy;
+        u32 c = C2D_Color32(240, 236, 228, 230);
+        C2D_DrawTriangle(px - w, py, c, px + w, py, c, px, py - 7, c, 0.6f);
+    }
     if (s_fade > 0)
         C2D_DrawRectSolid(0, 0, 0.9f, g_view.sw, g_view.sh, C2D_Color32(0, 0, 0, (u8)(s_fade * 255)));
+    if (s_mode == GS_TITLE || s_mode == GS_PAUSE) {
+        C2D_DrawRectSolid(0, 0, 0.9f, g_view.sw, g_view.sh, C2D_Color32(0, 0, 0, s_mode == GS_TITLE ? 170 : 140));
+        u32 hi = C2D_Color32(240, 236, 228, 255), lo = C2D_Color32(150, 146, 140, 255);
+        if (s_mode == GS_TITLE) {
+            draw_text("HOLLOW KNIGHT", g_view.sw * 0.5f, 56, 0.55f, lo);
+            draw_text("SILKSONG", g_view.sw * 0.5f, 74, 1.3f, hi);
+            draw_text(s_bench_scene[0] || strcmp(s_room.scene, FIRST_ROOM) ? "A   Continue" : "A   Start",
+                      g_view.sw * 0.5f, 150, 0.6f, hi);
+            draw_text("X   New game          START   Quit", g_view.sw * 0.5f, 174, 0.5f, lo);
+        } else {
+            draw_text("PAUSED", g_view.sw * 0.5f, 56, 0.9f, hi);
+            for (int i = 0; i < 3; i++)
+                draw_text(PAUSE_ITEMS[i], g_view.sw * 0.5f, 106 + i * 26, 0.65f, i == s_pause_sel ? hi : lo);
+        }
+    }
 }
 
 void game_status(float fps, float ms) {
