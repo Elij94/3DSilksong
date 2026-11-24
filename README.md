@@ -6,6 +6,14 @@ en 800x240, 124 Mo de RAM), sur le modèle des outils de [HK3DS](https://github.
 > Projet non officiel, **non affilié à Team Cherry**. Ce dépôt ne contient **aucun fichier du jeu** (ni image, ni son,
 > ni texte, ni données) : seulement des outils qui convertissent **votre propre copie PC** du jeu, sur votre machine.
 > Il faut posséder Silksong pour s'en servir.
+>
+> **Ne partagez pas ce que les outils produisent** (`3dsilksong.romfs`, `romfs/`, les exports) : ces fichiers
+> contiennent l'art, la musique et les textes du jeu. Chacun convertit sa propre copie. Les issues et pull requests
+> qui contiennent ou demandent des fichiers du jeu seront fermées.
+
+*English: unofficial fan tools, not affiliated with Team Cherry. They convert your own PC copy of Hollow Knight:
+Silksong into data for the New 3DS. The repository holds no game file, and the converted data must not be shared.
+See [the summary in English](#english) at the end.*
 
 ## Ce que font les outils
 
@@ -33,7 +41,8 @@ et passe l'écran en 800x240. C'est le point de départ d'un moteur qui lirait c
 ## Prérequis
 
 - Une copie PC de Silksong (Steam ou Game Pass ; les fichiers Game Pass sont lisibles).
-- Python 3.11+ avec `numpy`, `Pillow`, `PyYAML`, `cryptography`, et `UnityPy` pour `bundle_deps.py` ; `ffmpeg` dans le PATH.
+- Python 3.11+ avec les paquets de [requirements.txt](requirements.txt) (`python -m pip install -r requirements.txt`) ;
+  `ffmpeg` dans le PATH.
 - [AssetRipper](https://github.com/AssetRipper/AssetRipper) 2.0.0, dans le PATH ou indiqué par `ASSETRIPPER`.
 - Pour le fichier RomFS : `mkromfs3ds` (devkitPro) s'il est installé, sinon `tools/mkromfs.py` (Python, inclus).
 - Pour compiler `source/` : devkitPro avec `3ds-dev` (et `makerom`, `bannertool` pour le CIA).
@@ -90,12 +99,34 @@ Sous Windows, les scripts tournent dans Git Bash. `SSDATA` choisit le dossier de
 tools/         export, conversion, paquet (Python / bash)
 tools/data/    all_rooms.txt (les 590 scènes), sprites.txt (jeux de sprites en plus de ceux des objets)
 source/        squelette 3DS (montage des données, écran HD)
-cia/           RSF du CIA
+cia/           RSF du CIA (pour `make cia`, ajouter icon.png 48x48, banner.png 256x128 et banner.wav, originaux)
 docs/          EXPLORATION.md (ce que contient le jeu), FORMATS.md (les fichiers produits)
 ```
+
+## Limites connues
+
+- Il n'y a pas de moteur de jeu : les données sont prêtes, mais rien sur 3DS ne les lit encore. `source/` est un
+  squelette qui n'a pas encore été compilé.
+- Les cinématiques (vidéos) ne sont pas converties.
+- Quelques frames d'animation ne peuvent pas être découpées de leur atlas (elles valent `-1` dans les clips), et deux
+  FSM sur environ 17 000 ne se décodent pas (elles sont marquées `error`).
+- Testé avec la version Game Pass du jeu (Unity 6000.0.50f1) sous Windows 11 et Git Bash.
 
 ## Licence
 
 MIT pour le code de ce dépôt (voir [LICENSE](LICENSE)). Une partie de la structure (Makefile, RSF, l'ordre Morton des
 textures, `sscommon.py`, `index_export.py`, le déchiffrement des textes) est adaptée de HK3DS, lui aussi sous licence MIT.
-Hollow Knight: Silksong appartient à Team Cherry.
+`tools/mkromfs.py` remplace `mkromfs3ds` de devkitPro. Hollow Knight: Silksong appartient à Team Cherry.
+
+## English
+
+Unofficial fan tools, **not affiliated with Team Cherry**, modelled on the tools of
+[HK3DS](https://github.com/silviognotti/HK3DS). They turn **your own PC copy** of Hollow Knight: Silksong into data
+for the New 3DS family: an AssetRipper export (`tools/export_game.sh`), then converters for rooms (collision grid,
+gates, triggers, parallax scenery as 3DS GPU tiles), room objects, PlayMaker state machines, tk2d sprite sets, music
+and text, packed by `tools/build.sh` into one RomFS file, `3dsilksong.romfs`. The file formats are in
+[docs/FORMATS.md](docs/FORMATS.md) (in French).
+
+No game file is in this repository, and **the converted data must not be shared**: it holds the game's art, music
+and text. There is no 3DS game engine yet: `source/` only mounts the data file. Requirements: Python 3.11+
+(`requirements.txt`), ffmpeg, AssetRipper 2.0.0 (`ASSETRIPPER=...`), Git Bash on Windows. Code under the MIT license.

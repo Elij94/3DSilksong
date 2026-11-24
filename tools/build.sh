@@ -36,7 +36,7 @@ fail() { echo; echo "FAILED: $1  (log: $2)"; tail -n 15 "$2" | sed 's/^/    /'; 
 
 step_check() {
   [ -n "$SILKSONG" ] || { echo "set SILKSONG to the game folder"; return 1; }
-  $PY -c "import numpy, PIL, yaml, cryptography" || { echo "pip install numpy pillow pyyaml cryptography"; return 1; }
+  $PY -c "import numpy, PIL, yaml, cryptography" || { echo "python -m pip install -r requirements.txt"; return 1; }
   $PY -c "import UnityPy" || echo "warning: no UnityPy (only tools/bundle_deps.py needs it)"
   command -v ffmpeg >/dev/null || { echo "no ffmpeg on PATH (the music step needs it)"; return 1; }
 }

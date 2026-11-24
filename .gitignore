@@ -1,15 +1,32 @@
 # Nothing taken from the game ever goes in this repository: exports, converted data and builds stay local.
+# Rien qui vienne du jeu n'entre dans ce dépôt : exports, données converties et builds restent en local.
+
+# exports and test subsets (tools/export_game.sh, tools/bundle_deps.py --subset)
 ssdata/
+ssdata*/
+test_*/
+# converted data (tools/build.sh)
 work/
 romfs/
 romfs_hd/
+*.romfs
+*.ssr
+*.ssl
+*.sso
+*.sss
+# builds (make, make cia)
 build/
 build_hd/
-*.romfs
 *.3dsx
 *.cia
 *.elf
 *.smdh
 *.map
+# Python, caches, temporary files
 __pycache__/
+*.pyc
+venv/
+.venv/
 *.pkl
+*.tmp
+*.log

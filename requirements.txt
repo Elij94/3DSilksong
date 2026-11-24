@@ -1,0 +1,7 @@
+# Python packages for the conversion tools (python -m pip install -r requirements.txt).
+# Also needed, outside Python: AssetRipper 2.0.0 and ffmpeg (see README.md).
+numpy>=1.26
+Pillow>=10.0
+PyYAML>=6.0
+cryptography>=42.0
+UnityPy>=1.20        # only tools/bundle_deps.py
