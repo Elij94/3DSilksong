@@ -8,3 +8,5 @@ void game_draw(void);
 // the bottom screen's text (console)
 void game_status(float fps, float ms);
 void game_save(void);
+// frees the room (and closes its files): before romfsUnmount, or the C library's exit crashes on them
+void game_end(void);

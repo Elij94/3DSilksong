@@ -47,7 +47,9 @@ int main(void) {
     if (n3ds) osSetSpeedupEnable(true);           // 804 MHz, the extra L2 cache
 
     gfxInitDefault();
-    gfxSetWide(n3ds);                             // 800x240 top screen on the New 3DS
+    // 800x240 top screen on the New 3DS; SD:/3ds/3dsilksong/nowide turns it off (emulators that don't do the mode)
+    struct stat nw;
+    gfxSetWide(n3ds && stat("sdmc:" SS_DATADIR "nowide", &nw) != 0);
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 2);
     C2D_Init(8192);
     C2D_Prepare();
@@ -123,6 +125,7 @@ int main(void) {
     }
 
     game_save();
+    game_end();                      // closes the room's files before the data goes away
     romfsUnmount("romfs");
     C2D_Fini();
     C3D_Fini();

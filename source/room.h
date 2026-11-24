@@ -32,6 +32,7 @@ typedef struct {
     u16 tile, ntx, nty, ntiles;
     u8 fmt, blend;
     float tsize;           // a tile's side in units
+    u8 down;               // tiles shrunk by this factor when loaded (1, 2, 4): far layers need fewer pixels
     RTile *tiles;
     s16 *lut;              // ntx * nty -> tile index, -1 = empty
 } Layer;

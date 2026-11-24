@@ -6,7 +6,7 @@
 
 // ---------------------------------------------------------------- the tile texture cache
 
-#define MAX_SLOTS 224
+#define MAX_SLOTS 640
 typedef struct {
     C3D_Tex tex;
     bool init;
@@ -17,16 +17,16 @@ typedef struct {
 } Slot;
 
 static Slot s_slots[MAX_SLOTS];
-static int s_budget = 96;          // slots allowed, from the free linear memory at start
-static int s_loads;                // tiles inflated this frame
-static int s_load_limit = 2;      // a 256x256 tile is a few ms of inflating
+static size_t s_budget = 16 << 20;  // bytes of linear memory for tiles, from what is free at start
+static size_t s_used;
+static int s_loads;                 // tiles inflated this frame
+static int s_load_limit = 3;
 static u8 *s_scratch;
 static size_t s_scratch_size;
 
 void room_cache_init(void) {
-    // ~45% of the linear memory for scenery (256x256 RGBA4 = 128 KB a tile), the rest for sprites
-    u32 n = (u32)(linearSpaceFree() * 0.45f) / (128 * 1024);
-    s_budget = n < 32 ? 32 : n > MAX_SLOTS ? MAX_SLOTS : (int)n;
+    // ~45% of the linear memory for scenery, the rest for sprites
+    s_budget = (size_t)(linearSpaceFree() * 0.45f);
 }
 
 int room_cache_used(void) {
@@ -43,57 +43,74 @@ static void slot_release(int i) {
     s->owner = NULL;
 }
 
-bool room_evict_tile(void) {
-    int best = -1;
+static void slot_delete(int i) {
+    Slot *s = &s_slots[i];
+    slot_release(i);
+    if (!s->init) return;
+    C3D_TexDelete(&s->tex);
+    s->init = false;
+    s_used -= tex_bytes(s->size, s->size, s->fmt);
+}
+
+static bool slot_create(int i, int size, int fmt) {
+    Slot *s = &s_slots[i];
+    if (!tex_alloc(&s->tex, size, size, fmt)) return false;
+    s->init = true; s->fmt = fmt; s->size = size; s->owner = NULL;
+    s_used += tex_bytes(size, size, fmt);
+    C3D_TexSetFilter(&s->tex, GPU_LINEAR, GPU_LINEAR);
+    C3D_TexSetWrap(&s->tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+    return true;
+}
+
+static int slot_lru(void) {
+    int k = -1;
     for (int i = 0; i < MAX_SLOTS; i++) {
         Slot *s = &s_slots[i];
-        if (s->init && s->last_used != g_view.frame && (best < 0 || s->last_used < s_slots[best].last_used)) best = i;
+        if (s->init && s->last_used != g_view.frame && (k < 0 || s->last_used < s_slots[k].last_used)) k = i;
     }
+    return k;
+}
+
+bool room_evict_tile(void) {
+    int best = slot_lru();
     if (best < 0) return false;
-    slot_release(best);
-    C3D_TexDelete(&s_slots[best].tex);
-    s_slots[best].init = false;
+    slot_delete(best);
     return true;
 }
 
 // a slot for a tile of this size and format: a free one, a new one under the budget, else the least recently drawn
 static int slot_get(int size, int fmt, bool prefetch) {
-    int nin = 0, freei = -1, empty = -1, lru = -1;
+    int freei = -1, empty = -1, lru = -1;
     for (int i = 0; i < MAX_SLOTS; i++) {
         Slot *s = &s_slots[i];
         if (!s->init) { if (empty < 0) empty = i; continue; }
-        nin++;
         if (!s->owner && s->fmt == fmt && s->size == size) { if (freei < 0) freei = i; }
-        else if (s->last_used != g_view.frame && (!prefetch || g_view.frame - s->last_used > 90) && (lru < 0 || s->last_used < s_slots[lru].last_used)) lru = i;
+        else if (s->last_used != g_view.frame && (!prefetch || g_view.frame - s->last_used > 90) &&
+                 (lru < 0 || s->last_used < s_slots[lru].last_used)) lru = i;
     }
     if (freei >= 0) return freei;
-    if (nin < s_budget && empty >= 0) {
-        if (tex_alloc(&s_slots[empty].tex, size, size, fmt)) {
-            Slot *s = &s_slots[empty];
-            s->init = true; s->fmt = fmt; s->size = size; s->owner = NULL;
-            C3D_TexSetFilter(&s->tex, GPU_LINEAR, GPU_LINEAR);
-            C3D_TexSetWrap(&s->tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
-            return empty;
-        }
-    }
+    size_t need = tex_bytes(size, size, fmt);
+    if (empty >= 0 && s_used + need <= s_budget && slot_create(empty, size, fmt)) return empty;
     if (lru < 0) return -1;
-    slot_release(lru);
-    Slot *s = &s_slots[lru];
-    if (s->fmt != fmt || s->size != size) {
-        C3D_TexDelete(&s->tex);
-        s->init = false;
-        if (!tex_alloc(&s->tex, size, size, fmt)) return -1;
-        s->init = true; s->fmt = fmt; s->size = size;
-        C3D_TexSetFilter(&s->tex, GPU_LINEAR, GPU_LINEAR);
-        C3D_TexSetWrap(&s->tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+    if (s_slots[lru].fmt == fmt && s_slots[lru].size == size) {
+        slot_release(lru);
+        return lru;
     }
-    return lru;
+    // another size: free least recently drawn slots until this one fits the budget
+    slot_delete(lru);
+    while (s_used + need > s_budget) {
+        int k = slot_lru();
+        if (k < 0) break;
+        slot_delete(k);
+    }
+    return slot_create(lru, size, fmt) ? lru : -1;
 }
 
 static bool tile_load(Room *r, Layer *L, RTile *t, bool prefetch) {
     if (t->slot >= 0) return true;
     if (!r->ssl || t->size == 0) return false;
-    int si = slot_get(L->tile, L->fmt, prefetch);
+    int size = L->tile / L->down;
+    int si = slot_get(size, L->fmt, prefetch);
     if (si < 0) return false;
     if (t->size > s_scratch_size) {
         free(s_scratch);
@@ -102,9 +119,8 @@ static bool tile_load(Room *r, Layer *L, RTile *t, bool prefetch) {
         if (!s_scratch) { s_scratch_size = 0; return false; }
     }
     Slot *s = &s_slots[si];
-    size_t want = tex_bytes(L->tile, L->tile, L->fmt);
     if (fseek(r->ssl, t->off, SEEK_SET) || fread(s_scratch, 1, t->size, r->ssl) != t->size ||
-        zinflate(s_scratch, t->size, s->tex.data, want) != (long)want) {
+        !tex_inflate_scaled(s_scratch, t->size, L->tile, L->tile, L->fmt, L->down, s->tex.data)) {
         t->size = 0;   // broken: don't try again
         return false;
     }
@@ -187,6 +203,10 @@ bool room_load(Room *r, const char *scene) {
         if (L->par <= 0) L->par = 1;
         if (L->ppu <= 0) L->ppu = 64;
         L->tsize = L->tile / L->ppu;
+        // the screen shows g_view.sy * par pixels per unit of this layer: keep about that much of its ppu
+        L->down = 1;
+        while (L->down < 4 && L->tile / (L->down * 2) >= 32 && L->ppu / (L->down * 2) >= 0.75f * g_view.sy * L->par)
+            L->down *= 2;
         p += 40;
         if (p + 12 * L->ntiles > end) goto bad;
         L->tiles = calloc(L->ntiles + 1, sizeof(RTile));

@@ -106,9 +106,10 @@ static bool page_ready(SpriteSet *s, int i) {
     pg->last_used = g_view.frame;
     if (pg->loaded) return true;
     if (pg->csize == 0xFFFFFFFF) return false;   // failed before
-    if (!tex_alloc(&pg->tex, pg->w, pg->h, pg->fmt)) return false;
-    size_t want = tex_bytes(pg->w, pg->h, pg->fmt);
-    if (zinflate(pg->cdata, pg->csize, pg->tex.data, want) != (long)want) {
+    // the big pages (Hornet's are 1024x1024) at half size: on screen a sprite gets far fewer pixels than that
+    int f = (pg->w >= 512 && pg->h >= 512) ? 2 : 1;
+    if (!tex_alloc(&pg->tex, pg->w / f, pg->h / f, pg->fmt)) return false;
+    if (!tex_inflate_scaled(pg->cdata, pg->csize, pg->w, pg->h, pg->fmt, f, pg->tex.data)) {
         C3D_TexDelete(&pg->tex);
         pg->csize = 0xFFFFFFFF;
         return false;

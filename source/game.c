@@ -184,6 +184,8 @@ static void camera_update(float dt) {
 
 // ------------------------------------------------------------------ save
 
+void game_end(void) { unload(); }
+
 void game_save(void) {
     if (!s_loaded) return;
     mkdir("sdmc:/3ds", 0777);
@@ -423,6 +425,7 @@ void game_status(float fps, float ms) {
     }
     printf("\x1b[2;1H\x1b[K\nRoom  %-32s\x1b[K\n", s_room.scene);
     printf("Pos   %7.2f %7.2f  %s\x1b[K\n", s_hero.x, s_hero.y, s_hero.ground ? "ground" : "air   ");
+    printf("Cam   %7.2f %7.2f  st %d vy %6.2f\x1b[K\n", g_view.cx, g_view.cy, s_hero.state, s_hero.vy);
     printf("Masks %d/%d   objects %d\x1b[K\n", s_hero.hp, s_hero.maxhp, s_objs.n);
     printf("Tiles %d cached   linear %lu KB free\x1b[K\n", room_cache_used(), (unsigned long)(linearSpaceFree() / 1024));
     printf("\x1b[K\n%s\x1b[K\n\x1b[K\n", s_msg_t > 0 ? s_msg : "");
@@ -434,5 +437,5 @@ void game_status(float fps, float ms) {
     printf(" Up     enter a door\x1b[K\n");
     printf(" SELECT room menu\x1b[K\n");
     printf(" START  save and quit\x1b[K\n");
-    for (int i = 0; i < 12; i++) printf("\x1b[K\n");
+    for (int i = 0; i < 11; i++) printf("\x1b[K\n");
 }
