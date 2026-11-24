@@ -1,0 +1,79 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include "common.h"
+
+View g_view;
+
+void *file_load(const char *path, size_t *size) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    void *buf = n > 0 ? malloc(n) : NULL;
+    if (buf && fread(buf, 1, n, f) != (size_t)n) {
+        free(buf);
+        buf = NULL;
+    }
+    fclose(f);
+    if (size) *size = buf ? (size_t)n : 0;
+    return buf;
+}
+
+const char *data_path(const char *fmt, ...) {
+    static char buf[256];
+    va_list ap;
+    va_start(ap, fmt);
+    strcpy(buf, "romfs:/");
+    vsnprintf(buf + 7, sizeof buf - 7, fmt, ap);
+    va_end(ap);
+    return buf;
+}
+
+static int s_blend = -1;
+
+void gfx_blend(int mode) {
+    if (mode == s_blend) return;
+    C2D_Flush();
+    s_blend = mode;
+    switch (mode) {
+    case BLEND_ADD:
+        C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE, GPU_ZERO, GPU_ONE);
+        break;
+    case BLEND_MULTIPLY:
+        // dst * (src + 1 - a): a multiply that leaves the transparent texels (black, alpha 0) alone
+        C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_DST_COLOR, GPU_ONE_MINUS_SRC_ALPHA, GPU_ZERO, GPU_ONE);
+        break;
+    default:
+        C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE,
+                       GPU_ONE_MINUS_SRC_ALPHA);
+        break;
+    }
+}
+
+// called by main at the start of each frame (C2D_Prepare resets the blending)
+void gfx_blend_reset(void) { s_blend = -1; gfx_blend(BLEND_NORMAL); }
+
+void gfx_draw_world(C3D_Tex *tex, float u0, float v0, float u1, float v1,
+                    float x0, float y0, float x1, float y1, float par, const C2D_ImageTint *tint) {
+    const View *v = &g_view;
+    float l = v->sw * 0.5f + (x0 - v->cx) * par * v->sx;
+    float r = v->sw * 0.5f + (x1 - v->cx) * par * v->sx;
+    float t = v->sh * 0.5f - (y1 - v->cy) * par * v->sy;
+    float b = v->sh * 0.5f - (y0 - v->cy) * par * v->sy;
+    if ((l < 0 && r < 0) || (l > v->sw && r > v->sw) || b < 0 || t > v->sh) return;
+    Tex3DS_SubTexture sub = {(u16)tex->width, (u16)tex->height, u0, v1, u1, v0};
+    C2D_Image img = {tex, &sub};
+    C2D_DrawParams p = {{l, t, r - l, b - t}, {0, 0}, 0.5f, 0};
+    C2D_DrawImage(img, &p, tint);
+}
+
+void gfx_rect_world(float x0, float y0, float x1, float y1, u32 color) {
+    const View *v = &g_view;
+    float l = v->sw * 0.5f + (x0 - v->cx) * v->sx;
+    float r = v->sw * 0.5f + (x1 - v->cx) * v->sx;
+    float t = v->sh * 0.5f - (y1 - v->cy) * v->sy;
+    float b = v->sh * 0.5f - (y0 - v->cy) * v->sy;
+    C2D_DrawRectSolid(l, t, 0.5f, r - l, b - t, color);
+}

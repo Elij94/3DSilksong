@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — first engine
+
+- `source/`: a 3DS engine that reads the converted data: streamed parallax scenery with normal / additive / multiply
+  layers, collisions, gates between rooms with fades, camera locks; Hornet (run, jump, dash, needle attacks in three
+  directions, damage, hazard respawn, death); room objects animated at their depth, enemies and breakables that
+  take hits, contact damage; room menu, automatic save, status on the bottom screen.
+- Its own zlib decoder (`inflate.c`), so no portlib is needed; 48 MB of linear memory for the texture caches.
+
 ## 0.1.0 — first version of the conversion tools
 
 - Export: AssetRipper driven headless (`tools/export_game.sh`), with `DefaultVersion = 6000.0.50f1` (the

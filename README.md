@@ -36,8 +36,33 @@ Tools that convert **Hollow Knight: Silksong** into data for the **New 3DS / New
 `tools/build.sh` runs it all. The formats are described in [docs/FORMATS.md](docs/FORMATS.md), and
 `tools/inspect_data.py` reads back and checks the files produced.
 
-`source/` holds only a 3DS skeleton: it mounts the data file from the SD card (`romfsMountFromFile`) and switches the
-top screen to 800x240. It is the starting point of an engine that would read these formats.
+`source/` is the 3DS engine that reads these files (see [The engine](#the-engine)).
+
+## The engine
+
+`make` builds `3dsilksong.3dsx` (C, libctru + citro2d, no other library). Copy it with the data file to
+`SD:/3ds/3dsilksong/` and start it from the Homebrew Launcher on a New 3DS.
+
+What it does (0.2.0):
+- **Rooms** (`room.c`): the collision grid, gates, hazards, respawn points and camera locks; the scenery layers with
+  their parallax and blending, their tiles inflated (`inflate.c`, a zlib decoder of its own) into a texture cache as
+  the camera reaches them, a couple per frame, a few ahead of the view.
+- **Sprites** (`sprite.c`): `.sss` sets with tk2d clips (loop, loop section, once, ping-pong); a page is inflated
+  into the GPU when a frame on it is first drawn, the least recently drawn pages go when linear memory runs out.
+- **Hornet** (`hero.c`, animations from `sprites/knight.sss`): run, variable jump, coyote time and jump buffer,
+  ground and air dash, side / up / down needle attacks with their slash effects, pogo on a down hit, damage,
+  knockback and invulnerability, hazard respawn, death.
+- **Objects** (`objects.c`): drawn with their default animation at their depth (parallax), between the scenery
+  layers; enemies and breakables take hits; enemies and damaging objects hurt on contact.
+- **Game** (`game.c`): camera following Hornet within the room and the `CameraLockArea`s, gates between rooms
+  (left/right/top/bottom/doors) with a fade, the masks, the room menu (SELECT), an automatic save per room
+  (`SD:/3ds/3dsilksong/save.txt`). The bottom screen shows the room, the frame rate and the controls.
+
+Controls: pad or Circle Pad to move (and look up/down), B jump, Y needle (up+Y, down+Y in the air), R/ZR dash, Up to
+take a door, SELECT room menu, START save and quit.
+
+Not there yet: enemy behaviour and the game's scripts (the PlayMaker FSMs: NPCs, dialogues, bosses, items,
+benches), music and sound (needs an Ogg Vorbis decoder), particles, the game's HUD art and menus, text.
 
 ## Requirements
 
@@ -99,15 +124,15 @@ repository). That folder, `work/`, `romfs/` and everything produced are ignored 
 ```
 tools/         export, conversion, packaging (Python / bash)
 tools/data/    all_rooms.txt (the 590 scenes), sprites.txt (sprite sets on top of the objects' ones)
-source/        3DS skeleton (data mounting, HD screen)
+source/        the 3DS engine (rooms, sprites, Hornet, objects, game loop)
 cia/           the CIA's RSF (for `make cia`, add icon.png 48x48, banner.png 256x128 and banner.wav, your own)
 docs/          EXPLORATION.md (what the game holds), FORMATS.md (the files produced)
 ```
 
 ## Known limits
 
-- There is no game engine: the data is ready, but nothing on the 3DS reads it yet. `source/` is a skeleton that has
-  not been compiled yet.
+- The engine is a first playable step (see [The engine](#the-engine)): enemies stand still, nothing scripted runs,
+  there is no sound. It builds with devkitARM, but has not been run on a console or an emulator yet.
 - Cutscenes (videos) are not converted.
 - Particles: Unity's curves (speed, size, colour over lifetime) are reduced to their start and end values; the rarer
   modules (noise, collisions, sub-emitters, trails) are not read.
