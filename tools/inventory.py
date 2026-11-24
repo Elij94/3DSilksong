@@ -28,7 +28,8 @@ def main(install):
     mono = os.path.exists(os.path.join(data, 'Managed', 'Assembly-CSharp.dll'))
 
     cat = open(os.path.join(data, 'StreamingAssets', 'aa', 'catalog.bin'), 'rb').read()
-    scenes = sorted(set(s.decode()[:-6] for s in re.findall(rb'[A-Za-z0-9_\-]{2,}\.unity', cat)))
+    # scene names may hold spaces ("Demo Start"): take the longest run of name characters before ".unity"
+    scenes = sorted(set(s.decode()[:-6].strip() for s in re.findall(rb'[A-Za-z0-9_\- ]{2,}\.unity', cat)))
 
     kinds = collections.defaultdict(lambda: [0, 0])
     sizes = {}

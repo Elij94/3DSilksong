@@ -246,6 +246,8 @@ Crawl_07
 Crawl_08
 Crawl_09
 Crawl_10
+Demo End
+Demo Start
 Dock_01
 Dock_02
 Dock_02b
@@ -290,7 +292,6 @@ Dust_Maze_09_entrance
 Dust_Maze_Last_Hall
 Dust_Maze_crossing
 Dust_Shack
-End
 End_Credits
 End_Credits_Scroll
 End_Game_Completion
@@ -521,7 +522,6 @@ Song_Enclave_Tube
 Song_Tower_01
 Song_Tower_Destroyed
 Sprintmaster_Cave
-Start
 Tube_Hub
 Tut_01
 Tut_01b
