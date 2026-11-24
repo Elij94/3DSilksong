@@ -21,6 +21,8 @@ romfs/
   sprites/<name>.sss          a tk2d sprite set with its animations (the hero, and every library the objects use:
                               <name> = the library's name in lower case, with _)
   music/<cue>.ogg             music and ambience (Ogg Vorbis, 32 kHz, stereo)
+  music/<cue>.pcm             the same for the engine: 16-bit signed little-endian, mono, 22050 Hz, no header
+  music/rooms.txt             Scene<TAB>music<TAB>ambience, one line per room (empty: keep what is playing)
   sfx/<clip>.ogg              sounds (Ogg Vorbis, 32 kHz, mono)
   text/<language>/<Sheet>.txt the text
 ```

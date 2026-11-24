@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 — playable
+
+- Drawing: textures the right way up (the converted data is mirrored on the GPU, and citro2d takes a subtexture
+  whose top is below its bottom as rotated); tiles on shared pixel edges (no more bright or dark seams); tiles and
+  big sprite pages shrunk to what the screen shows (about 4 times less memory).
+- Hornet: Hollow Knight style jump, sprint, silk and bind, benches; the camera centred on her, lock areas sorted out,
+  respawn markers used as her origin.
+- Enemies that move, chase, take knockback and leave corpses; ambient particles; the game's HUD; music and
+  ambience per room; title screen and pause menu. Crash on quit fixed.
+- Converter: giant black-tinted sprites (rain sheets, fades) and hidden-area masks are left out of the scenery
+  (whole rooms were black); music as PCM and a room -> music map.
+- Tools: a reference renderer, scripted tests in the Azahar emulator.
+
 ## 0.2.0 — first engine
 
 - `source/`: a 3DS engine that reads the converted data: streamed parallax scenery with normal / additive / multiply

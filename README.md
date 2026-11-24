@@ -28,8 +28,9 @@ Tools that convert **Hollow Knight: Silksong** into data for the **New 3DS / New
    - **interface** (`build_ui.py`): the sprite atlases of the HUD, inventory, map, menus, prompts, journal…, one named
      sprite per entry;
    - **fonts** (`build_font.py`): the game's TextMeshPro fonts, glyphs and signed-distance-field atlas;
-   - **music and sound** (`build_music.py`): music and ambience cues mixed down to Ogg Vorbis, and every sound the
-     state machines play, with an index that links them to their actions;
+   - **music and sound** (`build_music.py`, `build_music_pcm.py`, `music_map.py`): music and ambience cues mixed
+     down to Ogg Vorbis and to PCM for the engine, which room plays which, and every sound the state machines play,
+     with an index that links them to their actions;
    - **text** (`build_text.py`): the game's language sheets, decrypted, as `KEY<TAB>text` files.
 3. **Package**: everything goes into one RomFS file, `3dsilksong.romfs`, to copy to `SD:/3ds/3dsilksong/`.
 
@@ -41,28 +42,40 @@ Tools that convert **Hollow Knight: Silksong** into data for the **New 3DS / New
 ## The engine
 
 `make` builds `3dsilksong.3dsx` (C, libctru + citro2d, no other library). Copy it with the data file to
-`SD:/3ds/3dsilksong/` and start it from the Homebrew Launcher on a New 3DS.
+`SD:/3ds/3dsilksong/` and start it from the Homebrew Launcher on a New 3DS. Music needs the DSP firmware dump,
+`SD:/3ds/dspfirm.cdc` (DSP1); without it the game runs silent.
 
-What it does (0.2.0):
+What it does (0.6.0):
 - **Rooms** (`room.c`): the collision grid, gates, hazards, respawn points and camera locks; the scenery layers with
-  their parallax and blending, their tiles inflated (`inflate.c`, a zlib decoder of its own) into a texture cache as
-  the camera reaches them, a couple per frame, a few ahead of the view.
-- **Sprites** (`sprite.c`): `.sss` sets with tk2d clips (loop, loop section, once, ping-pong); a page is inflated
-  into the GPU when a frame on it is first drawn, the least recently drawn pages go when linear memory runs out.
-- **Hornet** (`hero.c`, animations from `sprites/knight.sss`): run, variable jump, coyote time and jump buffer,
-  ground and air dash, side / up / down needle attacks with their slash effects, pogo on a down hit, damage,
-  knockback and invulnerability, hazard respawn, death.
-- **Objects** (`objects.c`): drawn with their default animation at their depth (parallax), between the scenery
-  layers; enemies and breakables take hits; enemies and damaging objects hurt on contact.
-- **Game** (`game.c`): camera following Hornet within the room and the `CameraLockArea`s, gates between rooms
-  (left/right/top/bottom/doors) with a fade, the masks, the room menu (SELECT), an automatic save per room
-  (`SD:/3ds/3dsilksong/save.txt`). The bottom screen shows the room, the frame rate and the controls.
+  their parallax and blending, their tiles inflated (`inflate.c`, a zlib decoder of its own) and shrunk to what the
+  screen shows of their layer, into a texture cache as the camera reaches them.
+- **Sprites** (`sprite.c`): `.sss` sets with tk2d clips; a page is inflated into the GPU when a frame on it is first
+  drawn, the least recently drawn pages go when linear memory runs out.
+- **Hornet** (`hero.c`, animations from `sprites/knight.sss`): run, a Hollow Knight style jump (full speed while B is
+  held: tap ~1.2 units, full ~5.1), coyote time and jump buffer, ground and air dash, sprint, side / up / down needle
+  attacks with their slash effects, pogo, silk and bind (a full spool gives back 3 masks), benches, damage,
+  knockback, hazard respawn, death.
+- **Enemies** (`enemy.c`): a behaviour picked from each one's animations while the FSMs don't run: walkers patrol
+  and charge, flyers hover and chase; knockback, death animation and corpse.
+- **Objects** (`objects.c`), **particles** (`particles.c`): drawn at their depth between the scenery layers; the
+  ambient emitters that loop.
+- **Music** (`audio.c`): each room's music and ambience (`music/rooms.txt`), streamed as PCM, with fades.
+- **Game** (`game.c`): title screen, pause menu, camera, gates between rooms, the game's HUD (spool, masks, silk),
+  benches as respawn points, the room menu (SELECT), saves in `SD:/3ds/3dsilksong/save.txt`.
 
-Controls: pad or Circle Pad to move (and look up/down), B jump, Y needle (up+Y, down+Y in the air), R/ZR dash, Up to
-take a door, SELECT room menu, START save and quit.
+Controls: pad or Circle Pad to move (and look up/down), B jump, Y needle (up+Y, down+Y in the air), R/ZR dash (held
+on: sprint), A bind, Up for doors and benches, SELECT room menu, START pause.
 
-Not there yet: enemy behaviour and the game's scripts (the PlayMaker FSMs: NPCs, dialogues, bosses, items,
-benches), music and sound (needs an Ogg Vorbis decoder), particles, the game's HUD art and menus, text.
+Not there yet: the game's scripts (the PlayMaker FSMs: NPCs, dialogues, bosses, items, abilities, hidden areas),
+sound effects, the map and inventory, text.
+
+### Testing in an emulator
+
+`tools/emu_run.ps1` runs the engine in [Azahar](https://github.com/azahar-emu/azahar) (portable, in `../Azahar`)
+without taking the focus and saves a screenshot of its window. With `SD:/3ds/3dsilksong/autotest.txt` the engine
+reads its input from a script and writes Hornet's state to `log.txt` (see `source/autotest.c`); `nowide` there turns
+the 800x240 mode off, which emulators don't do. `tools/render_ref.py` draws a room from the converted files with the
+engine's math, to tell an engine bug from a data one.
 
 ## Requirements
 
@@ -131,8 +144,8 @@ docs/          EXPLORATION.md (what the game holds), FORMATS.md (the files produ
 
 ## Known limits
 
-- The engine is a first playable step (see [The engine](#the-engine)): enemies stand still, nothing scripted runs,
-  there is no sound. It builds with devkitARM, but has not been run on a console or an emulator yet.
+- The engine plays the rooms, but none of the game's scripts (see [The engine](#the-engine)): no NPCs, bosses, items
+  or abilities yet; hidden areas are shown from the start. Tested on a New 3DS and in Azahar.
 - Cutscenes (videos) are not converted.
 - Particles: Unity's curves (speed, size, colour over lifetime) are reduced to their start and end values; the rarer
   modules (noise, collisions, sub-emitters, trails) are not read.

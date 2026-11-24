@@ -66,7 +66,10 @@ step_sprites() {
 step_particles() { (cd "$T" && $PY build_particles.py "$R"); }
 step_ui()        { (cd "$T" && $PY build_ui.py "$R"); }
 step_fonts()     { (cd "$T" && $PY build_font.py "$R" ${FONTS_ALL:+--all}); }
-step_music()     { (cd "$T" && $PY build_music.py "$R" --fsm-sfx); }
+step_music() {
+  # the cues as Ogg, then as PCM for the engine (no decoder on the 3DS), and which room plays which
+  (cd "$T" && $PY build_music.py "$R" --fsm-sfx && $PY build_music_pcm.py "$R" && $PY music_map.py "$R")
+}
 step_text()      { (cd "$T" && $PY build_text.py "$R" ${LANGS:-EN FR}); }
 step_data() {      # the same as "make data", without needing make (it comes with devkitPro)
   sed -n 's/.*SS_VERSION "\(.*\)"/\1/p' "$TOP/source/version.h" > "$R/version.txt"
