@@ -1,127 +1,106 @@
-# Étape 1 : exploration de Silksong
+# Exploring Silksong's files
 
-Relevé fait le 2026-11-23 sur la version Game Pass (`C:\XboxGames\Hollow Knight- Silksong`), directement depuis les
-fichiers du jeu avec `tools/inventory.py`, puis par un export AssetRipper de test de la salle `Tut_01` (plus bas).
-Résultat complet de l'inventaire : `work/inventory.json`.
+Notes taken on 2026-11-23 on the Game Pass version (`C:\XboxGames\Hollow Knight- Silksong`), first straight from the
+game's files with `tools/inventory.py`, then from AssetRipper exports (a test export of the room `Tut_01`, then the
+full game). The full inventory is written to `work/inventory.json`.
 
-## Ce qu'on sait déjà
+## What the game is made of
 
 | | Hollow Knight (HK3DS) | Silksong |
 |---|---|---|
 | Unity | 6000.0.61f1 | **6000.0.50f1** |
-| Scripts | Mono | **Mono** (`Managed/Assembly-CSharp.dll`, 7 Mo) : décompilable, pas d'IL2CPP |
-| Chiffrement | non | **non** (en-têtes `UnityFS` lisibles) |
-| Rangement des données | `levelN` + `sharedassetsN.assets` | **Addressables** : 2068 bundles dans `StreamingAssets/aa/StandaloneWindows64` (7,7 Go) |
-| Scènes | 480 | **590**, une par bundle (`scenes_scenes_scenes/*.bundle`), 61 préfixes de zone |
-| Sprites | tk2d | **tk2d** (`TeamCherry.TK2D.dll`) + atlases Unity |
-| Machines à états | PlayMaker | **PlayMaker** + 65 bundles `fsmtemplates` (FSM partagés entre objets) |
+| Scripts | Mono | **Mono** (`Managed/Assembly-CSharp.dll`, 7 MB): decompilable, no IL2CPP |
+| Encryption | no | **no** (readable `UnityFS` headers) |
+| Data layout | `levelN` + `sharedassetsN.assets` | **Addressables**: 2068 bundles in `StreamingAssets/aa/StandaloneWindows64` (7.7 GB) |
+| Scenes | 480 | **590**, one per bundle (`scenes_scenes_scenes/*.bundle`), 61 zone prefixes |
+| Sprites | tk2d | **tk2d** (`TeamCherry.TK2D.dll`) + Unity sprite atlases |
+| State machines | PlayMaker | **PlayMaker** + 65 `fsmtemplates` bundles (FSMs shared between objects) |
 
-### Bundles par catégorie (les plus lourds)
+### Bundles by kind (the heaviest)
 
-| Catégorie | Nombre | Taille |
+| Kind | Count | Size |
 |---|---:|---:|
-| scenes_scenes_scenes | 590 | 2,36 Go |
-| tk2dcollections | 59 | 1,74 Go |
-| atlases_assets_assets | 258 | 1,53 Go |
-| sfxstatic | 230 | 576 Mo |
-| textures | 143 | 477 Mo |
-| cinematics | 26 | 225 Mo |
-| audiocuesstatic | 36 | 225 Mo |
-| **herocollections** | 9 | 130 Mo (les sprites de Hornet) |
+| scenes_scenes_scenes | 590 | 2.36 GB |
+| tk2dcollections | 59 | 1.74 GB |
+| atlases_assets_assets | 258 | 1.53 GB |
+| sfxstatic | 230 | 576 MB |
+| textures | 143 | 477 MB |
+| cinematics | 26 | 225 MB |
+| audiocuesstatic | 36 | 225 MB |
+| herocollections | 9 | 130 MB (the hero's sprites) |
 
-### Zones (nombre de salles)
+### Zones (number of rooms)
 
 Bone_East 40, Coral 31, Song 30, Under 30, Shadow 28, Bone 25, Greymoor 25, Shellwood 24, Slab 23, Dock 19, Hang 19,
 Library 19, Peak 17, Ant 16, Clover 15, Abyss 14, Bellway 14, Cog 13, Dust 13, Arborium 12, Dust_Maze 12, Aqueduct 11,
-Crawl 11, Weave 11, Ward 10, Belltown 9, Wisp 8, Tut 6… La liste complète des 590 scènes est dans
+Crawl 11, Weave 11, Ward 10, Belltown 9, Wisp 8, Tut 6… The full list of the 590 scenes is in
 `tools/data/all_rooms.txt`.
 
-### Scripts : les systèmes à réimplémenter
+## What differs from Hollow Knight
 
-Noms relevés dans les métadonnées d'`Assembly-CSharp.dll` (lecture seule) :
-- **Héroïne** : ~127 types `Hero*` (`HeroController` et ses boîtes de collision : `HeroBoxAirdash`, `HeroBoxDownspike`,
-  `HeroBoxHarpoon`…).
-- **Soie** : ~90 noms (`AddSilk`, `DoSilkRegen`, `AddToMaxSilk`…), l'équivalent de l'âme de HK.
-- **Outils et crêtes** : `ToolItemBasic`, `ToolCrestsData`, `ToolBoomerang`… ; ~90 noms autour des crêtes
-  (remplacent les charmes).
-- **Transitions** : `TransitionPoint`, `BeginSceneTransition`… (même logique de portes que HK).
-- **Boss** : `BossSceneController`, `BossHealthDetails`…
+1. **Addressables.** A scene holds almost none of its own assets: it points into shared bundles (tk2d, atlases,
+   sounds). AssetRipper loads them together when given the whole `_Data` folder, but the export is bigger and slower
+   than Hollow Knight's. The tools resolve guids across the whole export (hence the recursive searches of
+   `index_export.py` and the guid index of `sscommon.py`).
+2. **FSM templates.** Many objects use a shared `FsmTemplate` instead of an FSM written in the scene, and `RunFSM`
+   actions start templates as sub-machines. `fsm_extract.py` follows both.
+3. **Size of the data.** Silksong has more art than Hollow Knight (3.3 GB of tk2d + atlases against ~1.5 GB), so the
+   **4 GB per-file** limit of FAT32 SD cards matters. The full conversion stays under it (2.25 GB).
 
-## Ce qui change par rapport à HK3DS
+## AssetRipper export: the version trap
 
-1. **Addressables.** Une scène ne contient presque plus ses propres ressources : elle pointe vers des bundles
-   partagés (tk2d, atlases, sons). AssetRipper sait les charger ensemble si on lui donne tout le dossier `_Data`,
-   mais l'export sera plus gros et plus long que celui de HK. Les outils doivent résoudre les guid à travers tout
-   l'export (d'où les recherches récursives dans `index_export.py`).
-2. **FSM templates.** Beaucoup d'ennemis utilisent un `FsmTemplate` partagé au lieu d'un FSM écrit dans la scène.
-   `dump_fsms.py` / `fsm_extract.py` de HK3DS devront suivre ce lien.
-3. **Hornet ≠ le Chevalier.** Ses sprites viennent des 9 bundles `herocollections`, et son jeu de mouvements est
-   plus riche (sprint, harpon, attaques en diagonale vers le bas selon la crête). Le moteur héros sera neuf.
-4. **Taille des données.** HK3DS HD fait ~2 Go. Silksong a plus d'art (3,3 Go de tk2d + atlases contre ~1,5 Go pour
-   HK) : il faudra surveiller la limite de **4 Go par fichier** des cartes SD en FAT32, et peut-être découper le RomFS
-   en plusieurs fichiers (par exemple un par groupe de zones).
+Silksong's Addressables bundles have their Unity version **stripped** (`0.0.0` in the header). With the default
+settings, AssetRipper loads the 2068 bundles but can't read **a single object** in them (everything comes out as
+`Unreadable*`, even `PolygonCollider2D`): the project export then holds only the base game (514 objects, one scene,
+`Pre_Menu_Loader`) and a raw copy of the bundles.
 
-## Export AssetRipper : le piège de la version
+**Fix:** set `DefaultVersion = 6000.0.50f1` (the `/Settings/Update` form). `tools/export_game.sh` does it before
+loading the game. UnityPy needs the same (`UnityPy.config.FALLBACK_UNITY_VERSION`, in `bundle_deps.py`).
 
-Les bundles Addressables de Silksong ont leur version Unity **effacée** (`0.0.0` dans l'en-tête). Avec les réglages
-par défaut, AssetRipper charge les 2068 bundles mais n'arrive à lire **aucun objet** dedans (tout sort en
-`Unreadable*`, même les `PolygonCollider2D`) : l'export projet ne contient alors que le jeu de base (514 objets,
-une seule scène, `Pre_Menu_Loader`) et une copie brute des bundles.
+Other notes:
+- the headless endpoints take a **URL-encoded** form (`curl --data-urlencode`); multipart gets a 415;
+- each request returns when the job is done (the project export, then the primary content, one after the other);
+- the converters only read the project export: the primary content export (4.3 million files) is optional
+  (`PRIMARY=1`).
 
-**Solution :** régler `DefaultVersion = 6000.0.50f1` (formulaire `/Settings/Update`). `tools/export_game.sh` le fait
-avant de charger le jeu. Il en va de même pour UnityPy (`UnityPy.config.FALLBACK_UNITY_VERSION`, dans `bundle_deps.py`).
+### Test export: Tut_01
 
-Autres points notés :
-- les endpoints headless attendent un formulaire **URL-encodé** (`curl --data-urlencode`) ; en multipart, réponse 415 ;
-- chaque requête rend la main quand le travail est fini (l'export projet puis le Primary Content, l'un après l'autre).
+`tools/bundle_deps.py` follows the CAB links between bundles. The full closure of `Tut_01` reaches 535 bundles
+(3.3 GB: the shared bundles point at almost the whole game); its **direct dependencies** are only **72 bundles,
+386 MB**. With `--depth 1 --subset`, that makes a small `_Data` that exports in ~2 min with little memory.
 
-### Export de test : Tut_01
+Result: `ex/Scenes/Hornet/Tut_01.unity` (21 MB of YAML, 12,140 objects):
 
-`tools/bundle_deps.py` suit les liens CAB entre bundles. La fermeture complète de `Tut_01` touche 535 bundles
-(3,3 Go : les bundles partagés pointent vers presque tout le jeu) ; ses **dépendances directes** ne sont que
-**72 bundles, 386 Mo**. Avec `--depth 1 --subset`, on obtient un `_Data` réduit qui s'exporte en ~2 min sans charge
-mémoire notable.
-
-Résultat : `ex/Scenes/Hornet/Tut_01.unity` (21 Mo de YAML, 12 140 objets) :
-
-| Type | Nombre |
+| Type | Count |
 |---|---:|
 | GameObject / Transform | 3552 |
-| SpriteRenderer | 2694 (tous pointent vers un sprite par guid) |
+| SpriteRenderer | 2694 (all point at a sprite by guid) |
 | MonoBehaviour | 1174 |
 | BoxCollider2D | 372 |
 | ParticleSystem | 197 |
 | PolygonCollider2D / EdgeCollider2D | 32 / 28 |
 
-- **Collisions du décor :** calque 8 (« Terrain », comme dans HK) : 15 `PolygonCollider2D` (4 à 21 points),
-  28 `EdgeCollider2D` et 9 `BoxCollider2D`. C'est la même logique que les salles de HK, donc `build_room.py` est un
-  bon point de départ.
-- **Sorties :** 6 `TransitionPoint` (`left2`, `right2`, `top1`…), le même composant que dans HK.
-- **Comportements :** 141 composants tk2d (`TeamCherry.TK2D.dll`), 73 `PlayMakerFSM`, `CameraLockArea` (18),
+- **Terrain collisions:** layer 8 ("Terrain", as in Hollow Knight): 15 `PolygonCollider2D` (4 to 21 points),
+  28 `EdgeCollider2D` (closed loops: the "Chunk" objects) and 9 `BoxCollider2D`.
+- **Gates:** 6 `TransitionPoint` (`left2`, `right2`, `top1`…), the same component as in Hollow Knight.
+- **Behaviours:** 141 tk2d components (`TeamCherry.TK2D.dll`), 73 `PlayMakerFSM`, `CameraLockArea` (18),
   `HazardRespawnMarker`, `Breakable`, `GrassCut`, `MossClump`, `DamageHero`…
-- Les scripts des DLL (PlayMaker, tk2d, SharedUtils) se reconnaissent au guid du `.dll.meta` dans `ex/Plugins`,
-  et le type précis au `fileID` du `m_Script`.
+- The DLL scripts (PlayMaker, tk2d, SharedUtils) are recognised by the guid of their `.dll.meta` in `ex/Plugins`, and
+  the exact type by the `fileID` of `m_Script`.
 
-## Outils HK3DS réutilisables
+## HK3DS tools reused
 
-| Outil HK3DS | Pour 3DSilksong |
+| HK3DS tool | In 3DSilksong |
 |---|---|
-| `hkcommon.py` | repris dans `sscommon.py` (chemins `SSDATA`, lecture YAML Unity) |
-| `index_export.py` | repris, recherches récursives + index des scènes |
-| `build_room.py`, `lyr_*.py`, `masks.py` | à adapter à l'étape 2 (collisions `PolygonCollider2D` / `EdgeCollider2D`, couches de décor) |
-| `dump_fsms.py`, `fsm_extract.py` | à adapter : gestion des `FsmTemplate` |
-| `build_music.py`, `ctrfile.py`, `mkromfs.py` | probablement réutilisables tels quels |
-| `build_knight.py` | à réécrire pour Hornet |
+| `hkcommon.py` | `sscommon.py` (`SSDATA` paths, Unity YAML reading, guid index) |
+| `index_export.py` | reused, recursive searches + scene index |
+| `fsm_extract.py` | reused, with `FsmTemplate` / `RunFSM` support and fault tolerance |
+| `lyr_split.py` (Morton order) | `ctrtex.py` |
+| `text_sheets.py` (decryption) | `build_text.py` |
+| `build_room.py`, `build_music.py` | rewritten for Silksong's scenes and audio cues |
 
-## Prochaines actions
+## Full conversion
 
-1. **Export complet** (`tools/export_game.sh`, avec `DefaultVersion`) quand la machine a 16 à 24 Go de RAM libres.
-   En attendant, le sous-ensemble Tut_01 suffit pour commencer l'étape 2.
-2. ~~Convertisseurs de salles, sprites, musique et textes~~ : faits (`build_room.py`, `build_sprites.py`,
-   `build_music.py`, `build_text.py`), testés sur `Tut_01`. Les formats sont dans [FORMATS.md](FORMATS.md).
-3. Une fois l'export complet fait : lancer `tools/build.sh` sur les 590 salles et surveiller la taille du RomFS
-   (limite de 4 Go par fichier en FAT32).
-4. ~~Objets des salles, FSM PlayMaker (`FsmTemplate`, `RunFSM`), décor additif, sprites de tous les objets~~ :
-   faits, ainsi que les particules, l'interface, les polices et les sons des FSM. Conversion complète : 590 salles,
-   17 160 FSM (2 illisibles), 397 jeux de sprites, 219 textures de particules, 56 atlas d'interface, 11 polices,
-   2071 sons, RomFS de 2,25 Go.
+Full export: 591 scenes in ~15 min, a single unreadable object in the whole game. Full conversion with
+`tools/build.sh`: 590 rooms (575 with particles), 17,160 FSMs (2 unreadable), 397 sprite sets, 219 particle
+textures, 56 interface atlases, 11 fonts, 2071 sounds, 109 music tracks, a 2.25 GB RomFS.

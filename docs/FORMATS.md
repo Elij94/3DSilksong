@@ -1,182 +1,181 @@
-# Formats des données converties
+# Formats of the converted data
 
-Tout ce que les outils écrivent dans `romfs/`, puis dans `3dsilksong.romfs` (`SD:/3ds/3dsilksong/`). Les nombres sont
-en little-endian. Les chaînes sont de taille fixe, en UTF-8, complétées par des `\0`. Les unités sont celles du
-jeu (1 unité = 64 px dans les textures d'origine). `y` monte vers le haut.
-`tools/inspect_data.py` relit ces fichiers et vérifie leur structure. Il sert aussi de lecteur de référence.
+Everything the tools write to `romfs/`, then into `3dsilksong.romfs` (`SD:/3ds/3dsilksong/`). Numbers are
+little-endian. Strings are fixed-size, UTF-8, padded with `\0`. Units are the game's (1 unit = 64 px in the original
+textures). `y` points up.
+`tools/inspect_data.py` reads these files back and checks their structure; it doubles as a reference reader.
 
 ```
 romfs/
-  version.txt                 la version (source/version.h), écrite par l'étape data
-  rooms/<Scène>.ssr           une salle : collisions, sorties, déclencheurs, table des couches de décor
-  rooms/<Scène>.ssl           les tuiles de décor de la salle
-  rooms/<Scène>.sso           les objets vivants de la salle (ennemis, objets cassables, PNJ, interactifs…)
-  rooms/<Scène>.spt           les émetteurs de particules de la salle
-  particles/textures.sss      les textures de particules (un clip d'une image par texture)
-  ui/<atlas>.sss              les sprites d'interface d'un atlas (HUD, inventaire, carte, menus…), un clip par sprite
-  fonts/<police>.ssf          une police : table des glyphes et atlas de distance (SDF) en A8
-  sfx/index.txt               guid du son -> fichier, pour les {"guid": …} des paramètres de FSM
-  fsm/<Scène>.json            les machines à états PlayMaker de la salle, décodées
-  fsm/templates/<guid>.json   les modèles de FSM lancés par les actions RunFSM
-  sprites/<nom>.sss           un jeu de sprites tk2d avec ses animations (le héros, et chaque bibliothèque
-                              qu'utilisent les objets : <nom> = nom de la bibliothèque en minuscules, avec des _)
-  music/<cue>.ogg             musiques et ambiances (Ogg Vorbis, 32 kHz, stéréo)
-  sfx/<clip>.ogg              sons (Ogg Vorbis, 32 kHz, mono)
-  text/<langue>/<Feuille>.txt les textes
+  version.txt                 the version (source/version.h), written by the data step
+  rooms/<Scene>.ssr           a room: collisions, gates, triggers, table of the scenery layers
+  rooms/<Scene>.ssl           the room's scenery tiles
+  rooms/<Scene>.sso           the room's live objects (enemies, breakables, NPCs, interactables...)
+  rooms/<Scene>.spt           the room's particle emitters
+  particles/textures.sss      the particle textures (one single-image clip per texture)
+  ui/<atlas>.sss              the interface sprites of one atlas (HUD, inventory, map, menus...), one clip per sprite
+  fonts/<font>.ssf            a font: glyph table and distance-field (SDF) atlas in A8
+  sfx/index.txt               sound guid -> file, for the {"guid": ...} of FSM parameters
+  fsm/<Scene>.json            the room's PlayMaker state machines, decoded
+  fsm/templates/<guid>.json   the FSM templates that RunFSM actions start
+  sprites/<name>.sss          a tk2d sprite set with its animations (the hero, and every library the objects use:
+                              <name> = the library's name in lower case, with _)
+  music/<cue>.ogg             music and ambience (Ogg Vorbis, 32 kHz, stereo)
+  sfx/<clip>.ogg              sounds (Ogg Vorbis, 32 kHz, mono)
+  text/<language>/<Sheet>.txt the text
 ```
 
-Des copies lisibles en JSON de chaque salle et de ses objets sont écrites dans `work/rooms/`, hors du RomFS.
+Readable JSON copies of each room and its objects are written to `work/rooms/`, outside the RomFS.
 
 ## Textures (`tools/ctrtex.py`)
 
-Elles sont déjà dans l'ordre du GPU : il suffit d'un `memcpy` dans un `C3D_Tex` de la même taille et du même
-format, comme `tex_upload` dans HK3DS.
-- L'image est d'abord retournée verticalement, car l'origine des textures du GPU est en bas à gauche.
-- Elle est ensuite découpée en blocs de 8x8, ligne par ligne, et les texels de chaque bloc sont rangés en ordre de Morton.
-- Formats : `0` = RGBA8 (`u32` : R<<24 | G<<16 | B<<8 | A), `4` = RGBA4 (`u16` : R<<12 | G<<8 | B<<4 | A) et
-  `8` = A8 (un octet par texel, pour les polices), soit les valeurs de `GPU_TEXCOLOR`.
+They are already in GPU order: a `memcpy` into a `C3D_Tex` of the same size and format is enough, like `tex_upload`
+in HK3DS.
+- The image is first flipped vertically, since the GPU's texture origin is the bottom-left corner.
+- It is then cut into 8x8 blocks, row by row, and the texels of each block are stored in Morton order.
+- Formats: `0` = RGBA8 (`u32`: R<<24 | G<<16 | B<<8 | A), `4` = RGBA4 (`u16`: R<<12 | G<<8 | B<<4 | A) and `8` = A8
+  (one byte per texel, for fonts): the `GPU_TEXCOLOR` values.
 
-## Salle : `.ssr` (`tools/build_room.py`)
+## Room: `.ssr` (`tools/build_room.py`)
 
-| Champ | Type |
+| Field | Type |
 |---|---|
 | magic | `'SSRM'` |
 | version | u16 (1) |
-| cells_per_unit | u16 (4 par défaut) |
-| grid_x, grid_y | f32 : coin bas-gauche de la cellule (0, 0), en unités |
+| cells_per_unit | u16 (4 by default) |
+| grid_x, grid_y | f32: bottom-left corner of cell (0, 0), in units |
 | grid_w, grid_h | u16 |
-| spawn_x, spawn_y | f32 : premier `HazardRespawnMarker`, sinon la première sortie |
+| spawn_x, spawn_y | f32: the first `HazardRespawnMarker`, else the first gate |
 | n_gates, n_triggers, n_layers | u16 ×3 |
-| (réservé) | u16 |
+| (reserved) | u16 |
 
-L'en-tête fait 36 octets. Il est suivi de :
+The header is 36 bytes. It is followed by:
 
-**La grille de collision.** Elle fait `grid_h` lignes **de bas en haut**, de `(grid_w + 7) / 8` octets chacune. Le bit `i` de
-l'octet `k` correspond à la cellule `x = 8k + i` (bit de poids faible en premier), et `1` = solide. Sources : les
-collisions non-déclencheurs du calque 8 (Terrain). Les boucles d'`EdgeCollider2D` fermées (les objets « Chunk ») sont
-remplies. Les boucles d'un même collider se combinent en pair-impair (un trou reste vide).
+**The collision grid.** `grid_h` rows **from the bottom up**, of `(grid_w + 7) / 8` bytes each. Bit `i` of byte `k` is
+cell `x = 8k + i` (least significant bit first), and `1` = solid. Sources: the non-trigger colliders of layer 8
+(Terrain). Closed `EdgeCollider2D` loops (the "Chunk" objects) are filled. The loops of one collider combine even-odd
+(a hole stays empty).
 
-**Les sorties** (`TransitionPoint`), 92 octets chacune :
-`char name[16]`, `char target_scene[32]`, `char entry_point[16]`, `f32 x, y, w, h` (rectangle du déclencheur, coin
-bas-gauche), `f32 entry_dx, entry_dy` (`entryOffset`), `u8 always_enter_left, always_enter_right`, `u8 pad[2]`.
+**The gates** (`TransitionPoint`), 92 bytes each:
+`char name[16]`, `char target_scene[32]`, `char entry_point[16]`, `f32 x, y, w, h` (the trigger rectangle, bottom-left
+corner), `f32 entry_dx, entry_dy` (`entryOffset`), `u8 always_enter_left, always_enter_right`, `u8 pad[2]`.
 
-**Les déclencheurs**, 68 octets chacun :
-`u8 kind`, `u8 pad[3]`, `f32 x, y, w, h`, `f32 extra[4]`, `char name[32]`, avec pour `kind` :
-- `1` : point de réapparition (`HazardRespawnMarker`), un rectangle vide à la position ;
-- `2` : zone de dégâts (`DamageHero`), `extra` = dégâts, type de danger ;
-- `3` : verrou de caméra (`CameraLockArea`), `extra` = `cameraXMin, cameraXMax, cameraYMin, cameraYMax`.
+**The triggers**, 68 bytes each:
+`u8 kind`, `u8 pad[3]`, `f32 x, y, w, h`, `f32 extra[4]`, `char name[32]`, where `kind` is:
+- `1`: respawn point (`HazardRespawnMarker`), an empty rectangle at its position;
+- `2`: hazard (`DamageHero`), `extra` = damage, hazard type;
+- `3`: camera lock (`CameraLockArea`), `extra` = `cameraXMin, cameraXMax, cameraYMin, cameraYMax`.
 
-**Les couches de décor**, 40 octets chacune, suivies de leur table de tuiles :
+**The scenery layers**, 40 bytes each, each followed by its tile table:
 `char name[8]`, `f32 z`, `f32 parallax`, `f32 ox, oy`, `f32 ppu`, `u16 tile`, `u16 ntx, nty`, `u16 n_tiles`,
-`u8 fmt`, `u8 blend`, `u8 pad[2]`. Puis, pour chacune des `n_tiles` tuiles : `u16 tx, ty`, `u32 offset, size`, qui
-pointent dans le `.ssl` vers les données d'une tuile `tile`×`tile` compressées en zlib.
-- Noms : `front`, `main`, `bg1`…`bg4` selon la profondeur, suivis de `+` pour une couche additive et de `*` pour une
-  couche multiplicative.
-- `blend` : `0` = alpha normal ; `1` = additif (matériaux additifs ou « screen » : lueurs, rayons de lumière), à dessiner
-  avec `GPU_SRC_ALPHA, GPU_ONE` ; `2` = multiplication (ombres, « darkness »), à dessiner avec `GPU_DST_COLOR, GPU_ZERO`.
-- `ppu` peut être plus petit que celui demandé : une couche de plus de 60 Mpx est dessinée en plus basse résolution.
-- Une couche ne garde que ce que la caméra peut montrer depuis la salle : la salle ± la moitié de la vue / `parallax`.
-- La tuile `(tx, ty)` couvre en monde `x ∈ [ox + tx·tile/ppu, ox + (tx+1)·tile/ppu]` et
-  `y ∈ [oy − (ty+1)·tile/ppu, oy − ty·tile/ppu]` (`ty` compte **vers le bas** depuis le haut de la couche).
-- Les tuiles entièrement transparentes ne sont pas stockées.
-- **Parallaxe :** pour une caméra centrée en `(cx, cy)` sur le plan de jeu, un point `p` de la couche s'affiche à
-  `c + (p − c) · parallax` en unités du plan de jeu. `parallax = d / (d + z)`, avec `d = 38,1`. Les couches `z < 0` sont
-  devant le joueur.
-- **Ordre de dessin :** `bg4` … `bg1`, `main`, (joueur et objets), `front`, chaque profondeur dans l'ordre où les
-  couches sont rangées (normale, `+`, `*`). Dans une couche, les sprites ont été dessinés dans l'ordre de Unity :
-  calque de tri, ordre dans le calque, puis du plus loin au plus proche.
+`u8 fmt`, `u8 blend`, `u8 pad[2]`. Then, for each of the `n_tiles` tiles: `u16 tx, ty`, `u32 offset, size`, which
+point into the `.ssl` at the data of one `tile`×`tile` tile, zlib-compressed.
+- Names: `front`, `main`, `bg1`…`bg4` by depth, followed by `+` for an additive layer and `*` for a multiply layer.
+- `blend`: `0` = normal alpha; `1` = additive (additive or "screen" materials: glows, light shafts), to draw with
+  `GPU_SRC_ALPHA, GPU_ONE`; `2` = multiply (shadows, "darkness"), to draw with `GPU_DST_COLOR, GPU_ZERO`.
+- `ppu` may be lower than the one asked for: a layer over 60 Mpx is drawn at a lower resolution.
+- A layer keeps only what the camera can show from inside the room: the room ± half the view / `parallax`.
+- Tile `(tx, ty)` covers, in world units, `x ∈ [ox + tx·tile/ppu, ox + (tx+1)·tile/ppu]` and
+  `y ∈ [oy − (ty+1)·tile/ppu, oy − ty·tile/ppu]` (`ty` counts **down** from the top of the layer).
+- Fully transparent tiles are not stored.
+- **Parallax:** with the camera centred on `(cx, cy)` on the gameplay plane, a point `p` of the layer shows at
+  `c + (p − c) · parallax` in gameplay-plane units. `parallax = d / (d + z)`, with `d = 38.1`. Layers with `z < 0` are
+  in front of the player.
+- **Drawing order:** `bg4` … `bg1`, `main`, (player and objects), `front`, each depth in the order its layers are
+  stored (normal, `+`, `*`). Within a layer, the sprites were drawn in Unity's order: sorting layer, order in layer,
+  then far to near.
 
-## Objets : `.sso` (`tools/objects.py`, écrit par `build_room.py`)
+## Objects: `.sso` (`tools/objects.py`, written by `build_room.py`)
 
-En-tête : `'SSOB'`, `u16 version (1)`, `u16 n`. Puis `n` objets de 244 octets :
+Header: `'SSOB'`, `u16 version (1)`, `u16 n`. Then `n` objects of 244 bytes:
 
-| Champ | Type |
+| Field | Type |
 |---|---|
-| flags | u16 : `1` ennemi (`HealthManager`), `2` cassable (`Breakable`), `4` interactif (PNJ, banc, levier, porte, coffre, objet…), `8` animé (tk2d), `16` a une FSM, `32` fait des dégâts (`DamageHero`), `64` inactif au chargement |
-| parent | s16 : l'objet listé le plus proche parmi ses ancêtres, `-1` sinon (les morceaux d'un même ennemi) |
-| x, y, z | f32 : position en monde |
-| scale_x, scale_y | f32 : échelle en monde (`scale_x < 0` : retourné) |
-| rect | f32 ×4 : `x, y, w, h`, union de ses colliders (sinon un rectangle vide à sa position) |
-| hp, damage | s32 : points de vie (`HealthManager.hp`), dégâts infligés (`DamageHero.damageDealt`) |
-| sprite_id | u16 : sprite tk2d fixe (`0xFFFF` : aucun) |
-| (pad) | 2 octets |
+| flags | u16: `1` enemy (`HealthManager`), `2` breakable (`Breakable`), `4` interactable (NPC, bench, lever, door, chest, item…), `8` animated (tk2d), `16` has an FSM, `32` deals damage (`DamageHero`), `64` inactive at load |
+| parent | s16: the nearest listed object among its ancestors, `-1` if none (the parts of one enemy) |
+| x, y, z | f32: world position |
+| scale_x, scale_y | f32: world scale (`scale_x < 0`: flipped) |
+| rect | f32 ×4: `x, y, w, h`, the union of its colliders (else an empty rectangle at its position) |
+| hp, damage | s32: hit points (`HealthManager.hp`), damage dealt (`DamageHero.damageDealt`) |
+| sprite_id | u16: fixed tk2d sprite (`0xFFFF`: none) |
+| (pad) | 2 bytes |
 | name | `char[32]` |
-| sprite_set | `char[32]` : le fichier `sprites/<sprite_set>.sss` de son animation |
-| clip | `char[32]` : le clip par défaut de l'animateur |
-| collection | `char[32]` : la collection tk2d du sprite fixe |
-| fsms | `char[64]` : les noms de ses FSM, séparés par des virgules |
+| sprite_set | `char[32]`: the `sprites/<sprite_set>.sss` file of its animation |
+| clip | `char[32]`: the animator's default clip |
+| collection | `char[32]`: the tk2d collection of the fixed sprite |
+| fsms | `char[64]`: the names of its FSMs, comma-separated |
 
-## Particules : `.spt` (`tools/particles.py`, écrit par `build_room.py`)
+## Particles: `.spt` (`tools/particles.py`, written by `build_room.py`)
 
-En-tête : `'SSPT'`, `u16 version (1)`, `u16 n`. Puis `n` émetteurs, chacun suivi de `char texture[32]` (le clip
-de `particles/textures.sss`) et de `char name[32]` :
+Header: `'SSPT'`, `u16 version (1)`, `u16 n`. Then `n` emitters, each followed by `char texture[32]` (the clip of
+`particles/textures.sss`) and `char name[32]`:
 
-| Champ | Type |
+| Field | Type |
 |---|---|
-| flags | u16 : `1` en boucle, `2` préchauffé, `4` démarre seul, `8` particules en coordonnées monde, `16` inactif au chargement |
-| blend | u8 : comme les couches de décor (`0` normal, `1` additif, `2` multiplication) |
-| shape | s8 : forme Unity (`0` sphère, `4` cône, `5` boîte, `10` cercle, `12` segment, `17` rectangle ; `-1` : un point) |
-| x, y, z, rotation | f32 ×4 (rotation en degrés) |
-| duration, rate | f32 : durée d'un cycle (s), particules par seconde |
+| flags | u16: `1` looping, `2` prewarmed, `4` plays on awake, `8` particles in world space, `16` inactive at load |
+| blend | u8: as for scenery layers (`0` normal, `1` additive, `2` multiply) |
+| shape | s8: Unity shape (`0` sphere, `4` cone, `5` box, `10` circle, `12` edge, `17` rectangle; `-1`: a point) |
+| x, y, z, rotation | f32 ×4 (rotation in degrees) |
+| duration, rate | f32: length of a cycle (s), particles per second |
 | max_particles, burst_count | u16 ×2 |
 | burst_time | f32 |
 | life, speed, size, start_rotation | (f32 min, f32 max) ×4 |
 | gravity, radius, angle | f32 ×3 |
-| box | f32 ×2 : échelle de la forme |
-| color0, color1 | f32 ×4 ×2 : couleur de départ, tirée entre les deux |
-| end_color | f32 ×4 : couleur en fin de vie (si le module Color est actif, sinon blanc) |
-| end_size | f32 : multiplicateur de taille en fin de vie |
-| tiles_x, tiles_y | u8 ×2 : la texture est une planche d'animation de `tiles_x × tiles_y` images |
+| box | f32 ×2: the shape's scale |
+| color0, color1 | f32 ×4 ×2: start colour, picked between the two |
+| end_color | f32 ×4: colour at the end of life (if the Color module is on, else white) |
+| end_size | f32: size multiplier at the end of life |
+| tiles_x, tiles_y | u8 ×2: the texture is an animation sheet of `tiles_x × tiles_y` frames |
 | (pad) | u16 |
 
-Les courbes de Unity sont réduites à leur intervalle (min, max).
+Unity's curves are reduced to their range (min, max).
 
-## Polices : `.ssf` (`tools/build_font.py`)
+## Fonts: `.ssf` (`tools/build_font.py`)
 
-En-tête : `'SSFN'`, `u16 version (1)`, `u16 n_glyphs`, `f32 point_size, line_height, ascender, descender, padding`,
-`u16 atlas_w, atlas_h`, `u8 fmt (8 = A8)`, `u8 pad[3]`, `u32 taille compressée`. Puis `n_glyphs` glyphes :
-`u32 code (Unicode)`, `f32 u0, v0, u1, v1`, `f32 x_offset, y_offset, width, height, x_advance` (en points de la
-police : multiplier par `taille voulue / point_size`). Viennent ensuite les données de l'atlas (A8, zlib).
-L'atlas est un champ de distance : dessiner avec un test alpha autour de 0,5, ou un `smoothstep` pour adoucir les bords.
+Header: `'SSFN'`, `u16 version (1)`, `u16 n_glyphs`, `f32 point_size, line_height, ascender, descender, padding`,
+`u16 atlas_w, atlas_h`, `u8 fmt (8 = A8)`, `u8 pad[3]`, `u32 compressed size`. Then `n_glyphs` glyphs:
+`u32 code (Unicode)`, `f32 u0, v0, u1, v1`, `f32 x_offset, y_offset, width, height, x_advance` (in the font's points:
+multiply by `wanted size / point_size`). Then the atlas data (A8, zlib).
+The atlas is a distance field: draw it with an alpha test around 0.5, or a `smoothstep` for soft edges.
 
-## Sons des FSM : `sfx/index.txt` (`tools/build_music.py --fsm-sfx`)
+## FSM sounds: `sfx/index.txt` (`tools/build_music.py --fsm-sfx`)
 
-Une ligne par son, `guid<TAB>fichier.ogg`. Les paramètres d'action de FSM qui désignent un son (`PlayAudioEvent`,
-`AudioPlayerOneShotSingle`…) portent `{"guid": …}` : cet index donne le fichier de `sfx/` correspondant.
+One line per sound, `guid<TAB>file.ogg`. FSM action parameters that name a sound (`PlayAudioEvent`,
+`AudioPlayerOneShotSingle`…) carry `{"guid": …}`: this index gives the matching file in `sfx/`.
 
-## Machines à états : `fsm/<Scène>.json` (`tools/fsm_extract.py`, d'après HK3DS)
+## State machines: `fsm/<Scene>.json` (`tools/fsm_extract.py`, after HK3DS)
 
-Une liste de FSM. Chacune contient `fsm` (son nom), `owner` (le chemin de l'objet dans la scène), `start`, `events`,
-`global` (transitions globales), `variables` (`{nom: {type, value}}`) et `states`. Chaque état a `name`, `transitions`
-(`{event, to}`) et `actions` (`{type, enabled, params}`).
-Valeurs des paramètres :
-- des nombres ou des chaînes ;
-- `{"var": nom}` pour une variable de la FSM ;
-- `{"owner": true}` ou `{"go": fileID}` pour un objet ;
-- `{"event": nom}` pour un événement ;
-- `{"template", "name", "inputs"}` pour un `RunFSM`, le modèle étant alors dans `fsm/templates/<template>.json`.
+A list of FSMs. Each has `fsm` (its name), `owner` (the object's path in the scene), `start`, `events`, `global`
+(global transitions), `variables` (`{name: {type, value}}`) and `states`. Each state has `name`, `transitions`
+(`{event, to}`) and `actions` (`{type, enabled, params}`).
+Parameter values:
+- numbers or strings;
+- `{"var": name}` for an FSM variable;
+- `{"owner": true}` or `{"go": fileID}` for an object;
+- `{"event": name}` for an event;
+- `{"template", "name", "inputs"}` for a `RunFSM`, the template then being in `fsm/templates/<template>.json`.
 
-Les FSM construites sur un `FsmTemplate` sont déjà fusionnées : états du modèle, variables du composant.
+FSMs built on an `FsmTemplate` are already merged: the template's states, the component's variables.
 
-## Jeu de sprites : `.sss` (`tools/build_sprites.py`)
+## Sprite set: `.sss` (`tools/build_sprites.py`)
 
-| Partie | Contenu |
+| Part | Content |
 |---|---|
-| en-tête (14 octets) | `'SSSP'`, `u16 version (1)`, `u16 n_pages`, `u16 n_frames`, `u16 n_clips`, `u16 réservé` |
-| pages (16 octets ×n) | `u16 w, h`, `u8 fmt`, `u8 pad`, `u16 pad`, `u32 réservé`, `u32 taille compressée` |
-| frames (36 octets ×n) | `u16 page`, `u16 pad`, `f32 u0, v0, u1, v1` (coordonnées de texture, `v` depuis le bas), `f32 x0, y0, x1, y1` (le quad en unités, relatif à l'origine du sprite) |
-| clips | `char name[32]`, `f32 fps`, `u16 loop_start`, `u8 wrap` (mode tk2d : 0 boucle, 1 boucle partielle, 2 une fois…), `u8 pad`, `u16 n`, puis `s16 frame[n]` (`-1` = frame introuvable) |
-| données | les pages, compressées en zlib, dans l'ordre |
+| header (14 bytes) | `'SSSP'`, `u16 version (1)`, `u16 n_pages`, `u16 n_frames`, `u16 n_clips`, `u16 reserved` |
+| pages (16 bytes ×n) | `u16 w, h`, `u8 fmt`, `u8 pad`, `u16 pad`, `u32 reserved`, `u32 compressed size` |
+| frames (36 bytes ×n) | `u16 page`, `u16 pad`, `f32 u0, v0, u1, v1` (texture coordinates, `v` from the bottom), `f32 x0, y0, x1, y1` (the quad in units, relative to the sprite's origin) |
+| clips | `char name[32]`, `f32 fps`, `u16 loop_start`, `u8 wrap` (tk2d mode: 0 loop, 1 loop section, 2 once…), `u8 pad`, `u16 n`, then `s16 frame[n]` (`-1` = frame not found) |
+| data | the pages, zlib-compressed, in order |
 
-Le quad reste en unités du jeu quel que soit `--scale` : seule la résolution de la texture change. Les frames
-identiques sont stockées une seule fois.
+The quad stays in game units whatever `--scale` is: only the texture resolution changes. Identical frames are stored
+once.
 
-## Textes : `.txt` (`tools/build_text.py`)
+## Text: `.txt` (`tools/build_text.py`)
 
-Une entrée par ligne, `CLÉ<TAB>texte`, en UTF-8. Dans le texte, `\n` est un retour à la ligne, `\f` un changement de
-page et `\\` une barre oblique. Le reste du balisage du jeu est retiré.
+One entry per line, `KEY<TAB>text`, in UTF-8. In the text, `\n` is a line break, `\f` a page break and `\\` a
+backslash. The rest of the game's markup is removed.
 
-## Musique et sons (`tools/build_music.py`)
+## Music and sound (`tools/build_music.py`)
 
-Ogg Vorbis, qualité 3, 32 kHz. Une musique est le mélange des canaux choisis de son `MusicCue` / `AtmosCue`
-(par défaut le canal 0, la couche principale). Le nom du fichier est le nom du cue en minuscules, avec des `_`.
+Ogg Vorbis, quality 3, 32 kHz. A music track is the mix of the chosen channels of its `MusicCue` / `AtmosCue` (by
+default channel 0, the main layer). The file name is the cue's name in lower case, with `_`.
