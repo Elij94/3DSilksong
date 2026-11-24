@@ -112,7 +112,14 @@ static bool move_y(Hero *h, const Room *r, float dy) {
 }
 
 void hero_settle(Hero *h, const Room *r, float range) {
-    for (int i = 0; i < 40 && !hero_box_free(r, h->x, h->y); i++) h->y += 0.25f;   // out of the ground
+    // out of the ground: the nearest free spot, down first (a low ceiling), then up
+    if (!hero_box_free(r, h->x, h->y)) {
+        float y = h->y;
+        for (int i = 1; i <= 40; i++) {
+            if (hero_box_free(r, h->x, y - i * 0.125f)) { h->y = y - i * 0.125f; break; }
+            if (hero_box_free(r, h->x, y + i * 0.25f)) { h->y = y + i * 0.25f; break; }
+        }
+    }
     float y0 = h->y;
     if (move_y(h, r, -range)) { h->ground = true; return; }
     h->y = y0;   // nothing below: stay (falling in)

@@ -149,6 +149,12 @@ void sprite_draw(SpriteSet *s, int f, float x, float y, float scx, float scy, fl
     gfx_draw_world(&s->pages[fr->page].tex, u0, v0, u1, v1, x0, y0, x1, y1, par, tint);
 }
 
+void sprite_draw_uv(SpriteSet *s, int page, float u0, float v0, float u1, float v1, float x0, float y0, float x1,
+                    float y1, float par, const C2D_ImageTint *tint) {
+    if (!s || page < 0 || page >= s->npages || !page_ready(s, page)) return;
+    gfx_draw_world(&s->pages[page].tex, u0, v0, u1, v1, x0, y0, x1, y1, par, tint);
+}
+
 void anim_play(Anim *a, int clip, bool restart) {
     if (clip < 0) return;
     if (a->clip == clip && !restart) return;

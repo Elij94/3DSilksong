@@ -9,6 +9,7 @@
 #include "objects.h"
 #include "version.h"
 #include "autotest.h"
+#include "particles.h"
 
 #define FIRST_ROOM "Tut_01"
 #define SAVE_PATH  "sdmc:" SS_DATADIR "save.txt"
@@ -62,6 +63,7 @@ static void message(const char *m) { snprintf(s_msg, sizeof s_msg, "%s", m); s_m
 static void unload(void) {
     if (!s_loaded) return;
     objects_free(&s_objs);
+    particles_free();
     room_free(&s_room);
     free(s_order);
     s_order = NULL;
@@ -81,6 +83,7 @@ static bool enter(const char *scene) {
     if (!room_load(&s_room, scene)) return false;
     objects_load(&s_objs, scene);
     enemies_init(&s_objs, &s_room);
+    particles_load(scene);
     s_norder = s_room.nlayers;
     s_order = malloc(sizeof(s16) * (s_norder + 1));
     for (int i = 0; i < s_norder; i++) s_order[i] = i;
@@ -96,7 +99,7 @@ static void place_at_entry(const char *entry) {
     for (int i = 0; i < s_room.ngates; i++)
         if (!strcmp(s_room.gates[i].name, entry)) g = &s_room.gates[i];
     if (!g) {
-        hero_place(h, s_room.spawn_x, s_room.spawn_y - HERO_FOOT, 0);
+        hero_place(h, s_room.spawn_x, s_room.spawn_y, 0);   // markers are where Hornet's origin goes
         hero_settle(h, &s_room, 6);
         return;
     }
@@ -154,19 +157,31 @@ static void camera_target(float *tx, float *ty) {
 static void camera_clamp(float *cx, float *cy) {
     View *v = &g_view;
     const Room *r = &s_room;
-    // a camera lock area around Hornet bounds the camera's centre
+    // The camera lock areas around Hornet bound the camera's centre; several overlap, the smallest one (the most
+    // specific) wins. -1 leaves that side free.
+    const Trigger *best = NULL;
+    float barea = 1e30f;
     for (int i = 0; i < r->ntrig; i++) {
         const Trigger *t = &r->trig[i];
-        if (t->kind != TRIG_CAMLOCK) continue;
+        if (t->kind != TRIG_CAMLOCK || t->w * t->h >= barea) continue;
         if (!rects_overlap(s_hero.x, s_hero.y, 0.01f, 0.01f, t->x, t->y, t->w, t->h)) continue;
-        float x0 = t->extra[0], x1 = t->extra[1], y0 = t->extra[2], y1 = t->extra[3];
-        if (x1 >= x0 && !(x0 == -1 && x1 == -1)) *cx = clampf(*cx, x0, x1);
-        if (y1 >= y0 && !(y0 == -1 && y1 == -1)) *cy = clampf(*cy, y0, y1);
-        break;
+        best = t;
+        barea = t->w * t->h;
+    }
+    if (best) {
+        const float *e = best->extra;
+        if (e[0] != -1) *cx = fmaxf(*cx, e[0]);
+        if (e[1] != -1) *cx = fminf(*cx, e[1]);
+        if (e[2] != -1) *cy = fmaxf(*cy, e[2]);
+        if (e[3] != -1) *cy = fminf(*cy, e[3]);
     }
     float w = r->bx1 - r->bx0, hgt = r->by1 - r->by0;
     *cx = w > 2 * v->hw ? clampf(*cx, r->bx0 + v->hw, r->bx1 - v->hw) : (r->bx0 + r->bx1) * 0.5f;
     *cy = hgt > 2 * v->hh ? clampf(*cy, r->by0 + v->hh, r->by1 - v->hh) : (r->by0 + r->by1) * 0.5f;
+    // whatever the room says, Hornet stays in the view (the locks were made for the PC's wider view)
+    float mx = v->hw - 3.0f, my = v->hh - 2.5f;
+    *cx = clampf(*cx, s_hero.x - mx, s_hero.x + mx);
+    *cy = clampf(*cy, s_hero.y - 0.6f - my, s_hero.y - 0.6f + my);
 }
 
 static void camera_snap(void) {
@@ -260,8 +275,8 @@ static void hazard_respawn(void) {
         float d = (t->x - s_safe_x) * (t->x - s_safe_x) + (t->y - s_safe_y) * (t->y - s_safe_y);
         if (d < bd) { bd = d; bx = t->x; by = t->y; }
     }
-    if (bd > 400 && hero_box_free(&s_room, s_safe_x, s_safe_y)) { bx = s_safe_x; by = s_safe_y + HERO_FOOT; }
-    hero_respawn(h, bx, by - HERO_FOOT + 0.1f);
+    if (bd > 400 && hero_box_free(&s_room, s_safe_x, s_safe_y)) { bx = s_safe_x; by = s_safe_y; }
+    hero_respawn(h, bx, by + 0.1f);
     hero_settle(h, &s_room, 6);
     camera_snap();
 }
@@ -272,6 +287,7 @@ static void play(const Input *in, float dt) {
     bool hitting = hero_update(h, &s_room, in, dt, box);
     objects_update(&s_objs, dt);
     enemies_update(&s_objs, &s_room, h->x, h->y - 0.6f, dt);
+    particles_update(dt);
     if (hitting && !h->atk_hit) {
         if (objects_strike(&s_objs, box[0], box[1], box[2], box[3], NEEDLE_DMG, h->x)) {
             h->atk_hit = true;
@@ -362,12 +378,17 @@ void game_warp(const char *scene, float x, float y) {
 
 static void log_state(void) {
     const Hero *h = &s_hero;
-    char clip[128];
+    char clip[256];
     int dead = 0, live = 0;
     for (int i = 0; i < s_objs.n; i++)
         if (s_objs.o[i].ai != AI_NONE) { if (s_objs.o[i].dead || !s_objs.o[i].alive) dead++; else live++; }
-    snprintf(clip, sizeof clip, "%s hp=%d enemies=%d/%d",
-             h->body.set && h->body.clip >= 0 ? h->body.set->clips[h->body.clip].name : "-", h->hp, live, dead);
+    snprintf(clip, sizeof clip, "%s hp=%d enemies=%d/%d parts=%d/%d",
+             h->body.set && h->body.clip >= 0 ? h->body.set->clips[h->body.clip].name : "-", h->hp, live, dead,
+             particles_count(), particles_emitters());
+    char pd[96];
+    particles_debug(pd, sizeof pd);
+    strncat(clip, " ", sizeof clip - strlen(clip) - 1);
+    strncat(clip, pd, sizeof clip - strlen(clip) - 1);
     autotest_log(s_room.scene, h->x, h->y, h->vx, h->vy, h->ground, h->state, clip, g_view.cx, g_view.cy);
 }
 
@@ -402,6 +423,11 @@ static void draw_hud(void) {
     }
 }
 
+static void draw_band(float zmin, float zmax) {
+    objects_draw(&s_objs, zmin, zmax);
+    particles_draw(zmin, zmax);
+}
+
 void game_draw(void) {
     if (!s_loaded) return;
     room_frame_begin();
@@ -413,24 +439,24 @@ void game_draw(void) {
         int rank = layer_rank(L);
         if (rank >= 5 && !hero_done) {
             // in front of everything at the gameplay plane: the objects there, then Hornet
-            objects_draw(&s_objs, -0.001f, zcur);
+            draw_band(-0.001f, zcur);
             zcur = -0.001f;
             hero_draw(&s_hero);
             hero_done = true;
         }
         float lower = rank == 4 ? 0.0f : L->z;
         if (lower < zcur) {
-            objects_draw(&s_objs, lower, zcur);
+            draw_band(lower, zcur);
             zcur = lower;
         }
         room_draw_layer(&s_room, li, false);
     }
     if (!hero_done) {
-        objects_draw(&s_objs, -0.001f, zcur);
+        draw_band(-0.001f, zcur);
         zcur = -0.001f;
         hero_draw(&s_hero);
     }
-    objects_draw(&s_objs, -1e30f, zcur);
+    draw_band(-1e30f, zcur);
     gfx_blend(BLEND_NORMAL);
     draw_hud();
     if (s_fade > 0)

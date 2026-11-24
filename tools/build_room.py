@@ -293,10 +293,28 @@ def blend_of(v):
     return material_blend(g) if g else BLEND_NORMAL
 
 
+def under_unmasker(sc, scripts, gid):
+    """True for the masks of hidden areas: under an Unmasker, which fades them out when the hero walks in"""
+    for _ in range(64):
+        if any(t == 'MonoBehaviour' and scripts.get((v.get('m_Script') or {}).get('guid')) == 'Unmasker'
+               for t, v in sc.comps.get(gid, [])):
+            return True
+        t = sc.tr.get(gid)
+        father = sc.tr_id.get(((t or {}).get('m_Father') or {}).get('fileID'))
+        if father is None:
+            return False
+        gid = father['m_GameObject']['fileID']
+    return False
+
+
 def renderables(sc, scripts, sorting):
     out = []
     for gid, comps in sc.comps.items():
         if not sc.active(gid):
+            continue
+        # hidden areas' masks are left out: the engine doesn't run the Unmasker that fades them yet, and a black
+        # mask over a room is worse than a secret shown
+        if under_unmasker(sc, scripts, gid):
             continue
         m = sc.world(gid)
         for t, v in comps:
@@ -380,6 +398,11 @@ def bake_layer(items, z_l, ppu, stats, clip=None):
         k = k_of(r['z'])
         A = m[:, :2] * k
         corners = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) @ A.T + m[:, 2]
+        # Giant black-tinted sprites (rain sheets, fades, veils) get their real colour from a script at run time:
+        # baked as they are in the scene they would cover the room in black.
+        if max(r['color'][:3]) < 0.06 and max(np.ptp(corners[:, 0]), np.ptp(corners[:, 1])) > 60:
+            stats['veils'] += 1
+            continue
         prepared.append((img, (x0, y0, x1, y1), A, m[:, 2], r['color'], corners))
         boxes.append(corners)
     if not prepared:
@@ -584,7 +607,8 @@ def build(name, out, a, scripts, sorting):
           f'{len(objs)} objects, {len(parts)} particle emitters, {nfsm} FSMs, '
           f'{len(layers)} layers / {sum(len(L["tiles"]) for L in layers)} tiles ({len(data) / 1048576:.1f} MB), '
           f'{stats["drawn"]} sprites drawn, {stats["missing"]} missing, {stats["clipped"]} out of view'
-          + (f', {stats["lowres"]} layer(s) at lower resolution' if stats['lowres'] else ''))
+          + (f', {stats["lowres"]} layer(s) at lower resolution' if stats['lowres'] else '')
+          + (f', {stats["veils"]} black veil(s) left out' if stats['veils'] else ''))
     return True
 
 
