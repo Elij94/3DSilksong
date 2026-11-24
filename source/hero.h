@@ -23,7 +23,8 @@ typedef struct {
     bool atk_alt, atk_hit;
     float atk_cd, dash_cd;
     bool air_dash;          // the air dash is still available
-    bool jumping;           // rising from a jump (released B cuts it)
+    bool jumping;           // rising from a jump at full speed (released B cuts it)
+    float jump_t;
     float coyote, jump_buf;
     float invuln;
     float land_t;

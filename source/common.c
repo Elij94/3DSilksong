@@ -63,6 +63,12 @@ void gfx_draw_world(C3D_Tex *tex, float u0, float v0, float u1, float v1,
     float r = v->sw * 0.5f + (x1 - v->cx) * par * v->sx;
     float t = v->sh * 0.5f - (y1 - v->cy) * par * v->sy;
     float b = v->sh * 0.5f - (y0 - v->cy) * par * v->sy;
+    gfx_draw_screen(tex, u0, v0, u1, v1, l, t, r, b, tint);
+}
+
+void gfx_draw_screen(C3D_Tex *tex, float u0, float v0, float u1, float v1, float l, float t, float r, float b,
+                     const C2D_ImageTint *tint) {
+    const View *v = &g_view;
     if ((l < 0 && r < 0) || (l > v->sw && r > v->sw) || b < 0 || t > v->sh) return;
     // The converted textures come out with their first row at the top of the image on the GPU, the other way from
     // what tools/ctrtex.py assumes (v counted from the bottom): the region's top is at 1 - v1, its bottom at 1 - v0.

@@ -286,20 +286,28 @@ void room_draw_layer(Room *r, int li, bool all) {
     int tx0, tx1, ty0, ty1;
     layer_range(L, 0, &tx0, &tx1, &ty0, &ty1);
     gfx_blend(L->blend);
-    // a hair of overlap so the linear filtering leaves no seams between tiles
-    float ov = 0.5f / (g_view.sy * L->par);
-    for (int ty = ty0; ty <= ty1; ty++)
+    // Tile edges in whole screen pixels, each computed once from its index: neighbours share the exact same edge,
+    // so there is no gap and no overlap (an overlap shows as a bright line on additive layers, a dark one on
+    // multiply layers).
+    const View *v = &g_view;
+    float k = L->par, T = L->tsize;
+#define EX(tx) floorf(v->sw * 0.5f + (L->ox + (tx) * T - v->cx) * k * v->sx + 0.5f)
+#define EY(ty) floorf(v->sh * 0.5f - (L->oy - (ty) * T - v->cy) * k * v->sy + 0.5f)
+    for (int ty = ty0; ty <= ty1; ty++) {
+        float top = EY(ty), bot = EY(ty + 1);
         for (int tx = tx0; tx <= tx1; tx++) {
-            int k = L->lut[ty * L->ntx + tx];
-            if (k < 0) continue;
-            RTile *t = &L->tiles[k];
+            int ki = L->lut[ty * L->ntx + tx];
+            if (ki < 0) continue;
+            RTile *t = &L->tiles[ki];
             if (t->slot < 0 && (all || s_loads < s_load_limit)) tile_load(r, L, t, false);
             if (t->slot < 0) continue;
             Slot *s = &s_slots[t->slot];
             s->last_used = g_view.frame;
-            float x0 = L->ox + tx * L->tsize, y1 = L->oy - ty * L->tsize;
-            gfx_draw_world(&s->tex, 0, 0, 1, 1, x0 - ov, y1 - L->tsize - ov, x0 + L->tsize + ov, y1 + ov, L->par, NULL);
+            gfx_draw_screen(&s->tex, 0, 0, 1, 1, EX(tx), top, EX(tx + 1), bot, NULL);
         }
+    }
+#undef EX
+#undef EY
 }
 
 void room_prefetch(Room *r) {

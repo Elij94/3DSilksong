@@ -42,5 +42,8 @@ void gfx_blend_reset(void);   // after C2D_Prepare / at the start of a frame
 // seen through parallax par. Swapped u or v flip the image. tint: NULL, or a citro2d tint.
 void gfx_draw_world(C3D_Tex *tex, float u0, float v0, float u1, float v1,
                     float x0, float y0, float x1, float y1, float par, const C2D_ImageTint *tint);
+// the same on a screen rectangle (pixels, y down)
+void gfx_draw_screen(C3D_Tex *tex, float u0, float v0, float u1, float v1, float l, float t, float r, float b,
+                     const C2D_ImageTint *tint);
 // a plain rectangle in world units (debug, effects)
 void gfx_rect_world(float x0, float y0, float x1, float y1, u32 color);

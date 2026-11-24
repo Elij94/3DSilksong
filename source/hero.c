@@ -3,10 +3,17 @@
 
 // tuning, in units and seconds (1 unit = 64 px of the original art)
 #define RUN_SPEED   8.6f
-#define GRAVITY     58.0f
-#define JUMP_V      19.5f
-#define JUMP_CUT    5.0f
-#define MAX_FALL    24.0f
+// gravity: rising / around the apex (a little float) / falling (a snappier drop)
+#define GRAV_UP     52.0f
+#define GRAV_APEX   34.0f
+#define GRAV_DOWN   66.0f
+// the jump holds its speed as long as B is held, up to JUMP_HOLD (as in Hollow Knight): a tap is ~1.5 units high,
+// a full jump ~5.3 (Hornet is ~2.3 tall)
+#define JUMP_V      16.5f
+#define JUMP_HOLD   0.17f
+#define JUMP_MIN    0.05f
+#define JUMP_CUT    6.0f
+#define MAX_FALL    22.0f
 #define DASH_V      21.0f
 #define DASH_TIME   0.20f
 #define DASH_CD     0.35f
@@ -185,7 +192,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
 
     switch (h->state) {
     case HS_DEAD:
-        h->vy = fmaxf(h->vy - GRAVITY * dt, -MAX_FALL);
+        h->vy = fmaxf(h->vy - GRAV_DOWN * dt, -MAX_FALL);
         if (move_y(h, r, h->vy * dt) && h->vy < 0) h->vy = 0;
         anim_update(&h->body, dt);
         return false;
@@ -214,6 +221,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         if (h->jump_buf > 0 && (h->ground || h->coyote > 0)) {
             h->vy = JUMP_V;
             h->jumping = true;
+            h->jump_t = 0;
             h->ground = false;
             h->coyote = h->jump_buf = 0;
             if (h->attack == ATK_NONE) body(h, "Airborne", true);
@@ -237,9 +245,12 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         }
     }
     if (h->jump_buf > 0) h->jump_buf -= dt;
-    if (h->jumping && (!jump_held || h->vy <= 0)) {
-        if (h->vy > JUMP_CUT) h->vy = JUMP_CUT;
-        h->jumping = false;
+    if (h->jumping) {
+        h->jump_t += dt;
+        if (h->jump_t >= JUMP_MIN && (!jump_held || h->jump_t >= JUMP_HOLD)) {
+            if (!jump_held && h->vy > JUMP_CUT) h->vy = JUMP_CUT;
+            h->jumping = false;
+        }
     }
 
     // ---- motion
@@ -247,7 +258,8 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         h->vx = h->face * DASH_V;
         h->vy = 0;
     } else {
-        h->vy -= GRAVITY * dt;
+        if (h->jumping) h->vy = JUMP_V;
+        else h->vy -= (h->vy > 3 ? GRAV_UP : h->vy > -3 ? GRAV_APEX : GRAV_DOWN) * dt;
         if (h->attack == ATK_DOWN && h->vy < -6) h->vy = -6;   // the down spike holds Hornet up a bit
         if (h->vy < -MAX_FALL) h->vy = -MAX_FALL;
     }

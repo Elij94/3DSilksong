@@ -10,3 +10,5 @@ void game_status(float fps, float ms);
 void game_save(void);
 // frees the room (and closes its files): before romfsUnmount, or the C library's exit crashes on them
 void game_end(void);
+// puts Hornet in a room at (x, y) (tests)
+void game_warp(const char *scene, float x, float y);

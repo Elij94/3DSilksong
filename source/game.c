@@ -8,6 +8,7 @@
 #include "game.h"
 #include "objects.h"
 #include "version.h"
+#include "autotest.h"
 
 #define FIRST_ROOM "Tut_01"
 #define SAVE_PATH  "sdmc:" SS_DATADIR "save.txt"
@@ -142,8 +143,10 @@ static void go(const char *scene, const char *entry) {
 
 static void camera_target(float *tx, float *ty) {
     Hero *h = &s_hero;
-    *tx = h->x + h->face * 1.2f;
-    *ty = h->y + 0.6f;
+    // Hornet in the middle of the screen: her origin is at her chest, the middle of her sprite ~0.3 below; a little
+    // room ahead of her when she runs
+    *tx = h->x + h->face * (fabsf(h->vx) > 1 ? 1.5f : 0.6f);
+    *ty = h->y - 0.3f;
     if (h->look && h->look_t > 0.4f) *ty += h->look * 4.5f;
 }
 
@@ -177,9 +180,11 @@ static void camera_update(float dt) {
     float tx, ty;
     camera_target(&tx, &ty);
     camera_clamp(&tx, &ty);
-    float k = 1 - expf(-dt * 7.0f);
-    g_view.cx += (tx - g_view.cx) * k;
-    g_view.cy += (ty - g_view.cy) * k;
+    // horizontally a quick follow; vertically quicker when falling, so she never drops out of the view
+    float kx = 1 - expf(-dt * 9.0f);
+    float ky = 1 - expf(-dt * (s_hero.vy < -10 ? 14.0f : 8.0f));
+    g_view.cx += (tx - g_view.cx) * kx;
+    g_view.cy += (ty - g_view.cy) * ky;
 }
 
 // ------------------------------------------------------------------ save
@@ -345,7 +350,22 @@ static void menu_update(const Input *in) {
     if (in->down & KEY_B) s_menu = false;
 }
 
+void game_warp(const char *scene, float x, float y) {
+    if (strcmp(scene, s_room.scene)) go(scene, NULL);
+    hero_place(&s_hero, x, y, 1);
+    hero_settle(&s_hero, &s_room, 3);
+    camera_snap();
+    s_fade = 0;
+}
+
+static void log_state(void) {
+    const Hero *h = &s_hero;
+    const char *clip = h->body.set && h->body.clip >= 0 ? h->body.set->clips[h->body.clip].name : "-";
+    autotest_log(s_room.scene, h->x, h->y, h->vx, h->vy, h->ground, h->state, clip, g_view.cx, g_view.cy);
+}
+
 void game_update(const Input *in, float dt) {
+    log_state();
     if (s_msg_t > 0) s_msg_t -= dt;
     if (in->down & KEY_SELECT) s_menu = !s_menu;
     if (s_menu) { menu_update(in); return; }

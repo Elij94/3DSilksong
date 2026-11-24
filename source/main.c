@@ -8,6 +8,7 @@
 #include "common.h"
 #include "room.h"
 #include "game.h"
+#include "autotest.h"
 
 // Linear memory (what the GPU reads: textures, command buffers) gets 48 MB of the application's memory; the rest is
 // the normal heap. Scenery tiles and sprite pages are cached in it and dropped when it runs out.
@@ -77,6 +78,7 @@ int main(void) {
     v->hw = v->sw * 0.5f / v->sx;
     v->hh = v->sh * 0.5f / v->sy;
     room_cache_init();
+    autotest_init();
 
     // a first frame so the loading happens with the GPU set up
     C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
@@ -109,6 +111,13 @@ int main(void) {
         last = now;
         if (dt > 0) fps += (1.0f / dt - fps) * 0.05f;
         dt = clampf(dt, 1.0f / 120, 1.0f / 30);    // slow frames slow the game down rather than tunnel through walls
+        if (autotest_on()) {
+            char sc[48];
+            float wx, wy;
+            int r = autotest_step(dt, &in, sc, &wx, &wy);
+            if (r == 2) break;
+            if (r == 1) game_warp(sc, wx, wy);
+        }
 
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
         u64 t0 = svcGetSystemTick();
@@ -125,6 +134,7 @@ int main(void) {
     }
 
     game_save();
+    autotest_end();
     game_end();                      // closes the room's files before the data goes away
     romfsUnmount("romfs");
     C2D_Fini();
