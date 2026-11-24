@@ -1,0 +1,75 @@
+#!/bin/bash
+# 3DSilksong: convert your own copy of Silksong into the 3DS game data, start to finish, with one command
+# (modelled on HK3DS's tools/build.sh):
+#
+#   tools/build.sh                  every step below, in order
+#   tools/build.sh --only STEP      just one step (again, if it was done)
+#   tools/build.sh --from STEP      forget STEP and every step after it, and run them again
+#   tools/build.sh --rooms FILE     convert only the rooms listed in FILE (default: tools/data/all_rooms.txt)
+#   tools/build.sh --list           the steps
+#
+# Environment: SILKSONG (the game folder), SSDATA (the exports, default ../ssdata), PYTHON (default python3),
+# MKROMFS (default mkromfs3ds; e.g. "python C:/HK3DS/tools/mkromfs.py"), LANGS (default "EN FR").
+# Each step logs to work/logs/<step>.log; finished steps are remembered in work/done/, so running the same command
+# again carries on from the step that failed. The converted data goes to romfs/, then 3dsilksong.romfs.
+set -o pipefail
+TOP=$(cd "$(dirname "$0")/.." && pwd); T=$TOP/tools; W=$TOP/work; R=$TOP/romfs
+STEPS="check inventory export index rooms sprites music text data compile"
+ONLY=""; FROM=""; ROOMS=$T/data/all_rooms.txt
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --only) ONLY=$2; shift ;;
+    --from) FROM=$2; shift ;;
+    --rooms) ROOMS=$(cd "$(dirname "$2")" && pwd)/$(basename "$2"); shift ;;
+    --list) echo "steps: $STEPS"; exit 0 ;;
+    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "unknown option $1 (tools/build.sh --help)"; exit 2 ;;
+  esac
+  shift
+done
+PY=${PYTHON:-python3}
+export SSDATA=${SSDATA:-$TOP/../ssdata}
+mkdir -p "$W/logs" "$W/done" "$R"
+
+fail() { echo; echo "FAILED: $1  (log: $2)"; tail -n 15 "$2" | sed 's/^/    /'; echo "Fix that and run the same command again."; exit 1; }
+
+step_check() {
+  [ -n "$SILKSONG" ] || { echo "set SILKSONG to the game folder"; return 1; }
+  $PY -c "import numpy, PIL, yaml, cryptography" || { echo "pip install numpy pillow pyyaml cryptography"; return 1; }
+  $PY -c "import UnityPy" || echo "warning: no UnityPy (only tools/bundle_deps.py needs it)"
+  command -v ffmpeg >/dev/null || { echo "no ffmpeg on PATH (the music step needs it)"; return 1; }
+}
+step_inventory() { (cd "$T" && $PY inventory.py "$SILKSONG"); }
+step_export()    { "$T/export_game.sh" "$SILKSONG"; }
+step_index()     { (cd "$T" && $PY index_export.py); }
+step_rooms()     { (cd "$T" && $PY build_room.py "$R" --list "$ROOMS"); }
+step_sprites() {
+  # tools/data/sprites.txt: one set per line, "<file>|<library>[+<library>...]|<clips, or empty for all>"
+  grep -v '^\s*#' "$T/data/sprites.txt" | grep . | while IFS='|' read -r out lib clips; do
+    (cd "$T" && $PY build_sprites.py "$R/sprites/$out.sss" "$lib" ${clips:+--clips "$clips"}) || exit 1
+  done
+}
+step_music()     { (cd "$T" && $PY build_music.py "$R"); }
+step_text()      { (cd "$T" && $PY build_text.py "$R" ${LANGS:-EN FR}); }
+step_data() {      # the same as "make data", without needing make (it comes with devkitPro)
+  sed -n 's/.*SS_VERSION "\(.*\)"/\1/p' "$TOP/source/version.h" > "$R/version.txt"
+  (cd "$TOP" && ${MKROMFS:-mkromfs3ds} romfs 3dsilksong.romfs) && ls -l "$TOP/3dsilksong.romfs"
+}
+step_compile() {
+  if [ -z "$DEVKITARM" ]; then echo "no devkitPro (DEVKITARM unset): skipped, the game data is ready"; return 0; fi
+  (cd "$TOP" && make && make cia)
+}
+
+if [ -n "$FROM" ]; then
+  drop=0; for s in $STEPS; do [ "$s" = "$FROM" ] && drop=1; [ $drop = 1 ] && rm -f "$W/done/$s"; done
+fi
+for s in $STEPS; do
+  [ -n "$ONLY" ] && [ "$s" != "$ONLY" ] && continue
+  [ -z "$ONLY" ] && [ -f "$W/done/$s" ] && { echo "= $s (done)"; continue; }
+  echo "> $s"
+  LOG=$W/logs/$s.log
+  "step_$s" > "$LOG" 2>&1 || fail "$s" "$LOG"
+  tail -n 1 "$LOG" | sed 's/^/  /'
+  touch "$W/done/$s"
+done
+echo "all done: $TOP/3dsilksong.romfs"

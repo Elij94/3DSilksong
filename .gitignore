@@ -1,0 +1,15 @@
+# Nothing taken from the game ever goes in this repository: exports, converted data and builds stay local.
+ssdata/
+work/
+romfs/
+romfs_hd/
+build/
+build_hd/
+*.romfs
+*.3dsx
+*.cia
+*.elf
+*.smdh
+*.map
+__pycache__/
+*.pkl
