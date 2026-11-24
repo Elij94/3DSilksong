@@ -9,7 +9,8 @@
 #   tools/build.sh --list           the steps
 #
 # Environment: SILKSONG (the game folder), SSDATA (the exports, default ../ssdata), PYTHON (default python3),
-# MKROMFS (default mkromfs3ds; e.g. "python C:/HK3DS/tools/mkromfs.py"), LANGS (default "EN FR").
+# MKROMFS (default mkromfs3ds; e.g. "python C:/HK3DS/tools/mkromfs.py"), LANGS (default "EN FR"), JOBS (rooms
+# converted at once, default 6).
 # Each step logs to work/logs/<step>.log; finished steps are remembered in work/done/, so running the same command
 # again carries on from the step that failed. The converted data goes to romfs/, then 3dsilksong.romfs.
 set -o pipefail
@@ -22,7 +23,7 @@ while [ $# -gt 0 ]; do
     --from) FROM=$2; shift ;;
     --rooms) ROOMS=$(cd "$(dirname "$2")" && pwd)/$(basename "$2"); shift ;;
     --list) echo "steps: $STEPS"; exit 0 ;;
-    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1 (tools/build.sh --help)"; exit 2 ;;
   esac
   shift
@@ -42,7 +43,17 @@ step_check() {
 step_inventory() { (cd "$T" && $PY inventory.py "$SILKSONG"); }
 step_export()    { "$T/export_game.sh" "$SILKSONG"; }
 step_index()     { (cd "$T" && $PY index_export.py); }
-step_rooms()     { (cd "$T" && $PY build_room.py "$R" --list "$ROOMS"); }
+step_rooms() {
+  # JOBS rooms at once (default 6; each takes 1-3 GB). Rooms already converted are skipped, so a rerun carries on.
+  # A room that fails is listed in work/rooms_failed.txt and doesn't stop the build.
+  local todo=$W/rooms_todo.txt
+  grep -v '^\s*#' "$ROOMS" | grep . | while read -r r; do [ -f "$R/rooms/$r.ssr" ] || echo "$r"; done > "$todo"
+  echo "$(wc -l < "$todo") rooms to convert, ${JOBS:-6} at once"
+  (cd "$T" && xargs -P "${JOBS:-6}" -I{} sh -c "$PY build_room.py '$R' '{}' || echo '{}' >> '$W/rooms_failed.txt'" < "$todo")
+  local ok; ok=$(grep -v '^\s*#' "$ROOMS" | grep . | while read -r r; do [ -f "$R/rooms/$r.ssr" ] && echo; done | wc -l)
+  echo "rooms: $ok of $(grep -v '^\s*#' "$ROOMS" | grep -c .) converted" \
+    "$([ -s "$W/rooms_failed.txt" ] && echo "(failed: $(sort -u "$W/rooms_failed.txt" | tr '\n' ' '))")"
+}
 step_sprites() {
   # tools/data/sprites.txt: one set per line, "<file>|<library>[+<library>...]|<clips, or empty for all>"
   grep -v '^\s*#' "$T/data/sprites.txt" | grep . | while IFS='|' read -r out lib clips; do

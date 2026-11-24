@@ -1,7 +1,7 @@
 #!/bin/bash
 # Export your own copy of Silksong with AssetRipper (2.0.0, headless), into $SSDATA:
 #   ex/               "Export Unity Project": the scenes, prefabs and assets as Unity YAML (ExportedProject/Assets)
-#   pc/               "Export Primary Content": textures, sprites, audio as plain files
+#   pc/               "Export Primary Content" (only with PRIMARY=1): textures, sprites, audio as plain files
 #   Assembly-CSharp/  the game's decompiled scripts (read to understand components; never copied into the port)
 #
 #   tools/export_game.sh "C:/XboxGames/Hollow Knight- Silksong"
@@ -51,8 +51,10 @@ if [ ! -d "$SSDATA/ex" ]; then
   mv "$SSDATA/project/ExportedProject/Assets" "$SSDATA/ex"
   [ -d "$SSDATA/ex/Scripts/Assembly-CSharp" ] && mv "$SSDATA/ex/Scripts/Assembly-CSharp" "$SSDATA/Assembly-CSharp"
 fi
-if [ ! -d "$SSDATA/pc" ]; then
+# The converters read only ex/ (and Assembly-CSharp/): the primary content export (4.3 million files for Silksong,
+# tens of GB) is optional, PRIMARY=1 to make it.
+if [ "${PRIMARY:-0}" = 1 ] && [ ! -d "$SSDATA/pc" ]; then
   post /Export/PrimaryContent "$SSDATA/primary"
   mv "$SSDATA/primary/Assets" "$SSDATA/pc"
 fi
-echo "$(date +%T) done: $SSDATA/ex, $SSDATA/pc"
+echo "$(date +%T) done: $SSDATA/ex"
