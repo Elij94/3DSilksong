@@ -81,7 +81,9 @@ def guidmap():
                     r = re.search(r'guid: ([0-9a-f]+)', fh.read(600))
                 if r:
                     g[r.group(1)] = p[:-5]
-    pickle.dump(g, open(cache, 'wb'))
+    tmp = f'{cache}.{os.getpid()}'          # written whole then renamed: rooms converted in parallel may race here
+    pickle.dump(g, open(tmp, 'wb'))
+    os.replace(tmp, cache)
     return g
 
 

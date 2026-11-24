@@ -24,8 +24,11 @@ from PIL import Image, ImageDraw
 from sscommon import ROOT, EX, guidmap, yaml_file, load_yaml_docs, f
 import tk2d, ctrtex
 
+Image.MAX_IMAGE_PIXELS = None          # our own canvases can be big; their size is capped below (MAX_PIXELS)
 TERRAIN_LAYER = 8
 CAM_Z = 38.1
+VIEW = (16.0, 9.0)                      # half the camera's view, in units (with some margin)
+MAX_PIXELS = 60_000_000                 # a layer bigger than this is drawn at a lower resolution
 TILE = 256
 # layer depth ranges (z): front, gameplay plane, backgrounds
 LAYERS = [('front', -1e9, -0.5), ('main', -0.5, 0.5), ('bg1', 0.5, 4), ('bg2', 4, 12), ('bg3', 12, 35), ('bg4', 35, 1e9)]
@@ -325,8 +328,9 @@ def image_of(r):
     return img, (x0, y0, x1, y1), m
 
 
-def bake_layer(items, z_l, ppu, stats):
-    """Draw a layer's renderables onto one canvas -> (RGBA array, world x of its left edge, world y of its top edge)"""
+def bake_layer(items, z_l, ppu, stats, clip=None):
+    """Draw a layer's renderables onto one canvas -> (RGBA array, world x of its left edge, world y of its top edge,
+    the ppu used). clip: (x0, y0, x1, y1), the part of the layer the camera can show; sprites outside are left out."""
     k_of = lambda z: (CAM_Z + z_l) / (CAM_Z + z)
     prepared, boxes = [], []
     for r in items:
@@ -342,12 +346,23 @@ def bake_layer(items, z_l, ppu, stats):
         boxes.append(corners)
     if not prepared:
         return None
+    if clip:
+        keep = [i for i, c in enumerate(boxes) if c[:, 0].max() >= clip[0] and c[:, 0].min() <= clip[2]
+                and c[:, 1].max() >= clip[1] and c[:, 1].min() <= clip[3]]
+        stats['clipped'] += len(prepared) - len(keep)
+        prepared, boxes = [prepared[i] for i in keep], [boxes[i] for i in keep]
+        if not prepared:
+            return None
     allc = np.concatenate(boxes)
     wx0, wy0 = allc.min(0)
     wx1, wy1 = allc.max(0)
+    if clip:
+        wx0, wy0, wx1, wy1 = max(wx0, clip[0]), max(wy0, clip[1]), min(wx1, clip[2]), min(wy1, clip[3])
+    area = (wx1 - wx0) * (wy1 - wy0) * ppu * ppu
+    if area > MAX_PIXELS:
+        ppu = ppu * math.sqrt(MAX_PIXELS / area)
+        stats['lowres'] += 1
     W, H = int(math.ceil((wx1 - wx0) * ppu)) + 2, int(math.ceil((wy1 - wy0) * ppu)) + 2
-    if W * H > 40000 * 12000:
-        raise SystemExit(f'layer too large ({W}x{H} px): lower --ppu')
     canvas = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     for img, (x0, y0, x1, y1), A, t, col, corners in prepared:
         # canvas pixel (cx, cy) -> world (wx0 + cx/ppu, wy1 - cy/ppu) -> local -> sprite pixel
@@ -376,7 +391,7 @@ def bake_layer(items, z_l, ppu, stats):
         part = src.transform((bx1 - bx0, by1 - by0), Image.AFFINE, data=tuple(T.reshape(-1)), resample=Image.BILINEAR)
         canvas.alpha_composite(part, (bx0, by0))
         stats['drawn'] += 1
-    return np.asarray(canvas), float(wx0), float(wy1)
+    return np.asarray(canvas), float(wx0), float(wy1), ppu
 
 
 def tiles_of(arr, fmt):
@@ -434,12 +449,17 @@ def build(name, out, a, scripts, sorting):
             if not items:
                 continue
             z_l = 0.0 if lname == 'main' else float(np.median([r['z'] for r in items]))
-            got = bake_layer(items, z_l, a.ppu, stats)
+            par = CAM_Z / (CAM_Z + z_l)
+            # what the camera can show of this layer while it stays in the room: room +- view / parallax
+            rx0, ry0 = gx, gy
+            rx1, ry1 = gx + gw / a.cpu, gy + gh / a.cpu
+            clip = (rx0 - VIEW[0] / par, ry0 - VIEW[1] / par, rx1 + VIEW[0] / par, ry1 + VIEW[1] / par) if solids else None
+            got = bake_layer(items, z_l, a.ppu, stats, clip)
             if not got:
                 continue
-            arr, ox, oy = got
+            arr, ox, oy, lppu = got
             tiles, ntx, nty = tiles_of(arr, ctrtex.FORMATS[a.fmt])
-            layers.append(dict(name=lname, z=z_l, parallax=CAM_Z / (CAM_Z + z_l), ox=ox, oy=oy, ppu=a.ppu,
+            layers.append(dict(name=lname, z=z_l, parallax=par, ox=ox, oy=oy, ppu=lppu,
                                ntx=ntx, nty=nty, tiles=tiles, count=len(items)))
 
     os.makedirs(os.path.join(out, 'rooms'), exist_ok=True)
@@ -477,7 +497,8 @@ def build(name, out, a, scripts, sorting):
         preview(info, grid, a.preview if len(a.scenes) == 1 else a.preview.replace('.png', f'_{name}.png'))
     print(f'{name}: {gw}x{gh} cells, {len(solids)} solid shapes, {len(gates)} gates, {len(triggers)} triggers, '
           f'{len(layers)} layers / {sum(len(L["tiles"]) for L in layers)} tiles ({len(data) / 1048576:.1f} MB), '
-          f'{stats["drawn"]} sprites drawn, {stats["missing"]} missing')
+          f'{stats["drawn"]} sprites drawn, {stats["missing"]} missing, {stats["clipped"]} out of view'
+          + (f', {stats["lowres"]} layer(s) at lower resolution' if stats['lowres'] else ''))
     return True
 
 

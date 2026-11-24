@@ -49,6 +49,7 @@ step_rooms() {
   local todo=$W/rooms_todo.txt
   grep -v '^\s*#' "$ROOMS" | grep . | while read -r r; do [ -f "$R/rooms/$r.ssr" ] || echo "$r"; done > "$todo"
   echo "$(wc -l < "$todo") rooms to convert, ${JOBS:-6} at once"
+  (cd "$T" && $PY -c "import sscommon; sscommon.guidmap()")      # the shared guid index, once, before the jobs
   (cd "$T" && xargs -P "${JOBS:-6}" -I{} sh -c "$PY build_room.py '$R' '{}' || echo '{}' >> '$W/rooms_failed.txt'" < "$todo")
   local ok; ok=$(grep -v '^\s*#' "$ROOMS" | grep . | while read -r r; do [ -f "$R/rooms/$r.ssr" ] && echo; done | wc -l)
   echo "rooms: $ok of $(grep -v '^\s*#' "$ROOMS" | grep -c .) converted" \
