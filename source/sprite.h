@@ -58,6 +58,8 @@ void sprite_draw(SpriteSet *s, int f, float x, float y, float scx, float scy, fl
 // a region (u, v from the bottom) of one page on a world rectangle
 void sprite_draw_uv(SpriteSet *s, int page, float u0, float v0, float u1, float v1, float x0, float y0, float x1,
                     float y1, float par, const C2D_ImageTint *tint);
+// frame f with its origin at screen pixel (px, py), scale pixels per unit (the HUD)
+void sprite_draw_screen(SpriteSet *s, int f, float px, float py, float scale, const C2D_ImageTint *tint);
 
 typedef struct {
     SpriteSet *set;

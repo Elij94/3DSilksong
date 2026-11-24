@@ -155,6 +155,15 @@ void sprite_draw_uv(SpriteSet *s, int page, float u0, float v0, float u1, float 
     gfx_draw_world(&s->pages[page].tex, u0, v0, u1, v1, x0, y0, x1, y1, par, tint);
 }
 
+void sprite_draw_screen(SpriteSet *s, int f, float px, float py, float scale, const C2D_ImageTint *tint) {
+    if (!s || f < 0 || f >= s->nframes) return;
+    const SFrame *fr = &s->frames[f];
+    if (fr->page >= s->npages || !page_ready(s, fr->page)) return;
+    float ax = g_view.sx / g_view.sy;   // 2 in the 800x240 mode: screen pixels half as wide
+    gfx_draw_screen(&s->pages[fr->page].tex, fr->u0, fr->v0, fr->u1, fr->v1, px + fr->x0 * scale * ax,
+                    py - fr->y1 * scale, px + fr->x1 * scale * ax, py - fr->y0 * scale, tint);
+}
+
 void anim_play(Anim *a, int clip, bool restart) {
     if (clip < 0) return;
     if (a->clip == clip && !restart) return;

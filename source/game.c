@@ -10,6 +10,7 @@
 #include "version.h"
 #include "autotest.h"
 #include "particles.h"
+#include "audio.h"
 
 #define FIRST_ROOM "Tut_01"
 #define SAVE_PATH  "sdmc:" SS_DATADIR "save.txt"
@@ -71,6 +72,42 @@ static void unload(void) {
     sprites_collect();
 }
 
+// music/rooms.txt (tools/music_map.py): Scene<TAB>music<TAB>ambience
+static char *s_music_map;
+
+static void room_music(const char *scene) {
+    if (!s_music_map) {
+        size_t size;
+        char *d = file_load(data_path("music/rooms.txt"), &size);
+        if (!d) return;
+        s_music_map = realloc(d, size + 1);
+        s_music_map[size] = 0;
+    }
+    size_t n = strlen(scene);
+    for (const char *p = s_music_map; p && *p;) {
+        const char *e = strchr(p, '\n');
+        if (!strncmp(p, scene, n) && p[n] == '\t') {
+            // the two fields after the scene, either may be empty
+            char f[2][40] = {"", ""};
+            const char *q = p + n + 1;
+            for (int k = 0; k < 2; k++) {
+                int len = 0;
+                while (q[len] && q[len] != '\t' && q[len] != '\n' && q[len] != '\r') len++;
+                if (len > 39) len = 39;
+                memcpy(f[k], q, len);
+                f[k][len] = 0;
+                q += len;
+                if (*q == '\t') q++;
+                else break;
+            }
+            if (f[0][0]) audio_play(0, f[0]);   // a room without its own music keeps the one playing
+            if (f[1][0]) audio_play(1, f[1]);
+            return;
+        }
+        p = e ? e + 1 : NULL;
+    }
+}
+
 static bool room_exists(const char *scene) {
     struct stat st;
     return stat(data_path("rooms/%s.ssr", scene), &st) == 0;
@@ -84,6 +121,7 @@ static bool enter(const char *scene) {
     objects_load(&s_objs, scene);
     enemies_init(&s_objs, &s_room);
     particles_load(scene);
+    room_music(scene);
     s_norder = s_room.nlayers;
     s_order = malloc(sizeof(s16) * (s_norder + 1));
     for (int i = 0; i < s_norder; i++) s_order[i] = i;
@@ -414,12 +452,55 @@ void game_update(const Input *in, float dt) {
 
 // ------------------------------------------------------------------ drawing
 
+// The game's HUD art (sprites/hud_anim.sss): the spool frame, then the masks, full or empty; a mask lost plays its
+// break. Plain circles if the set is missing.
+static SpriteSet *s_hud;
+static float s_hud_t;
+static int s_hud_hp = -1;
+static float s_break_t[16];
+
+static int hud_frame(const char *clip, float t, bool loop) {
+    int c = sprite_clip(s_hud, clip);
+    if (c < 0) return -1;
+    const SClip *cl = &s_hud->clips[c];
+    if (!cl->n) return -1;
+    int i = (int)(t * (cl->fps > 0 ? cl->fps : 12));
+    i = loop ? i % cl->n : (i < cl->n ? i : cl->n - 1);
+    return rds16((const u8 *)&cl->frames[i]);
+}
+
 static void draw_hud(void) {
-    // masks, top left (the game's own HUD art is a later step)
-    for (int i = 0; i < s_hero.maxhp; i++) {
-        float x = 22 + i * 18, y = 20;
-        C2D_DrawCircleSolid(x, y, 0.5f, 7.5f, C2D_Color32(20, 16, 18, 200));
-        if (i < s_hero.hp) C2D_DrawCircleSolid(x, y, 0.5f, 6, C2D_Color32(240, 236, 228, 255));
+    float ax = g_view.sx / g_view.sy;
+    if (!s_hud) {
+        s_hud = sprites_get("sprites/hud_anim.sss");
+        if (s_hud) s_hud->pinned = true;
+    }
+    s_hud_t += 1.0f / 60;
+    if (s_hud_hp >= 0 && s_hero.hp < s_hud_hp)
+        for (int i = s_hero.hp; i < s_hud_hp && i < 16; i++) s_break_t[i] = 0.001f;
+    s_hud_hp = s_hero.hp;
+    if (!s_hud) {
+        for (int i = 0; i < s_hero.maxhp; i++) {
+            float x = (22 + i * 18) * ax, y = 20;
+            C2D_DrawCircleSolid(x, y, 0.5f, 7.5f, C2D_Color32(20, 16, 18, 200));
+            if (i < s_hero.hp) C2D_DrawCircleSolid(x, y, 0.5f, 6, C2D_Color32(240, 236, 228, 255));
+        }
+        return;
+    }
+    gfx_blend(BLEND_NORMAL);
+    const float S = 20;   // pixels per HUD unit
+    sprite_draw_screen(s_hud, hud_frame("HUD Frame Wanderer Idle", 0, false), 60 * ax, 34, S, NULL);
+    for (int i = 0; i < s_hero.maxhp && i < 16; i++) {
+        float x = (102 + i * 19) * ax, y = 28;
+        if (i < s_hero.hp) {
+            s_break_t[i] = 0;
+            sprite_draw_screen(s_hud, hud_frame("Health Idle", s_hud_t + i * 0.3f, true), x, y, S, NULL);
+        } else if (s_break_t[i] > 0 && s_break_t[i] < 0.5f) {
+            s_break_t[i] += 1.0f / 60;
+            sprite_draw_screen(s_hud, hud_frame("Health Break", s_break_t[i], false), x, y, S, NULL);
+        } else {
+            sprite_draw_screen(s_hud, hud_frame("Health Empty", 0, false), x, y, S, NULL);
+        }
     }
 }
 
