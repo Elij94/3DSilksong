@@ -9,7 +9,9 @@
 #define HERO_FOOT (-1.53f)
 #define HERO_HEAD 0.30f
 
-enum { HS_NORMAL, HS_DASH, HS_HURT, HS_RESPAWN, HS_DEAD, HS_SIT };
+enum { HS_NORMAL, HS_DASH, HS_HURT, HS_RESPAWN, HS_DEAD, HS_SIT, HS_BIND };
+#define SILK_MAX  9       // the spool, and what a bind costs
+#define BIND_HEAL 3
 enum { ATK_NONE, ATK_SIDE, ATK_UP, ATK_DOWN };
 
 typedef struct {
@@ -32,6 +34,8 @@ typedef struct {
     float look_t;
     int hp, maxhp;
     int silk;
+    bool sprint;            // running fast: R held on after a dash on the ground
+    bool bind_done;
     Anim body, fx;
     bool fx_on;
     int fx_kind;

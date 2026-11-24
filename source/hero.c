@@ -23,6 +23,8 @@
 #define JUMP_BUF    0.12f
 #define INVULN      1.3f
 #define STEP_UP     0.55f
+#define SPRINT_V    12.5f
+#define BIND_TIME   0.55f
 
 static SpriteSet *s_set;
 
@@ -84,6 +86,7 @@ static void move_x(Hero *h, const Room *r, float dx) {
             if (x <= h->x + 0.25f && hero_box_free(r, x, h->y)) h->x = x;
         }
         if (h->state == HS_DASH) h->st = DASH_TIME;   // ends the dash
+        h->sprint = false;
         h->vx = 0;
         break;
     }
@@ -234,14 +237,42 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         if (h->st >= DASH_TIME) {
             h->state = HS_NORMAL;
             h->vx = dir * RUN_SPEED;
+            // R still held, going the same way, on the ground: a sprint
+            h->sprint = h->ground && (in->held & (KEY_R | KEY_ZR)) && dir == h->face;
         }
         break;
+    case HS_BIND:
+        // silk binds into health: a short charge (held in the air), then the burst
+        anim_update(&h->body, dt);
+        h->vx = 0;
+        if (!h->ground) h->vy = fmaxf(h->vy - GRAV_APEX * 0.3f * dt, -2.0f);
+        else h->vy = 0;
+        if (!h->bind_done && h->st >= BIND_TIME) {
+            h->bind_done = true;
+            h->silk -= SILK_MAX;
+            h->hp = h->hp + BIND_HEAL > h->maxhp ? h->maxhp : h->hp + BIND_HEAL;
+            body(h, h->ground ? "BindBurst Ground" : "BindBurst Air", true);
+        }
+        if (h->st >= BIND_TIME + 0.2f) h->state = HS_NORMAL;
+        move_y(h, r, h->vy * dt);
+        h->ground = !hero_box_free(r, h->x, h->y - 0.03f);
+        return false;
     }
 
     // ---- input
     if (h->state == HS_NORMAL) {
         if (dir && h->attack == ATK_NONE) h->face = dir;
-        h->vx = dir * RUN_SPEED;
+        if (h->sprint && (!(in->held & (KEY_R | KEY_ZR)) || dir != h->face)) h->sprint = false;
+        h->vx = dir * (h->sprint ? SPRINT_V : RUN_SPEED);
+        if ((in->down & KEY_A) && h->silk >= SILK_MAX && h->attack == ATK_NONE && h->hp < h->maxhp) {
+            h->state = HS_BIND;
+            h->st = 0;
+            h->bind_done = false;
+            h->sprint = false;
+            h->jumping = false;
+            body(h, h->ground ? "BindCharge Ground" : "BindCharge Air", true);
+            return false;
+        }
         if (jump_down) h->jump_buf = JUMP_BUF;
         if (h->jump_buf > 0 && (h->ground || h->coyote > 0)) {
             h->vy = JUMP_V;
@@ -348,7 +379,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         if (!h->ground) {
             if (!clip_is(h, "Airborne") && !clip_is(h, "Fall")) body(h, h->was_ground && h->vy <= 0 ? "Fall" : "Airborne", false);
         } else if (dir) {
-            body(h, "Run", false);
+            body(h, h->sprint ? "Sprint" : "Run", false);
         } else if (h->land_t > 0 && clip_is(h, "Land Q")) {
         } else if (look > 0) {
             body(h, "LookUp", false);

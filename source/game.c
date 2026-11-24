@@ -347,6 +347,7 @@ static void play(const Input *in, float dt) {
     if (hitting && !h->atk_hit) {
         if (objects_strike(&s_objs, box[0], box[1], box[2], box[3], NEEDLE_DMG, h->x)) {
             h->atk_hit = true;
+            if (h->silk < SILK_MAX) h->silk++;   // hits spin silk
             if (h->attack == ATK_DOWN) hero_pogo(h);
             else if (h->attack == ATK_SIDE) h->vx -= h->face * 3.0f;
         }
@@ -568,6 +569,10 @@ static void draw_hud(void) {
     gfx_blend(BLEND_NORMAL);
     const float S = 20;   // pixels per HUD unit
     sprite_draw_screen(s_hud, hud_frame("HUD Frame Wanderer Idle", 0, false), 60 * ax, 34, S, NULL);
+    // the silk on the spool's thread: one chunk per hit, a bind (A) takes the whole spool
+    int chunk = hud_frame(s_hero.silk >= SILK_MAX ? "SilkChunk Glow 1" : "SilkChunk Idle 1", 0, false);
+    for (int i = 0; i < s_hero.silk && i < SILK_MAX; i++)
+        sprite_draw_screen(s_hud, chunk, (104 + i * 6) * ax, 50, S, NULL);
     for (int i = 0; i < s_hero.maxhp && i < 16; i++) {
         float x = (102 + i * 19) * ax, y = 28;
         if (i < s_hero.hp) {
@@ -674,14 +679,18 @@ void game_status(float fps, float ms) {
     printf("Cam   %7.2f %7.2f  st %d vy %6.2f\x1b[K\n", g_view.cx, g_view.cy, s_hero.state, s_hero.vy);
     printf("Masks %d/%d   objects %d\x1b[K\n", s_hero.hp, s_hero.maxhp, s_objs.n);
     printf("Tiles %d cached   linear %lu KB free\x1b[K\n", room_cache_used(), (unsigned long)(linearSpaceFree() / 1024));
+    printf("Silk  %d/%d   music %s\x1b[K\n", s_hero.silk, SILK_MAX,
+           audio_on() ? (audio_track(0)[0] ? audio_track(0) : "-") : "off (no SD:/3ds/dspfirm.cdc)");
     printf("\x1b[K\n%s\x1b[K\n\x1b[K\n", s_msg_t > 0 ? s_msg : "");
     printf("Controls\x1b[K\n");
     printf(" Pad / Circle Pad  move, look up/down\x1b[K\n");
     printf(" B      jump (hold: higher)\x1b[K\n");
     printf(" Y      needle (up+Y, down+Y in air)\x1b[K\n");
-    printf(" R/ZR   dash\x1b[K\n");
-    printf(" Up     enter a door\x1b[K\n");
+    printf(" R/ZR   dash (hold on: sprint)\x1b[K\n");
+    printf(" A      bind: a full spool of silk\x1b[K\n");
+    printf("        gives back 3 masks\x1b[K\n");
+    printf(" Up     door, bench (rest, respawn)\x1b[K\n");
     printf(" SELECT room menu\x1b[K\n");
-    printf(" START  save and quit\x1b[K\n");
-    for (int i = 0; i < 11; i++) printf("\x1b[K\n");
+    printf(" START  pause (save and quit)\x1b[K\n");
+    for (int i = 0; i < 8; i++) printf("\x1b[K\n");
 }
