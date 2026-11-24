@@ -293,11 +293,18 @@ def blend_of(v):
     return material_blend(g) if g else BLEND_NORMAL
 
 
+MASK_SCRIPTS = {'Unmasker', 'Remasker'}
+
+
 def under_unmasker(sc, scripts, gid):
-    """True for the masks of hidden areas: under an Unmasker, which fades them out when the hero walks in"""
+    """True for the masks of hidden areas and breakable walls: under an Unmasker / Remasker (which fade them when the
+    hero walks in or out), in a "masks" group, or msk_* / Mask * sprites"""
     for _ in range(64):
-        if any(t == 'MonoBehaviour' and scripts.get((v.get('m_Script') or {}).get('guid')) == 'Unmasker'
+        if any(t == 'MonoBehaviour' and scripts.get((v.get('m_Script') or {}).get('guid')) in MASK_SCRIPTS
                for t, v in sc.comps.get(gid, [])):
+            return True
+        n = sc.name(gid).lower()
+        if n in ('masks', 'mask') or n.startswith(('msk_', 'mask ', 'remasker')):
             return True
         t = sc.tr.get(gid)
         father = sc.tr_id.get(((t or {}).get('m_Father') or {}).get('fileID'))
