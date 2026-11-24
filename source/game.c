@@ -80,6 +80,7 @@ static bool enter(const char *scene) {
     unload();
     if (!room_load(&s_room, scene)) return false;
     objects_load(&s_objs, scene);
+    enemies_init(&s_objs, &s_room);
     s_norder = s_room.nlayers;
     s_order = malloc(sizeof(s16) * (s_norder + 1));
     for (int i = 0; i < s_norder; i++) s_order[i] = i;
@@ -270,8 +271,9 @@ static void play(const Input *in, float dt) {
     float box[4];
     bool hitting = hero_update(h, &s_room, in, dt, box);
     objects_update(&s_objs, dt);
+    enemies_update(&s_objs, &s_room, h->x, h->y - 0.6f, dt);
     if (hitting && !h->atk_hit) {
-        if (objects_strike(&s_objs, box[0], box[1], box[2], box[3], NEEDLE_DMG)) {
+        if (objects_strike(&s_objs, box[0], box[1], box[2], box[3], NEEDLE_DMG, h->x)) {
             h->atk_hit = true;
             if (h->attack == ATK_DOWN) hero_pogo(h);
             else if (h->attack == ATK_SIDE) h->vx -= h->face * 3.0f;
@@ -360,7 +362,12 @@ void game_warp(const char *scene, float x, float y) {
 
 static void log_state(void) {
     const Hero *h = &s_hero;
-    const char *clip = h->body.set && h->body.clip >= 0 ? h->body.set->clips[h->body.clip].name : "-";
+    char clip[128];
+    int dead = 0, live = 0;
+    for (int i = 0; i < s_objs.n; i++)
+        if (s_objs.o[i].ai != AI_NONE) { if (s_objs.o[i].dead || !s_objs.o[i].alive) dead++; else live++; }
+    snprintf(clip, sizeof clip, "%s hp=%d enemies=%d/%d",
+             h->body.set && h->body.clip >= 0 ? h->body.set->clips[h->body.clip].name : "-", h->hp, live, dead);
     autotest_log(s_room.scene, h->x, h->y, h->vx, h->vy, h->ground, h->state, clip, g_view.cx, g_view.cy);
 }
 

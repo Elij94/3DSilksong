@@ -1,6 +1,6 @@
 #pragma once
 // the release number, shown on the title screen (bump it with each build that goes out)
-#define SS_VERSION "0.3.0"
+#define SS_VERSION "0.3.1"
 // The game data is one RomFS image on the SD card (tools/mkromfs.py or mkromfs3ds: make data); the CIA / .3dsx hold
 // only the code. Only the New 3DS family is targeted (800x240 top screen, 124 MB of RAM).
 #define SS_DATADIR  "/3ds/3dsilksong/"

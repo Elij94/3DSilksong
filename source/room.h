@@ -37,7 +37,7 @@ typedef struct {
     s16 *lut;              // ntx * nty -> tile index, -1 = empty
 } Layer;
 
-typedef struct {
+typedef struct Room_ {
     char scene[48];
     int cpu;               // cells per unit
     float gx, gy;

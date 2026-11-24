@@ -38,6 +38,7 @@ void objects_load(Objects *os, const char *scene) {
         o->par = PAR_D / (PAR_D + o->z);
         if (o->par <= 0.05f || o->par > 20) o->par = 1;
         o->anim.clip = -1;
+        o->dir = o->scx < 0 ? 1 : -1;   // the art faces left
         if (o->alive && o->sprite_set[0]) {
             char rel[64];
             snprintf(rel, sizeof rel, "sprites/%s.sss", o->sprite_set);
@@ -93,9 +94,21 @@ void objects_draw(Objects *os, float zmin, float zmax) {
     }
 }
 
-static bool hittable(const Obj *o) { return (o->flags & (OF_ENEMY | OF_BREAKABLE)) && o->rw > 0 && o->rh > 0; }
+// enemies need their art (invisible ones are trigger helpers); breakables don't
+static bool hittable(const Obj *o) {
+    if (o->dead || o->rw <= 0 || o->rh <= 0) return false;
+    if (o->flags & OF_ENEMY) return o->anim.set != NULL;
+    return (o->flags & OF_BREAKABLE) != 0;
+}
 
-int objects_strike(Objects *os, float x0, float y0, float x1, float y1, int dmg) {
+void obj_move(Objects *os, int i, float dx, float dy) {
+    Obj *o = &os->o[i];
+    o->x += dx; o->y += dy; o->rx += dx; o->ry += dy;
+    for (int j = 0; j < os->n; j++)
+        if (os->o[j].parent == i && j != i) obj_move(os, j, dx, dy);
+}
+
+int objects_strike(Objects *os, float x0, float y0, float x1, float y1, int dmg, float from_x) {
     int hits = 0;
     for (int i = 0; i < os->n; i++) {
         Obj *o = &os->o[i];
@@ -105,7 +118,9 @@ int objects_strike(Objects *os, float x0, float y0, float x1, float y1, int dmg)
         o->flash = 0.2f;
         if (o->flags & OF_ENEMY) {
             o->hp -= dmg;
-            if (o->hp <= 0) o->alive = false;
+            o->kb = 0.15f;
+            o->vx = (o->rx + o->rw * 0.5f < from_x ? -1 : 1) * 6.0f;
+            if (o->hp <= 0) enemy_kill(os, i, from_x);
         } else o->alive = false;   // a breakable
     }
     return hits;
@@ -114,7 +129,7 @@ int objects_strike(Objects *os, float x0, float y0, float x1, float y1, int dmg)
 int objects_touch_damage(const Objects *os, float x0, float y0, float x1, float y1, float *cx) {
     for (int i = 0; i < os->n; i++) {
         const Obj *o = &os->o[i];
-        if (!(o->flags & OF_DAMAGE) || o->damage <= 0 || o->rw <= 0 || !obj_alive(os, i)) continue;
+        if (!(o->flags & OF_DAMAGE) || o->damage <= 0 || o->rw <= 0 || o->dead || !obj_alive(os, i)) continue;
         if (!(o->flags & OF_ENEMY) && o->damage > 0 && o->rw * o->rh > 400) continue;   // giant triggers: not contact
         if (rects_overlap(x0, y0, x1 - x0, y1 - y0, o->rx, o->ry, o->rw, o->rh)) {
             if (cx) *cx = o->rx + o->rw * 0.5f;
