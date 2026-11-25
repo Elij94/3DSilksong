@@ -13,6 +13,7 @@
 #include "audio.h"
 #include "fsm.h"
 #include "dialogue.h"
+#include "fx.h"
 
 #define FIRST_ROOM "Tut_01"
 #define SAVE_PATH  "sdmc:" SS_DATADIR "save.txt"
@@ -247,7 +248,15 @@ static void camera_snap(void) {
     g_view.cy = ty;
 }
 
+// a camera shake: an offset that dies away
+static float s_shake, s_shake_x, s_shake_y;
+
 static void camera_update(float dt) {
+    float a = fx_take_shake();
+    if (a > s_shake) s_shake = a;
+    s_shake = fmaxf(0, s_shake - dt * 0.6f);
+    s_shake_x = s_shake > 0 ? ((rand() / (float)RAND_MAX) * 2 - 1) * s_shake : 0;
+    s_shake_y = s_shake > 0 ? ((rand() / (float)RAND_MAX) * 2 - 1) * s_shake : 0;
     float tx, ty;
     camera_target(&tx, &ty);
     camera_clamp(&tx, &ty);
@@ -679,7 +688,18 @@ static void draw_band(float zmin, float zmax) {
     particles_draw(zmin, zmax);
 }
 
+static void draw_all(void);
+
+// the scene drawn from the shaken camera
 void game_draw(void) {
+    g_view.cx += s_shake_x;
+    g_view.cy += s_shake_y;
+    draw_all();
+    g_view.cx -= s_shake_x;
+    g_view.cy -= s_shake_y;
+}
+
+static void draw_all(void) {
     if (!s_loaded) return;
     room_frame_begin();
     float zcur = 1e30f;

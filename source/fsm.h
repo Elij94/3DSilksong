@@ -14,7 +14,6 @@ int fsm_node_fsms(int node);            // how many FSMs the node has
 void fsm_node_stop(int node);           // stops the FSMs of the node and of what is under it (a dead enemy)
 // the velocity of a node's body (get, or set)
 void fsm_node_velocity(int node, float *vx, float *vy, bool set);
-float fsm_take_shake(void);             // camera shakes the FSMs asked for since the last call
 // a needle hit on this box: the FSMs listening to damage on what it touches; true when something took it
 bool fsm_strike(float x0, float y0, float x1, float y1);
 // the walls FSMs open and close (breakable walls, battle gates...): is something solid in this box?

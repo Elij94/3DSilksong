@@ -746,8 +746,6 @@ static int child_named(int parent, const char *name) {
     return s < 0 ? N_NONE : find_child(parent, s);
 }
 
-static float fsm_shake;
-float fsm_take_shake(void) { float s = fsm_shake; fsm_shake = 0; return s; }
 
 // the enemy actions; *handled false when the op isn't one of them
 static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) {
@@ -1004,7 +1002,7 @@ static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) 
     case OP_SetIsKinematic2d: { int nd = a_node(f, ARG(0)); if (nd >= 0) s_nodes[nd].kin = a_i(f, ARG(1)) != 0; return true; }
     case OP_SetInvincible: { Obj *o = node_obj(a_node(f, ARG(0))); if (o) o->invincible = a_i(f, ARG(1)) != 0; return true; }
     case OP_SetRecoilSpeed: { Obj *o = node_obj(a_node(f, ARG(0))); if (o) o->recoil_v = a_f(f, ARG(1)); return true; }
-    case OP_DoCameraShake: fsm_shake = fmaxf(fsm_shake, 0.15f); return true;
+    case OP_DoCameraShake: fx_shake(0.15f); return true;
     case OP_SetDamageHeroAmount: { Obj *o = node_obj(a_node(f, ARG(0))); if (o) o->damage = a_i(f, ARG(1)); return true; }
     case OP_StartCrawler: case OP_StopCrawler: {
         Obj *o = node_obj(a_node(f, ARG(0)));

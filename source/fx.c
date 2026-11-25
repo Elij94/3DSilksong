@@ -61,6 +61,10 @@ static void load(void) {
     fclose(f);
 }
 
+static float s_shake;
+void fx_shake(float amp) { if (amp > s_shake) s_shake = amp; }
+float fx_take_shake(void) { float s = s_shake; s_shake = 0; return s; }
+
 int fx_profile(const char *name) {
     if (s_n < 0) load();
     if (!name || !name[0]) return -1;

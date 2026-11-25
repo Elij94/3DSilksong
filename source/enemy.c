@@ -185,6 +185,7 @@ void enemy_kill(Objects *os, int i, float from_x, int dir) {
     Obj *o = &os->o[i];
     float cx = o->rx + o->rw * 0.5f, cy = o->ry + o->rh * 0.5f;
     if (objects_freeze) objects_freeze(0.04f, 0.024f, 0.04f);          // FreezeMomentTypes.EnemyDeath
+    fx_shake(0.12f);                                                    // its deathCameraShake
     float pan = clampf((cx - g_view.cx) / 14, -0.8f, 0.8f);
     for (int k = 0; k < o->ndsnd; k++) sfx_play(o->dsnd[k], 1, pan);
     fx_death(o->deathp, cx, cy - 0.5f, -0.5f, dir * 90.0f, o->ndsnd == 0);
