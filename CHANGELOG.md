@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0 — the game's scripts run
+
+- A PlayMaker runtime (`fsm.c`): `tools/build_fsm.py` compiles each room's state machines and the scene's
+  hierarchy into `rooms/<Scene>.ssf`; the engine runs them with about a hundred of the game's actions (flow, events,
+  variables, objects on and off, positions and movement, tk2d animations, Hornet's triggers, PlayerData, hits).
+  Breakable walls, gates, levers and scene events follow the game's own logic. Enemies keep the engine's behaviour.
+- Walls that scripts open or close (breakable walls, battle gates) are out of the static collision grid and follow
+  their object; `tools/merge_ssr.py` swaps in new grids without rebaking the scenery.
+- PlayerData flags saved with the game (a wall broken stays broken).
+- Testing: files in `SD:/3ds/3dsilksong/override/` replace the data file's; the autotest log lists FSM transitions.
+
 ## 0.8.0 — all of Hornet's moves, smooth streaming
 
 - Scenery tiles are read and inflated on a loader thread (the New 3DS's spare core): walking through a room no

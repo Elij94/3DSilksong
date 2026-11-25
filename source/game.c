@@ -11,6 +11,7 @@
 #include "autotest.h"
 #include "particles.h"
 #include "audio.h"
+#include "fsm.h"
 
 #define FIRST_ROOM "Tut_01"
 #define SAVE_PATH  "sdmc:" SS_DATADIR "save.txt"
@@ -74,6 +75,7 @@ static void message(const char *m) { snprintf(s_msg, sizeof s_msg, "%s", m); s_m
 
 static void unload(void) {
     if (!s_loaded) return;
+    fsm_free();
     objects_free(&s_objs);
     particles_free();
     room_free(&s_room);
@@ -130,6 +132,8 @@ static bool enter(const char *scene) {
     unload();
     if (!room_load(&s_room, scene)) return false;
     objects_load(&s_objs, scene);
+    fsm_load(scene, &s_objs);
+    room_dyn_solid = fsm_solid;
     enemies_init(&s_objs, &s_room);
     particles_load(scene);
     room_music(scene);
@@ -264,7 +268,8 @@ void game_save(void) {
     FILE *f = fopen(SAVE_PATH, "w");
     if (!f) return;
     fprintf(f, "%s %.3f %.3f %d\n", s_room.scene, s_safe_x, s_safe_y, s_hero.hp);
-    if (s_bench_scene[0]) fprintf(f, "bench %s %.3f %.3f\n", s_bench_scene, s_bench_x, s_bench_y);
+    fprintf(f, "bench %s %.3f %.3f\n", s_bench_scene[0] ? s_bench_scene : "-", s_bench_x, s_bench_y);
+    pd_save(f);
     fclose(f);
 }
 
@@ -301,6 +306,8 @@ bool game_start(void) {
         if (fscanf(f, "%7s %47s %f %f", kw, s_bench_scene, &s_bench_x, &s_bench_y) != 4 || strcmp(kw, "bench") ||
             !room_exists(s_bench_scene))
             s_bench_scene[0] = 0;
+        char line[128];
+        while (fgets(line, sizeof line, f)) pd_load_line(line);
         fclose(f);
     }
     if (!saved || !room_exists(scene)) { strcpy(scene, FIRST_ROOM); saved = false; }
@@ -349,8 +356,10 @@ static void play(const Input *in, float dt) {
     hero_probe = probe_enemy;
     bool hitting = hero_update(h, &s_room, in, dt, box);
     objects_update(&s_objs, dt);
+    fsm_update(dt, h, &s_objs);
     enemies_update(&s_objs, &s_room, h->x, h->y - 0.6f, dt);
     particles_update(dt);
+    if (hitting && !h->atk_hit && fsm_strike(box[0], box[1], box[2], box[3])) h->atk_hit = true;
     if (hitting && !h->atk_hit) {
         if (objects_strike(&s_objs, box[0], box[1], box[2], box[3], NEEDLE_DMG, h->x)) {
             h->atk_hit = true;
@@ -490,6 +499,7 @@ bool game_quit(void) { return s_quit; }
 
 static void new_game(void) {
     s_bench_scene[0] = 0;
+    pd_clear();
     s_fade = 1;
     go(FIRST_ROOM, NULL);
     s_hero.hp = s_hero.maxhp;

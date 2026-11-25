@@ -15,7 +15,7 @@
 # again carries on from the step that failed. The converted data goes to romfs/, then 3dsilksong.romfs.
 set -o pipefail
 TOP=$(cd "$(dirname "$0")/.." && pwd); T=$TOP/tools; W=$TOP/work; R=$TOP/romfs
-STEPS="check inventory export index rooms sprites particles ui fonts music text data compile"
+STEPS="check inventory export index rooms fsm sprites particles ui fonts music text data compile"
 ONLY=""; FROM=""; ROOMS=$T/data/all_rooms.txt
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -55,6 +55,7 @@ step_rooms() {
   echo "rooms: $ok of $(grep -v '^\s*#' "$ROOMS" | grep -c .) converted" \
     "$([ -s "$W/rooms_failed.txt" ] && echo "(failed: $(sort -u "$W/rooms_failed.txt" | tr '\n' ' '))")"
 }
+step_fsm()       { (cd "$T" && $PY build_fsm.py "$R"); }   # the rooms' FSMs for the engine (rooms/*.ssf)
 step_sprites() {
   # tools/data/sprites.txt: one set per line, "<file>|<library>[+<library>...]|<clips, or empty for all>"
   grep -v '^\s*#' "$T/data/sprites.txt" | grep . | while IFS='|' read -r out lib clips; do

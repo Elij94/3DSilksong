@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <math.h>
+#include <sys/stat.h>
 #include "common.h"
+#include "version.h"
 
 View g_view;
 
@@ -29,6 +31,15 @@ const char *data_path(const char *fmt, ...) {
     strcpy(buf, "romfs:/");
     vsnprintf(buf + 7, sizeof buf - 7, fmt, ap);
     va_end(ap);
+    // for testing: files in SD:/3ds/3dsilksong/override/ (same paths) win over the data file's
+    static int s_override = -1;
+    struct stat st;
+    if (s_override < 0) s_override = stat("sdmc:" SS_DATADIR "override", &st) == 0;
+    if (s_override) {
+        static char ob[256];
+        snprintf(ob, sizeof ob, "sdmc:" SS_DATADIR "override/%s", buf + 7);
+        if (stat(ob, &st) == 0) return ob;
+    }
     return buf;
 }
 

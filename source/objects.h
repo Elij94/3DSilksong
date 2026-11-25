@@ -20,6 +20,10 @@ typedef struct {
     float par;
     bool alive;
     float flash;           // hit flash, seconds left
+    s16 node;              // its node in the room's FSM hierarchy (fsm.c), -1 if none
+    bool hidden;           // renderer off (an FSM)
+    bool nocoll;           // collider off (an FSM)
+    bool nodamage;         // doesn't hurt Hornet (an FSM)
     // behaviour (enemy.c)
     u8 ai;                 // AI_*
     bool dead;             // a corpse: still drawn, no longer hits nor gets hit

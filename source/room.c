@@ -17,6 +17,7 @@ typedef struct {
 } Slot;
 
 static Slot s_slots[MAX_SLOTS];
+bool (*room_dyn_solid)(float x0, float y0, float x1, float y1);
 static size_t s_budget = 16 << 20;  // bytes of linear memory for tiles, from what is free at start
 static size_t s_used;
 static int s_loads;                 // tiles inflated this frame
@@ -405,6 +406,7 @@ bool room_solid(const Room *r, float x, float y) {
 }
 
 bool room_box_solid(const Room *r, float x0, float y0, float x1, float y1) {
+    if (room_dyn_solid && room_dyn_solid(x0, y0, x1, y1)) return true;
     int cx0 = (int)floorf((x0 - r->gx) * r->cpu), cx1 = (int)floorf((x1 - r->gx) * r->cpu);
     int cy0 = (int)floorf((y0 - r->gy) * r->cpu), cy1 = (int)floorf((y1 - r->gy) * r->cpu);
     if (cx0 < 0) cx0 = 0;

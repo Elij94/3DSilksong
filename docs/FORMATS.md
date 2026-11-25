@@ -87,6 +87,26 @@ point into the `.ssl` at the data of one `tile`×`tile` tile, zlib-compressed.
   stored (normal, `+`, `*`). Within a layer, the sprites were drawn in Unity's order: sorting layer, order in layer,
   then far to near.
 
+## State machines for the engine: `.ssf` (`tools/build_fsm.py`)
+
+`rooms/<Scene>.ssf`, from `fsm/<Scene>.json` and the scene's hierarchy (`work/rooms/<Scene>.tree.json`, written by
+`build_room.py`). Little-endian. Header `'SSFM'`, `u16 version (2)`, then:
+
+- strings: `u16 n`, then `n` × (`u8 length`, bytes). Names, events, clips, PlayerData keys; index 0 is `""`.
+- nodes, every game object of the scene: `u16 n`, then `n` × 18 bytes: `u16 name`, `s16 parent` (node, -1),
+  `s16 object` (index in the `.sso`, -1), `f32 x, y` (world), `u8 active` (its own flag), 3 bytes pad.
+- FSMs: `u16 n`, then each: `s16 owner` (node), `u16 name`, `u16 start state`; `u16 nvars` × (`u16 name`, value);
+  `u16 nglobal` × (`u16 event`, `u16 state`); `u16 nstates` × (`u16 name`, `u16 ntransitions` × (`u16 event`,
+  `u16 state`), `u16 nactions` × (`u8 op`, `u8 everyFrame`, `u8 nparams`, values)). The ops and the order of their
+  parameters are `OPS` in `build_fsm.py` (and `source/fsm_ops.h`); other actions are dropped.
+- walls the FSMs control (version 2): `u16 n` × (`s16 node`, `f32 x0, y0, x1, y1`). These colliders (terrain
+  colliders on objects with an FSM or a `Breakable`, or on their children, or inactive at load) are left out of the
+  room's collision grid; the engine tests them while their node is active and its collider on.
+
+A value is `u8 tag` then: 0 none; 1 `f32`; 2 `s32`; 3 `u8` bool; 4 `u16` string; 5 `u16` variable; 6 `s16` node
+(-2 the owner, -3 Hornet, -1 none); 7 `u16` event; 8 `f32 x, y, z`; 9 `u8 n` + n values; 10 event target: `u8 kind`
+(0 self, 1 the object's FSMs, 2 one of its FSMs, 4 all), `s16 node`, `u16 fsm name`.
+
 ## Objects: `.sso` (`tools/objects.py`, written by `build_room.py`)
 
 Header: `'SSOB'`, `u16 version (1)`, `u16 n`. Then `n` objects of 244 bytes:

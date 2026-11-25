@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "objects.h"
+#include "fsm.h"
 
 #define PAR_D 38.1f   // parallax = d / (d + z), as for the scenery layers
 
@@ -58,6 +59,7 @@ void objects_load(Objects *os, const char *scene) {
         rdstr(o->sprite_set, p + 84, 32);
         rdstr(o->clip, p + 116, 32);
         o->alive = !(o->flags & OF_INACTIVE);
+        o->node = -1;
         o->par = PAR_D / (PAR_D + o->z);
         if (o->par <= 0.05f || o->par > 20) o->par = 1;
         o->anim.clip = -1;
@@ -88,6 +90,7 @@ void objects_free(Objects *os) {
 }
 
 bool obj_alive(const Objects *os, int i) {
+    if (i >= 0 && i < os->n && os->o[i].node >= 0 && !fsm_node_active(os->o[i].node)) return false;
     for (int k = 0; i >= 0 && i < os->n && k < 32; k++) {
         if (!os->o[i].alive) return false;
         i = os->o[i].parent;
@@ -111,7 +114,7 @@ void objects_draw(Objects *os, float zmin, float zmax) {
     for (int k = 0; k < os->n; k++) {
         int i = os->order[k];
         Obj *o = &os->o[i];
-        if (o->z <= zmin || o->z > zmax || !o->anim.set || !obj_alive(os, i)) continue;
+        if (o->z <= zmin || o->z > zmax || !o->anim.set || o->hidden || !obj_alive(os, i)) continue;
         // gfx_draw_world scales positions and sizes around the camera by the parallax
         sprite_draw(o->anim.set, anim_frame(&o->anim), o->x, o->y, o->scx, o->scy, o->par, o->flash > 0 ? &white : NULL);
     }
@@ -119,7 +122,7 @@ void objects_draw(Objects *os, float zmin, float zmax) {
 
 // enemies need their art (invisible ones are trigger helpers); breakables don't
 static bool hittable(const Obj *o) {
-    if (o->dead || o->rw <= 0 || o->rh <= 0) return false;
+    if (o->dead || o->rw <= 0 || o->rh <= 0 || o->nocoll) return false;
     if (o->flags & OF_ENEMY) return o->anim.set != NULL;
     return (o->flags & OF_BREAKABLE) != 0;
 }
@@ -152,7 +155,8 @@ int objects_strike(Objects *os, float x0, float y0, float x1, float y1, int dmg,
 int objects_touch_damage(const Objects *os, float x0, float y0, float x1, float y1, float *cx) {
     for (int i = 0; i < os->n; i++) {
         const Obj *o = &os->o[i];
-        if (!(o->flags & OF_DAMAGE) || o->damage <= 0 || o->rw <= 0 || o->dead || !obj_alive(os, i)) continue;
+        if (!(o->flags & OF_DAMAGE) || o->damage <= 0 || o->rw <= 0 || o->dead || o->nocoll || o->nodamage ||
+            !obj_alive(os, i)) continue;
         if (!(o->flags & OF_ENEMY) && o->damage > 0 && o->rw * o->rh > 400) continue;   // giant triggers: not contact
         if (rects_overlap(x0, y0, x1 - x0, y1 - y0, o->rx, o->ry, o->rw, o->rh)) {
             if (cx) *cx = o->rx + o->rw * 0.5f;

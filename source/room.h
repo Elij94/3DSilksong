@@ -67,5 +67,7 @@ void room_preload_view(Room *r);
 void room_frame_begin(void);
 bool room_evict_tile(void);
 void room_cache_init(void);
+// solids that change (the FSMs' walls), asked after the grid; set by the game
+extern bool (*room_dyn_solid)(float x0, float y0, float x1, float y1);
 void room_cache_exit(void);   // stops the loader thread
 int room_cache_used(void);

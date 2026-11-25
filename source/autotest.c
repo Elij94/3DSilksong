@@ -67,6 +67,10 @@ bool autotest_init(void) {
 
 bool autotest_on(void) { return s_on; }
 
+void autotest_note(const char *msg) {
+    if (s_log) { fprintf(s_log, "%.2f note %s\n", s_t, msg); fflush(s_log); }
+}
+
 int autotest_step(float dt, Input *in, char *warp_scene, float *wx, float *wy) {
     if (!s_on) return 0;
     u32 held = 0;

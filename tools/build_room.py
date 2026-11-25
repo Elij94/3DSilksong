@@ -145,16 +145,45 @@ def rect_of(shapes):
     return [float(x0), float(y0), float(x1 - x0), float(y1 - y0)]
 
 
+def scripted(sc, scripts):
+    """game objects with an FSM or a Breakable: their walls can open (and their children's)"""
+    out = set()
+    for gid, comps in sc.comps.items():
+        for t, v in comps:
+            if t != 'MonoBehaviour':
+                continue
+            n = scripts.get((v.get('m_Script') or {}).get('guid'), '')
+            if n == 'Breakable' or (n == 'PlayMaker' and isinstance(v.get('fsm'), dict)):
+                out.add(gid)
+    return out
+
+
+def parent_gid(sc, gid):
+    t = sc.tr.get(gid)
+    father = sc.tr_id.get(((t or {}).get('m_Father') or {}).get('fileID')) if t else None
+    return father['m_GameObject']['fileID'] if father else None
+
+
 def gather(sc, scripts):
     solids, gates, triggers = [], [], []
+    dyn_owner = scripted(sc, scripts)
+    sc.dyn_solids = []      # walls that FSMs open, close or move: [gid, x0, y0, x1, y1], out of the grid
     for gid, comps in sc.comps.items():
-        if not sc.active(gid):
-            continue
         layer = sc.go.get(gid, {}).get('m_Layer')
         cols = [(t, v) for t, v in comps if t.endswith('Collider2D') and v.get('m_Enabled', 1)]
+        if layer == TERRAIN_LAYER and cols:
+            dyn = not sc.active(gid) or gid in dyn_owner or parent_gid(sc, gid) in dyn_owner
+            if dyn:
+                for t, v in cols:
+                    if not v.get('m_IsTrigger'):
+                        for k, p in collider_shapes(sc, gid, t, v):
+                            sc.dyn_solids.append([gid, float(p[:, 0].min()), float(p[:, 1].min()),
+                                                  float(p[:, 0].max()), float(p[:, 1].max())])
+        if not sc.active(gid):
+            continue
         monos = {scripts.get((v.get('m_Script') or {}).get('guid'), ''): v for t, v in comps if t == 'MonoBehaviour'}
         trig = [s for t, v in cols if v.get('m_IsTrigger') for s in collider_shapes(sc, gid, t, v)]
-        if layer == TERRAIN_LAYER:
+        if layer == TERRAIN_LAYER and not (gid in dyn_owner or parent_gid(sc, gid) in dyn_owner):
             for t, v in cols:
                 if not v.get('m_IsTrigger'):
                     cid = len(solids)
@@ -542,7 +571,18 @@ def build(name, out, a, scripts, sorting):
     objs = [] if a.no_objects else objects.gather_objects(sc, scripts, collider_shapes, rect_of)
     if objs:
         objects.write(base + '.sso', objs)
-        json.dump([{k: v for k, v in o.items() if k != 'gid'} for o in objs], open(info_base + '.objs.json', 'w'), indent=1)
+        json.dump(objs, open(info_base + '.objs.json', 'w'), indent=1)
+    if not a.no_objects:
+        # the scene's whole hierarchy, for the FSM compiler (tools/build_fsm.py): the FSMs name objects by these ids
+        tree = []
+        for gid in sc.go:
+            t = sc.tr.get(gid)
+            father = sc.tr_id.get(((t or {}).get('m_Father') or {}).get('fileID')) if t else None
+            m = sc.world(gid)
+            tree.append([gid, str(sc.name(gid)), father['m_GameObject']['fileID'] if father else 0,
+                         round(float(m[0, 3]), 3), round(float(m[1, 3]), 3), int(bool(sc.go[gid].get('m_IsActive', 1)))])
+        json.dump(tree, open(info_base + '.tree.json', 'w'), separators=(',', ':'))
+        json.dump(getattr(sc, 'dyn_solids', []), open(info_base + '.dyn.json', 'w'), separators=(',', ':'))
     parts = [] if a.no_objects else particles.gather_particles(sc, material_blend)
     if parts:
         particles.write(base + '.spt', parts)
