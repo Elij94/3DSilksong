@@ -1,5 +1,9 @@
+#include <stdlib.h>
 #include <math.h>
 #include "hero.h"
+#include "audio.h"
+
+static void snd(const char *name) { sfx_play_name(name, 0.75f, 0); }
 
 // tuning, in units and seconds (1 unit = 64 px of the original art). The values are Hornet's own (her HeroController
 // and the Hunter crest's config); the game counts some of them in 20 ms physics steps.
@@ -191,6 +195,8 @@ static void start_attack(Hero *h, int kind) {
     if (kind == ATK_UP) { b = "UpSlash"; f = "UpSlashEffect"; }
     body(h, b, true);
     if (!anim_play_name(&h->fx, f, true)) h->fx_on = false;
+    static const char *SW[] = {"hornet_sword_1", "hornet_sword_2", "hornet_sword_3", "hornet_sword_5"};
+    snd(SW[rand() % 4]);
 }
 
 static void start_jump(Hero *h, bool full) {
@@ -206,6 +212,7 @@ static void start_jump(Hero *h, bool full) {
     h->sprint = false;
     h->djump_t = -1;
     h->floating = false;
+    snd(full ? "hornet_small_jump" : "hornet_jump_ss");
 }
 
 void hero_pogo(Hero *h) {
@@ -319,6 +326,7 @@ static void start_wall(Hero *h, int side) {
     h->wj_t = -1;
     if (h->vy > 0) h->vy = 0;
     body(h, "Wall Cling", true);
+    snd("hornet_wall_land");
 }
 
 static void start_dash(Hero *h) {
@@ -335,6 +343,7 @@ static void start_dash(Hero *h) {
     h->skid_t = h->turn_t = 0;
     h->wj_t = -1;
     body(h, h->ground ? "Dash" : "Air Dash", true);
+    snd("hornet_hunter_new_dash");
 }
 
 static void approach(float *v, float target, float step) {
@@ -411,6 +420,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 h->silk -= SILK_MAX;
                 h->hp = h->hp + BIND_HEAL > h->maxhp ? h->maxhp : h->hp + BIND_HEAL;
                 body(h, h->ground ? "BindBurst Ground" : "BindBurst Air", true);
+                snd("hornet_ability_bind");
             }
             if (h->st >= BIND_TIME + 0.2f) to_normal(h);
         }
@@ -431,6 +441,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                     if (hero_box_free(r, h->x, h->y + up)) { h->y += up; break; }
                 h->vx = h->face * 5.0f;
                 body(h, "Mantle Vault", true);
+                snd("hornet_edge_grab_up");
             }
             return false;
         }
@@ -474,6 +485,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 h->atk_t = 0;
                 h->atk_hit = false;
                 body(h, "DownSpike", true);
+                snd("hornet_sword_3");
             }
         } else {
             h->vx = h->face * SPIKE_V;
@@ -509,6 +521,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
             h->wj_dir = -side;
             h->vx = -side * WJ_KICK;
             body(h, "Walljump", true);
+            snd("hornet_new_kickoff");
             jump_down = false;
             break;
         }
@@ -564,6 +577,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         bool blocked = fabsf(h->x - x0) < step * 0.5f;
         if (h->harpoon_d <= 0.01f || blocked || h->st > 0.6f) {
             h->attack = ATK_NONE;
+            snd("hornet_needle_hit_wall");
             if (touching_wall(h, r, h->face) && !h->ground && !hero_box_free(r, h->x + h->face * 0.06f, h->y)) {
                 start_wall(h, h->face);
                 body(h, "Harpoon Catch", true);
@@ -586,13 +600,18 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 if (h->st < SOAR_CHARGE) { to_normal(h); body(h, "Super Jump Antic Cancel", true); return false; }
                 h->phase = 1; h->st = 0;
                 body(h, "Super Jump Throw", true);
+                snd("hornet_superjump_pt_3_charge_ready");
             }
             return false;
         }
         if (h->phase == 1) {                        // the throw, the jump antic
             h->vy = 0;
             if (h->st >= SOAR_THROW && !clip_is(h, "Super Jump Jump Antic")) body(h, "Super Jump Jump Antic", true);
-            if (h->st >= SOAR_THROW + SOAR_ANTIC) { h->phase = 2; h->st = 0; body(h, "Super Jump Loop", true); }
+            if (h->st >= SOAR_THROW + SOAR_ANTIC) {
+                h->phase = 2; h->st = 0;
+                body(h, "Super Jump Loop", true);
+                snd("hornet_superjump_pt_7_hornet_jump_big_2d");
+            }
             return false;
         }
         // up, until the ceiling, a cancel (B, Y or L) or the end of the thread
@@ -674,6 +693,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 h->sprint = h->jumping = h->floating = false;
                 h->djump_t = -1;
                 body(h, h->ground ? "BindCharge Ground" : "BindCharge Air", true);
+                if (h->phase == 0) snd("hornet_bind_ready");
                 return false;
             }
         }
@@ -693,6 +713,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 h->jump_buf = 0;
                 h->air_sprint_t = -1;
                 body(h, "Double Jump", true);
+                snd("hornet_sprint_jump_first_spin");
                 h->fx_on = anim_play_name(&h->fx, "Double Jump Wings 2", true);
             } else if (!h->floating && h->djump_t < 0) {
                 // Drifter's Cloak: float down while B is held
@@ -701,6 +722,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 h->jump_buf = 0;
                 h->air_sprint_t = -1;
                 body(h, "Umbrella Inflate", true);
+                snd("hornet_umbrella_open");
             }
         }
         if (dash_down && h->dash_cd <= 0 && (h->ground || h->air_dash)) {
@@ -803,6 +825,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 bool to_sprint = dash_held && dir == h->face && (h->air_sprint_t >= 0 || h->fast_air);
                 if (to_sprint) { h->sprint = true; body(h, "Land to Sprint", true); }
                 else body(h, h->spike_rec > 0 ? "Downspike Recovery Land" : "Land Q", true);
+                snd(h->vy < -25 ? "hornet_land_hard_new" : "hornet_ground_land");
             }
             h->ground = true;
         }
@@ -850,6 +873,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
             h->queued_jump = false;
             h->air_dash = true;
             body(h, "Mantle Cling", true);
+            snd("hornet_edge_grab_v2_1");
             anim_update(&h->body, dt);
             return false;
         }

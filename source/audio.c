@@ -225,14 +225,23 @@ static SfxBuf *sfx_get(const char *name) {
     return b;
 }
 
+static void sfx_start(const char *name, float vol, float pan);
+
 void sfx_play(const char *guid, float vol, float pan) {
     if (!s_on || !guid || strlen(guid) != 32 || vol <= 0.01f) return;
     sfx_index();
     SfxIdx key;
     memcpy(key.guid, guid, 33);
     SfxIdx *e = bsearch(&key, s_idx, s_nidx, sizeof(SfxIdx), cmp_idx);
-    if (!e) return;
-    SfxBuf *b = sfx_get(e->name);
+    if (e) sfx_start(e->name, vol, pan);
+}
+
+void sfx_play_name(const char *name, float vol, float pan) {
+    if (s_on && name && name[0] && vol > 0.01f) sfx_start(name, vol, pan);
+}
+
+static void sfx_start(const char *name, float vol, float pan) {
+    SfxBuf *b = sfx_get(name);
     if (!b) return;
     int v = -1;
     for (int i = 0; i < SFX_VOICES; i++)
