@@ -95,9 +95,13 @@
 #define OP_RunDialogue                     91   // Sheet Key Target
 #define OP_ActivateInteractible            92   // Target Activate
 #define OP_FinishFSM                       93   // 
-#define OP_PlayAudioEvent                  94   // audioClip
+#define OP_PlayAudioEvent                  94   // audioClip volume spawnPoint
 #define OP_RunDialogueV4                   95   // Sheet Key
 #define OP_EndDialogue                     96   // ReturnControl
 #define OP_RunDialogueV3                   97   // Sheet Key
 #define OP_RunDialogueV2                   98   // Sheet Key
-#define OP_COUNT 99
+#define OP_AudioPlayerOneShotSingle        99   // audioClip volume spawnPoint
+#define OP_AudioPlaySimple                100   // oneShotClip volume gameObject
+#define OP_AudioPlayRandom                101   // audioClips weights gameObject
+#define OP_AudioPlayerOneShot             102   // audioClips weights spawnPoint volume
+#define OP_COUNT 103

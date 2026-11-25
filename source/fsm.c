@@ -5,6 +5,7 @@
 #include "fsm_ops.h"
 #include "autotest.h"
 #include "dialogue.h"
+#include "audio.h"
 
 enum { T_NONE, T_FLOAT, T_INT, T_BOOL, T_STR, T_VAR, T_NODE, T_EVENT, T_VEC, T_LIST, T_TARGET };
 #define N_OWNER (-2)
@@ -461,6 +462,30 @@ static void play_clip(int node, const Val *clip, Fsm *f) {
     anim_play_name(&o->anim, str_at(a_str(f, clip)), true);
 }
 
+// a sound at a node: quieter with the distance from the view's centre, panned to its side
+static void play_sfx(Fsm *f, const Val *clip, float vol, int node) {
+    int s = a_str(f, clip);
+    if (s < 0) return;
+    float x, y;
+    if (node == N_NONE) node = f->owner;
+    node_pos(node, &x, &y);
+    float dx = x - g_view.cx, dy = y - g_view.cy, d = hypotf(dx, dy);
+    float k = d < 12 ? 1 : d > 30 ? 0 : 1 - (d - 12) / 18;
+    sfx_play(str_at(s), vol * k, clampf(dx / 14, -0.8f, 0.8f));
+}
+
+static const Val *pick(Fsm *f, const Val *list, const Val *weights) {
+    if (list->t != T_LIST || !list->n) return list;
+    float tot = 0;
+    for (int i = 0; i < list->n; i++) tot += (weights->t == T_LIST && i < weights->n) ? a_f(f, &weights->list[i]) : 1;
+    float r = frand(0, tot);
+    for (int i = 0; i < list->n; i++) {
+        r -= (weights->t == T_LIST && i < weights->n) ? a_f(f, &weights->list[i]) : 1;
+        if (r <= 0) return &list->list[i];
+    }
+    return &list->list[list->n - 1];
+}
+
 static void convo_end(void *ctx) {
     static int ev = -2;
     if (ev == -2 || ev >= s_nstr) ev = str_find("CONVO_END");
@@ -812,6 +837,13 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
     case OP_WaitForHeroInPosition: send_self(f, ARG(0)); return true;
     case OP_CheckHeroPerformanceRegion: send_self(f, ARG(1)); return true;
     case OP_FinishFSM: f->stopped = true; return true;
+    case OP_PlayAudioEvent: case OP_AudioPlayerOneShotSingle: case OP_AudioPlaySimple:
+        play_sfx(f, ARG(0), a_none(f, ARG(1)) ? 1 : a_f(f, ARG(1)), a_node(f, ARG(2)));
+        return true;
+    case OP_AudioPlayRandom: play_sfx(f, pick(f, ARG(0), ARG(1)), 1, a_node(f, ARG(2))); return true;
+    case OP_AudioPlayerOneShot:
+        play_sfx(f, pick(f, ARG(0), ARG(1)), a_none(f, ARG(3)) ? 1 : a_f(f, ARG(3)), a_node(f, ARG(2)));
+        return true;
     case OP_RunDialogue: case OP_RunDialogueV2: case OP_RunDialogueV3: case OP_RunDialogueV4:
         // the text box; the FSM gets CONVO_END when it closes
         if (enter) { dlg_open(str_at(a_str(f, ARG(0))), str_at(a_str(f, ARG(1))), convo_end, f); return false; }

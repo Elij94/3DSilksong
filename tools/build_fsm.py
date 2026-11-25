@@ -106,11 +106,15 @@ OPS = [
     ('RunDialogue', 'Sheet Key Target'),
     ('ActivateInteractible', 'Target Activate'),
     ('FinishFSM', ''),
-    ('PlayAudioEvent', 'audioClip'),
+    ('PlayAudioEvent', 'audioClip volume spawnPoint'),
     ('RunDialogueV4', 'Sheet Key'),
     ('EndDialogue', 'ReturnControl'),
     ('RunDialogueV3', 'Sheet Key'),
     ('RunDialogueV2', 'Sheet Key'),
+    ('AudioPlayerOneShotSingle', 'audioClip volume spawnPoint'),
+    ('AudioPlaySimple', 'oneShotClip volume gameObject'),
+    ('AudioPlayRandom', 'audioClips weights gameObject'),
+    ('AudioPlayerOneShot', 'audioClips weights spawnPoint volume'),
 ]
 OP_ID = {n: i for i, (n, _) in enumerate(OPS)}
 

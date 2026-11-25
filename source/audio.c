@@ -3,6 +3,7 @@
 // (SD:/3ds/dspfirm.cdc, dumped with DSP1) there is simply no sound.
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "audio.h"
 
 #define RATE    22050
@@ -115,14 +116,149 @@ void audio_update(float dt) {
     }
 }
 
+static void sfx_free(void);
+
 void audio_exit(void) {
     if (!s_on) return;
     for (int c = 0; c < 2; c++) {
         stop(c);
         linearFree(s_st[c].data);
     }
+    sfx_free();
     ndspExit();
     s_on = false;
+}
+
+// ------------------------------------------------------------------ sound effects
+// sfx/<name>.pcm (the same PCM as the music, tools/build_music_pcm.py romfs sfx), found by the guid the FSMs give
+// through sfx/index.txt; played whole on channels 2..9, kept in a small cache of linear memory.
+
+#define SFX_CH0   2
+#define SFX_VOICES 8
+#define SFX_CACHE 48
+#define SFX_MAXSAMP (RATE * 4)
+#define SFX_BUDGET (3u << 20)
+
+typedef struct { char guid[33]; char name[64]; } SfxIdx;
+typedef struct { char name[64]; s16 *data; u32 n; u32 last; } SfxBuf;
+static SfxIdx *s_idx;
+static int s_nidx;
+static SfxBuf s_cache[SFX_CACHE];
+static size_t s_cache_used;
+static u32 s_clock;
+static ndspWaveBuf s_vwb[SFX_VOICES];
+static s16 *s_vdata[SFX_VOICES];
+
+static int cmp_idx(const void *a, const void *b) { return strcmp(((const SfxIdx *)a)->guid, ((const SfxIdx *)b)->guid); }
+
+static void sfx_index(void) {
+    if (s_idx) return;
+    size_t size;
+    char *d = file_load(data_path("sfx/index.txt"), &size);
+    if (!d) { s_idx = calloc(1, sizeof(SfxIdx)); return; }
+    int lines = 1;
+    for (size_t i = 0; i < size; i++) lines += d[i] == '\n';
+    s_idx = calloc(lines + 1, sizeof(SfxIdx));
+    char *p = d, *end = d + size;
+    while (p < end) {
+        char *nl = memchr(p, '\n', end - p);
+        if (!nl) nl = end;
+        char *tab = memchr(p, '\t', nl - p);
+        if (tab && tab - p == 32) {
+            SfxIdx *e = &s_idx[s_nidx++];
+            memcpy(e->guid, p, 32);
+            size_t n = nl - tab - 1;
+            if (n && tab[n] == '\r') n--;
+            if (n > 4 && !memcmp(tab + 1 + n - 4, ".ogg", 4)) n -= 4;
+            if (n > 63) n = 63;
+            memcpy(e->name, tab + 1, n);
+        }
+        p = nl + 1;
+    }
+    free(d);
+    qsort(s_idx, s_nidx, sizeof(SfxIdx), cmp_idx);
+}
+
+static bool voice_uses(const s16 *data) {
+    for (int v = 0; v < SFX_VOICES; v++)
+        if (s_vdata[v] == data && s_vwb[v].status != NDSP_WBUF_DONE && s_vwb[v].status != NDSP_WBUF_FREE) return true;
+    return false;
+}
+
+static SfxBuf *sfx_get(const char *name) {
+    s_clock++;
+    for (int i = 0; i < SFX_CACHE; i++)
+        if (s_cache[i].data && !strcmp(s_cache[i].name, name)) { s_cache[i].last = s_clock; return &s_cache[i]; }
+    FILE *f = fopen(data_path("sfx/%s.pcm", name), "rb");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    long bytes = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    u32 n = (u32)(bytes / 2);
+    if (n > SFX_MAXSAMP) n = SFX_MAXSAMP;
+    if (!n) { fclose(f); return NULL; }
+    // room: the least recently played sounds that no voice is playing
+    int slot = -1;
+    for (;;) {
+        int lru = -1;
+        for (int i = 0; i < SFX_CACHE; i++) {
+            if (!s_cache[i].data) { if (slot < 0) slot = i; continue; }
+            if (!voice_uses(s_cache[i].data) && (lru < 0 || s_cache[i].last < s_cache[lru].last)) lru = i;
+        }
+        if (slot >= 0 && s_cache_used + n * 2 <= SFX_BUDGET) break;
+        if (lru < 0) { fclose(f); return NULL; }
+        s_cache_used -= s_cache[lru].n * 2;
+        linearFree(s_cache[lru].data);
+        s_cache[lru].data = NULL;
+        if (slot < 0) slot = lru;
+    }
+    SfxBuf *b = &s_cache[slot];
+    b->data = linearAlloc(n * 2);
+    if (!b->data) { fclose(f); return NULL; }
+    n = fread(b->data, 2, n, f);
+    fclose(f);
+    DSP_FlushDataCache(b->data, n * 2);
+    snprintf(b->name, sizeof b->name, "%s", name);
+    b->n = n;
+    b->last = s_clock;
+    s_cache_used += n * 2;
+    return b;
+}
+
+void sfx_play(const char *guid, float vol, float pan) {
+    if (!s_on || !guid || strlen(guid) != 32 || vol <= 0.01f) return;
+    sfx_index();
+    SfxIdx key;
+    memcpy(key.guid, guid, 33);
+    SfxIdx *e = bsearch(&key, s_idx, s_nidx, sizeof(SfxIdx), cmp_idx);
+    if (!e) return;
+    SfxBuf *b = sfx_get(e->name);
+    if (!b) return;
+    int v = -1;
+    for (int i = 0; i < SFX_VOICES; i++)
+        if (s_vwb[i].status == NDSP_WBUF_DONE || s_vwb[i].status == NDSP_WBUF_FREE) { v = i; break; }
+    if (v < 0) return;
+    int c = SFX_CH0 + v;
+    ndspChnWaveBufClear(c);
+    ndspChnReset(c);
+    ndspChnSetInterp(c, NDSP_INTERP_LINEAR);
+    ndspChnSetRate(c, RATE);
+    ndspChnSetFormat(c, NDSP_FORMAT_MONO_PCM16);
+    float mix[12] = {0};
+    pan = clampf(pan, -1, 1);
+    mix[0] = vol * (pan > 0 ? 1 - pan : 1);
+    mix[1] = vol * (pan < 0 ? 1 + pan : 1);
+    ndspChnSetMix(c, mix);
+    memset(&s_vwb[v], 0, sizeof s_vwb[v]);
+    s_vwb[v].data_vaddr = b->data;
+    s_vwb[v].nsamples = b->n;
+    s_vdata[v] = b->data;
+    ndspChnWaveBufAdd(c, &s_vwb[v]);
+}
+
+static void sfx_free(void) {
+    for (int v = 0; v < SFX_VOICES; v++) ndspChnWaveBufClear(SFX_CH0 + v);
+    for (int i = 0; i < SFX_CACHE; i++) if (s_cache[i].data) { linearFree(s_cache[i].data); s_cache[i].data = NULL; }
 }
 
 bool audio_on(void) { return s_on; }

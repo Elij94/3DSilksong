@@ -9,3 +9,5 @@ void audio_update(float dt);
 void audio_exit(void);
 bool audio_on(void);
 const char *audio_track(int c);
+// a sound effect by the guid of its AudioClip (the FSMs' sounds); vol 0..1, pan -1 left .. 1 right
+void sfx_play(const char *guid, float vol, float pan);
