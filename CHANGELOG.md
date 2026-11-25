@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.11.0 — the game's HUD at its size, rosaries and shell shards, fixes from the console
+
+- The HUD placed and sized as the game's HudCamera shows it (13.8 pixels a unit, anchored top left): the bind orb,
+  the masks at 0.71, and the real silk spool (SilkSpool: rod between its caps, a chunk every 0.18, glowing when a bind
+  is ready). Rosary and shell shard counters where the game puts them, a few seconds after a pickup.
+- Kills fling the enemy's rosaries and shell shards (HealthManager's drop counts and fling); they fall, rosaries bounce
+  (Rosary Bead: 0.5), Hornet picks them up 0.35 s after they appear, with their sounds; totals in PlayerData
+  `geo` / `ShellShards` (saved). `tools/build_items.py` makes their sprites from the prefabs' animator clips.
+- Enemies were doubled by a still copy baked into the scenery: sprites with a tk2d animator are left to the engine.
+- `TestGameObjectActivator`: rooms with a normal and a Black Thread variant now show the normal one (its enemies were
+  missing).
+- Hornet: the sprint turn flips her at once and skids the old way while "Sprint Turn" plays (Sprint FSM), with
+  its sound; the wall slide no longer holds when pushing towards the wall; the dash plays the hero's dash sound; the
+  bind shows the "Bind Silk" wrapping round her, then a white flash; the bench: she is moved onto the seat while "Sit"
+  plays, the rest flashes, "Sit Idle", and "Get Off" when she stands up.
+- Bottom screen: it no longer scrolls every frame (it flickered between two layouts and hid the frame rate).
+
 ## 0.10.0 — enemies on their own scripts, hits and kills as in the game
 
 - Enemies run their own FSMs: alert ranges, raycasts, collisions, facing, chasing, flying, and the game's walking

@@ -45,6 +45,9 @@ typedef struct {
     const char *crawl_anim, *turn_anim, *idle_anim;
     // PersistentBoolItem: a kill remembered (semi: until a bench rest), its PlayerData key
     char persist[48];
+    // HealthManager's drops: small, medium, large, large smooth rosaries, shell shards; a wider, faster fling
+    u16 geo[5];
+    bool mega_fling;
     // behaviour (enemy.c)
     u8 ai;                 // AI_*
     bool dead;             // a corpse: still drawn, no longer hits nor gets hit

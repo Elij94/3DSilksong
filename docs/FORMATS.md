@@ -112,7 +112,13 @@ instead of recoil, 16 has a Recoil), `f32 recoil speed`, `f32 recoil time`, `u8 
 inactive, `f32` right scale, edge adjust), (version 6) `u8` + Crawler (`f32` speed, `u8` sprite faces right, `u16` clip,
 `u8` start inactive), `u8` + WalkerV2 (`f32` speed, `u16` walk, turn, idle clips, `f32` wall distance, ground ahead,
 `u8` start active). Version 6 ends with the objects' states: `u16 n` × (`s16 object`, `u8` persistent, `u8`
-semi-persistent, `u16` id, `u8` PlayerData switch, `u8` off when true, `u16` PlayerData bool).
+semi-persistent, `u16` id, `u8` PlayerData switch, `u8` off when true, `u16` PlayerData bool). Version 7 adds to each
+enemy, after WalkerV2, its drops (`u16` small, medium, large, large smooth rosaries, shell shards, `u8` mega fling),
+and to each state `u8` + a TestGameObjectActivator (`s16` node to activate, `s16` node to deactivate when the test
+fails, `u8` groups × (`u8` tests × (`u8` type, `u16` PlayerData field, `u8` bool, `u8` number test, `s32`, `f32`))).
+
+`sprites/rosary.sss` (`tools/build_items.py`): clips "Small|Med|Large Air|Idle|Land|Gleam" and "Shard" (one frame
+per shell shard sprite). `sprites/hud_spool.sss`: the spool's rod, cap and bind notch, the counters' icons.
 
 A value is `u8 tag` then: 0 none; 1 `f32`; 2 `s32`; 3 `u8` bool; 4 `u16` string; 5 `u16` variable; 6 `s16` node
 (-2 the owner, -3 Hornet, -1 none); 7 `u16` event; 8 `f32 x, y, z`; 9 `u8 n` + n values; 10 event target: `u8 kind`

@@ -353,8 +353,14 @@ def renderables(sc, scripts, sorting):
         if under_unmasker(sc, scripts, gid):
             continue
         m = sc.world(gid)
+        # a tk2d sprite with an animator is an object the engine draws and animates itself (enemies, NPCs...): baked
+        # too, it would leave a still copy of it in the scenery
+        animated = any(t == 'MonoBehaviour' and scripts.get((v.get('m_Script') or {}).get('guid')) == 'TeamCherry.TK2D'
+                       and 'library' in v and 'defaultClipId' in v for t, v in comps)
         for t, v in comps:
             if not v.get('m_Enabled', 1):
+                continue
+            if animated and t == 'MonoBehaviour' and 'collection' in v and '_spriteId' in v:
                 continue
             if t == 'SpriteRenderer':
                 sp = v.get('m_Sprite') or {}

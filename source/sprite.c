@@ -164,6 +164,18 @@ void sprite_draw_screen(SpriteSet *s, int f, float px, float py, float scale, co
                     py - fr->y1 * scale, px + fr->x1 * scale * ax, py - fr->y0 * scale, tint);
 }
 
+void sprite_draw_screen_xy(SpriteSet *s, int f, float px, float py, float sx, float sy, const C2D_ImageTint *tint) {
+    if (!s || f < 0 || f >= s->nframes) return;
+    const SFrame *fr = &s->frames[f];
+    if (fr->page >= s->npages || !page_ready(s, fr->page)) return;
+    float x0 = px + fr->x0 * sx, x1 = px + fr->x1 * sx, u0 = fr->u0, u1 = fr->u1;
+    if (x1 < x0) {   // flipped: the quad's sides and the texture's swap
+        float t = x0; x0 = x1; x1 = t;
+        t = u0; u0 = u1; u1 = t;
+    }
+    gfx_draw_screen(&s->pages[fr->page].tex, u0, fr->v0, u1, fr->v1, x0, py - fr->y1 * sy, x1, py - fr->y0 * sy, tint);
+}
+
 void anim_play(Anim *a, int clip, bool restart) {
     if (clip < 0) return;
     if (a->clip == clip && !restart) return;

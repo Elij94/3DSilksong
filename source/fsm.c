@@ -375,22 +375,57 @@ void fsm_load(const char *scene, Objects *os) {
                     p += 19;
                 }
             }
+            if (rd16(s_data + 4) >= 7) {   // what a kill flings out: rosaries (small, medium, large, smooth), shards
+                if (o) {
+                    for (int k = 0; k < 5; k++) o->geo[k] = rd16(p + k * 2);
+                    o->mega_fling = p[10];
+                }
+                p += 11;
+            }
         }
     }
-    // remembered kills, and what PlayerData switches off (version 6)
+    // remembered kills, what PlayerData switches off (version 6), objects switched by a PlayerData test (version 7)
     if (rd16(s_data + 4) >= 6 && p + 2 <= s_data + size) {
+        int ver = rd16(s_data + 4);
         int n = rd16(p); p += 2;
-        for (int i = 0; i < n && p + 10 <= s_data + size; i++, p += 10) {
-            int oi = rds16(p);
+        for (int i = 0; i < n && p + 10 <= s_data + size; i++) {
+            const u8 *q = p;
+            p += 10;
+            int oi = rds16(q);
             Obj *o = oi >= 0 && oi < os->n ? &os->o[oi] : NULL;
-            if (!o) continue;
-            if (p[2] && (o->flags & OF_ENEMY)) {
-                snprintf(o->persist, sizeof o->persist, "%s%s:%s:%d", p[3] ? "semi:" : "", scene, str_at_load(rd16(p + 4)), oi);
+            if (o && q[2] && (o->flags & OF_ENEMY)) {
+                snprintf(o->persist, sizeof o->persist, "%s%s:%s:%d", q[3] ? "semi:" : "", scene, str_at_load(rd16(q + 4)), oi);
                 if (pd_bool(o->persist)) o->alive = false;      // killed before: not there
             }
-            if (p[6]) {
-                bool v = pd_bool(str_at_load(rd16(p + 8)));
-                if (v == (p[7] != 0) && o->node >= 0) s_nodes[o->node].active = 0;
+            if (o && q[6]) {
+                bool v = pd_bool(str_at_load(rd16(q + 8)));
+                if (v == (q[7] != 0) && o->node >= 0) s_nodes[o->node].active = 0;
+            }
+            if (ver >= 7 && *p++) {   // TestGameObjectActivator: any group whose tests all pass
+                int an = rds16(p), dn = rds16(p + 2), ng = p[4];
+                p += 5;
+                bool pass = ng == 0;
+                for (int g = 0; g < ng; g++) {
+                    int nt = *p++;
+                    bool all = true;
+                    for (int t = 0; t < nt; t++, p += 13) {
+                        int type = p[0], bv = p[3], nty = p[4];
+                        const char *field = str_at_load(rd16(p + 1));
+                        s32 iv = (s32)rd32(p + 5);
+                        float fv = rdf(p + 9);
+                        bool ok;
+                        if (type == 0) ok = pd_bool(field) == (bv != 0);
+                        else if (type == 4) ok = false;
+                        else {
+                            float x = (float)pd_int(field), y = type == 2 ? fv : (float)iv;
+                            ok = nty == 0 ? x == y : nty == 1 ? x != y : nty == 2 ? x < y : x > y;
+                        }
+                        if (!ok) all = false;
+                    }
+                    if (all) pass = true;
+                }
+                if (an >= 0 && an < s_nnodes) s_nodes[an].active = pass;
+                if (dn >= 0 && dn < s_nnodes) s_nodes[dn].active = !pass;
             }
         }
     }

@@ -6,6 +6,7 @@
 #include <math.h>
 #include "objects.h"
 #include "room.h"
+#include "currency.h"
 
 #define WALK_SPEED   1.8f
 #define CHASE_SPEED  3.6f
@@ -192,6 +193,8 @@ void enemy_kill(Objects *os, int i, float from_x, int dir) {
     fsm_node_send(o->node, "DEATH");
     fsm_node_stop(o->node);
     if (o->persist[0]) pd_set_bool(o->persist, true);
+    for (int k = 0; k < 5; k++)              // HealthManager.SpawnCurrency: its rosaries and shell shards
+        if (o->geo[k]) currency_fling(k, o->geo[k], cx, cy, o->mega_fling);
     o->walking = false;
     o->recoil_t = 0;
     // the corpse: the corpse prefab's animations ("Death Air" in the air, "Death Land" on the ground)

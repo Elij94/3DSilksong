@@ -14,6 +14,7 @@
 #include "fsm.h"
 #include "dialogue.h"
 #include "fx.h"
+#include "currency.h"
 
 #define FIRST_ROOM "Tut_01"
 #define SAVE_PATH  "sdmc:" SS_DATADIR "save.txt"
@@ -79,6 +80,7 @@ static void unload(void) {
     if (!s_loaded) return;
     fsm_free();
     objects_free(&s_objs);
+    currency_clear();
     particles_free();
     room_free(&s_room);
     free(s_order);
@@ -390,6 +392,7 @@ static void play(const Input *in_raw, float dt) {
         }
     }
     float x0 = h->x - HERO_HW, y0 = h->y + HERO_FOOT, x1 = h->x + HERO_HW, y1 = h->y + HERO_HEAD;
+    if (h->state != HS_DEAD) currency_update(&s_room, dt, x0, y0, x1, y1);
 
     if (h->state == HS_DEAD) {
         s_dead_t += dt;
@@ -443,9 +446,9 @@ static void play(const Input *in_raw, float dt) {
                 pd_clear_semi();      // and the enemies come back
                 h->hp = h->maxhp;
                 snprintf(s_bench_scene, sizeof s_bench_scene, "%s", s_room.scene);
-                s_bench_x = h->x;
+                s_bench_x = h->sit_x1;
                 s_bench_y = h->y;
-                s_safe_x = h->x;
+                s_safe_x = h->sit_x1;
                 s_safe_y = h->y;
                 game_save();
                 message("Rested. Hornet will come back here.");
@@ -510,9 +513,10 @@ static void log_state(void) {
     int dead = 0, live = 0;
     for (int i = 0; i < s_objs.n; i++)
         if (s_objs.o[i].ai != AI_NONE) { if (s_objs.o[i].dead || !s_objs.o[i].alive) dead++; else live++; }
-    snprintf(clip, sizeof clip, "%s hp=%d enemies=%d/%d parts=%d/%d",
+    snprintf(clip, sizeof clip, "%s hp=%d enemies=%d/%d parts=%d/%d cur=%d geo=%d sh=%d",
              h->body.set && h->body.clip >= 0 ? h->body.set->clips[h->body.clip].name : "-", h->hp, live, dead,
-             particles_count(), particles_emitters());
+             particles_count(), particles_emitters(), currency_count(), pd_int("geo"), pd_int("ShellShards"));
+    { char cd[64]; currency_debug(cd, sizeof cd); strncat(clip, cd, sizeof clip - strlen(clip) - 1); }
     // the nearest enemy: where, its hp, its clip
     int ne = -1;
     float bd = 1e9f;
@@ -615,12 +619,18 @@ void game_update(const Input *in, float dt) {
 
 // ------------------------------------------------------------------ drawing
 
-// The game's HUD art (sprites/hud_anim.sss): the spool frame, then the masks, full or empty; a mask lost plays its
-// break. Plain circles if the set is missing.
-static SpriteSet *s_hud;
+// The game's HUD (_GameCameras / HudCamera / Hud Canvas), placed as the game places it: its camera shows 8.71 units
+// above and below the centre (13.8 pixels per unit on the 240 lines here), the HUD anchored at the top left. The bind
+// orb's frame, the masks (scale 0.71, 0.94 apart), the silk spool under them (SilkSpool: the rod between its two caps,
+// a chunk of silk every 0.18), and the rosary and shell shard counters when they change.
+static SpriteSet *s_hud, *s_spool;
 static float s_hud_t;
 static int s_hud_hp = -1;
 static float s_break_t[16];
+
+#define HUD_K   (240.0f / (2 * 8.710664f))
+#define HUD_X(x) (((x) + 8.710664f * 16 / 9) * HUD_K)
+#define HUD_Y(y) ((8.710664f - (y)) * HUD_K)
 
 static int hud_frame(const char *clip, float t, bool loop) {
     int c = sprite_clip(s_hud, clip);
@@ -632,11 +642,29 @@ static int hud_frame(const char *clip, float t, bool loop) {
     return rds16((const u8 *)&cl->frames[i]);
 }
 
+static int spool_frame(const char *name) {
+    int c = s_spool ? sprite_clip(s_spool, name) : -1;
+    return c >= 0 && s_spool->clips[c].n ? rds16((const u8 *)&s_spool->clips[c].frames[0]) : -1;
+}
+
+// a left-aligned line in the system font
+static void hud_text(const char *str, float x, float y, float size, u32 color) {
+    if (!s_tbuf) return;
+    C2D_Text t;
+    C2D_TextBufClear(s_tbuf);
+    C2D_TextParse(&t, s_tbuf, str);
+    C2D_TextOptimize(&t);
+    float w, h;
+    C2D_TextGetDimensions(&t, size, size, &w, &h);
+    C2D_DrawText(&t, C2D_WithColor, x, y - h * 0.5f, 0.95f, size, size, color);
+}
+
 static void draw_hud(void) {
-    float ax = g_view.sx / g_view.sy;
     if (!s_hud) {
         s_hud = sprites_get("sprites/hud_anim.sss");
         if (s_hud) s_hud->pinned = true;
+        s_spool = sprites_get("sprites/hud_spool.sss");
+        if (s_spool) s_spool->pinned = true;
     }
     s_hud_t += 1.0f / 60;
     if (s_hud_hp >= 0 && s_hero.hp < s_hud_hp)
@@ -644,21 +672,21 @@ static void draw_hud(void) {
     s_hud_hp = s_hero.hp;
     if (!s_hud) {
         for (int i = 0; i < s_hero.maxhp; i++) {
-            float x = (22 + i * 18) * ax, y = 20;
-            C2D_DrawCircleSolid(x, y, 0.5f, 7.5f, C2D_Color32(20, 16, 18, 200));
-            if (i < s_hero.hp) C2D_DrawCircleSolid(x, y, 0.5f, 6, C2D_Color32(240, 236, 228, 255));
+            float x = HUD_X(-11.84f + 0.94f * i), y = HUD_Y(6.79f);
+            C2D_DrawCircleSolid(x, y, 0.5f, 5.5f, C2D_Color32(20, 16, 18, 200));
+            if (i < s_hero.hp) C2D_DrawCircleSolid(x, y, 0.5f, 4.5f, C2D_Color32(240, 236, 228, 255));
         }
         return;
     }
     gfx_blend(BLEND_NORMAL);
-    const float S = 20;   // pixels per HUD unit
-    sprite_draw_screen(s_hud, hud_frame("HUD Frame Wanderer Idle", 0, false), 60 * ax, 34, S, NULL);
-    // the silk on the spool's thread: one chunk per hit, a bind (A) takes the whole spool
-    int chunk = hud_frame(s_hero.silk >= SILK_MAX ? "SilkChunk Glow 1" : "SilkChunk Idle 1", 0, false);
-    for (int i = 0; i < s_hero.silk && i < SILK_MAX; i++)
-        sprite_draw_screen(s_hud, chunk, (104 + i * 6) * ax, 50, S, NULL);
+    const float K = HUD_K;
+    // the bind orb's frame (Hunter crest)
+    int fr = hud_frame("HUD Frame Idle", 0, false);
+    if (fr < 0) fr = hud_frame("HUD Frame Wanderer Idle", 0, false);
+    sprite_draw_screen(s_hud, fr, HUD_X(-12.58f), HUD_Y(6.62f), K, NULL);
+    // the masks
     for (int i = 0; i < s_hero.maxhp && i < 16; i++) {
-        float x = (102 + i * 19) * ax, y = 28;
+        float x = HUD_X(-11.84f + 0.94f * i), y = HUD_Y(6.79f), S = K * 0.714f;
         if (i < s_hero.hp) {
             s_break_t[i] = 0;
             sprite_draw_screen(s_hud, hud_frame("Health Idle", s_hud_t + i * 0.3f, true), x, y, S, NULL);
@@ -668,6 +696,40 @@ static void draw_hud(void) {
         } else {
             sprite_draw_screen(s_hud, hud_frame("Health Empty", 0, false), x, y, S, NULL);
         }
+    }
+    // the spool: the rod from the left cap to the right one (9 chunks long), the silk wound on it
+    const float tx = -13.75f, ty = 5.256f, len = 0.085f + 0.18f * (SILK_MAX - 1) + 0.15f;
+    int rod = spool_frame("Hornet_Spool_0002_rod");
+    if (rod >= 0) {
+        float rw = s_spool->frames[rod].x1 - s_spool->frames[rod].x0;
+        sprite_draw_screen_xy(s_spool, rod, HUD_X(tx), HUD_Y(ty - 0.004f), K * len / (rw > 0 ? rw : 1), K, NULL);
+    }
+    int cap = hud_frame("Cap Idle", 0, false);
+    if (cap < 0) cap = spool_frame("Hornet_Spool_0000_cap");
+    SpriteSet *cs = hud_frame("Cap Idle", 0, false) >= 0 ? s_hud : s_spool;
+    sprite_draw_screen_xy(cs, cap, HUD_X(tx), HUD_Y(ty), -K, K, NULL);
+    sprite_draw_screen_xy(cs, cap, HUD_X(tx + len), HUD_Y(ty), K, K, NULL);
+    bool glow = s_hero.silk >= SILK_MAX;   // a bind is ready: the silk glows
+    for (int i = 0; i < s_hero.silk && i < SILK_MAX; i++) {
+        char name[24];
+        snprintf(name, sizeof name, glow ? "SilkChunk Glow %d" : "SilkChunk Idle %d", 1 + i % 3);
+        sprite_draw_screen(s_hud, hud_frame(name, s_hud_t + i * 0.17f, true), HUD_X(tx + 0.085f + 0.18f * i), HUD_Y(ty), K,
+                           NULL);
+    }
+    // the counters, a few seconds after a pickup: rosaries, then shell shards one unit lower
+    int geo, shards;
+    float shown = currency_shown(&geo, &shards);
+    if (shown < 3.5f) {
+        u8 a = shown < 3 ? 255 : (u8)(255 * (3.5f - shown) / 0.5f);
+        C2D_ImageTint tint;
+        C2D_AlphaImageTint(&tint, a / 255.0f);
+        char txt[16];
+        sprite_draw_screen(s_spool, spool_frame("HUD_coin_v020004"), HUD_X(-13.77f), HUD_Y(1.967f), K, &tint);
+        snprintf(txt, sizeof txt, "%d", geo);
+        hud_text(txt, HUD_X(-13.2f), HUD_Y(1.89f), 0.36f, C2D_Color32(255, 255, 255, a));
+        sprite_draw_screen(s_spool, spool_frame("shell_shard_icon0004"), HUD_X(-13.77f), HUD_Y(0.963f), K, &tint);
+        snprintf(txt, sizeof txt, "%d", shards);
+        hud_text(txt, HUD_X(-13.2f), HUD_Y(0.89f), 0.36f, C2D_Color32(255, 255, 255, a));
     }
 }
 
@@ -712,6 +774,7 @@ static void draw_all(void) {
             // in front of everything at the gameplay plane: the objects there, then Hornet
             draw_band(-0.001f, zcur);
             zcur = -0.001f;
+            currency_draw();
             hero_draw(&s_hero);
             hero_done = true;
         }
@@ -725,6 +788,7 @@ static void draw_all(void) {
     if (!hero_done) {
         draw_band(-0.001f, zcur);
         zcur = -0.001f;
+        currency_draw();
         hero_draw(&s_hero);
     }
     draw_band(-1e30f, zcur);
@@ -773,10 +837,10 @@ void game_status(float fps, float ms) {
     printf("\x1b[2;1H\x1b[K\nRoom  %-32s\x1b[K\n", s_room.scene);
     printf("Pos   %7.2f %7.2f  %s\x1b[K\n", s_hero.x, s_hero.y, s_hero.ground ? "ground" : "air   ");
     printf("Cam   %7.2f %7.2f  st %d vy %6.2f\x1b[K\n", g_view.cx, g_view.cy, s_hero.state, s_hero.vy);
-    printf("Masks %d/%d   objects %d\x1b[K\n", s_hero.hp, s_hero.maxhp, s_objs.n);
+    printf("Masks %d/%d  objects %d  rosaries %d\x1b[K\n", s_hero.hp, s_hero.maxhp, s_objs.n, pd_int("geo"));
     printf("Tiles %d cached   linear %lu KB free\x1b[K\n", room_cache_used(), (unsigned long)(linearSpaceFree() / 1024));
-    printf("Silk  %d/%d   music %s\x1b[K\n", s_hero.silk, SILK_MAX,
-           audio_on() ? (audio_track(0)[0] ? audio_track(0) : "-") : "off (no SD:/3ds/dspfirm.cdc)");
+    printf("Silk  %d/%d  shards %d  music %.14s\x1b[K\n", s_hero.silk, SILK_MAX, pd_int("ShellShards"),
+           audio_on() ? (audio_track(0)[0] ? audio_track(0) : "-") : "off");
     printf("\x1b[K\n%s\x1b[K\n\x1b[K\n", s_msg_t > 0 ? s_msg : "");
     printf("Controls\x1b[K\n");
     printf(" Pad / Circle Pad  move, look up/down\x1b[K\n");
@@ -786,9 +850,12 @@ void game_status(float fps, float ms) {
     printf(" R/ZR   dash (hold on: sprint)\x1b[K\n");
     printf(" L/ZL   Clawline; down+L held: Silk Soar\x1b[K\n");
     printf(" A      bind: 9 silk give back 3 masks\x1b[K\n");
-    printf(" Wall   hold towards it: cling, B: jump\x1b[K\n");
+    printf(" Wall   slide down it, B: wall jump\x1b[K\n");
     printf(" Up     door, bench (rest, respawn)\x1b[K\n");
     printf(" SELECT room menu\x1b[K\n");
     printf(" START  pause (save and quit)\x1b[K\n");
-    for (int i = 0; i < 8; i++) printf("\x1b[K\n");
+    // the rest of the 30 lines cleared, the last without a line feed: a feed there would scroll the console every
+    // frame, and the screen would show it half scrolled
+    for (int i = 0; i < 6; i++) printf("\x1b[K\n");
+    printf("\x1b[K");
 }

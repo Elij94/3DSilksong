@@ -374,6 +374,8 @@ def compile_room(romfs, scene, out_path):
         b_en += struct.pack('<B', 1 if w2 else 0)
         if w2:
             b_en += struct.pack('<fHHHffB', float(w2[0]), S(w2[1]), S(w2[2]), S(w2[3]), float(w2[4]), float(w2[5]), int(w2[6]))
+        g = (e.get('geo') or [0] * 6) + [0] * 6
+        b_en += struct.pack('<5HB', *(min(65535, max(0, int(x))) for x in g[:5]), 1 if g[5] else 0)
     # what objects remember and what PlayerData switches off (PersistentBoolItem, DeactivateIfPlayerdata*)
     sts = [(i, o['state']) for i, o in enumerate(objs) if o.get('state')]
     b_st = bytearray(struct.pack('<H', len(sts)))
@@ -383,7 +385,17 @@ def compile_room(romfs, scene, out_path):
         b_st += struct.pack('<hBBH', i, 1 if pe else 0, int(pe[1]) if pe else 0,
                             S(pe[0] or str(objs[i].get('name'))) if pe else 0)
         b_st += struct.pack('<BBH', 1 if po else 0, int(po[1]) if po else 0, S(po[0]) if po else 0)
-    out = b'SSFM' + struct.pack('<H', 6) + S.blob() + bytes(b_nodes) + struct.pack('<H', nf) + bytes(b_fsm) + bytes(b_dyn) + \
+        ac = st.get('activator')            # TestGameObjectActivator (version 7)
+        b_st += struct.pack('<B', 1 if ac else 0)
+        if ac:
+            groups = ac[2][:8]
+            b_st += struct.pack('<hhB', node(ac[0]) if ac[0] else N_NONE, node(ac[1]) if ac[1] else N_NONE, len(groups))
+            for g in groups:
+                g = g[:8]
+                b_st += struct.pack('<B', len(g))
+                for t in g:
+                    b_st += struct.pack('<BHBBif', int(t[0]), S(t[1]), int(t[2]), int(t[3]), int(t[4]), float(t[5]))
+    out = b'SSFM' + struct.pack('<H', 7) + S.blob() + bytes(b_nodes) + struct.pack('<H', nf) + bytes(b_fsm) + bytes(b_dyn) + \
         bytes(b_en) + bytes(b_st)
     open(out_path, 'wb').write(out)
     return stats, nf

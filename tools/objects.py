@@ -65,6 +65,16 @@ def gather_objects(sc, scripts, collider_shapes, rect_of):
             if n == 'PersistentBoolItem':
                 d = v.get('itemData') or {}
                 state['persist'] = [str(d.get('ID') or ''), int(f(d.get('IsSemiPersistent')))]
+            elif n == 'TestGameObjectActivator':
+                # one object on and another off by a PlayerData test (the Black Thread world's variants...):
+                # [activate gid, deactivate gid, groups of tests [type, field, bool, num type, int, float]]
+                groups = []
+                for grp in ((v.get('playerDataTest') or {}).get('TestGroups') or []):
+                    groups.append([[int(f(t.get('Type'))), str(t.get('FieldName') or ''), int(f(t.get('BoolValue'))),
+                                    int(f(t.get('NumType'))), int(f(t.get('IntValue'))), float(f(t.get('FloatValue')))]
+                                   for t in (grp.get('Tests') or [])])
+                state['activator'] = [int((v.get('activateGameObject') or {}).get('fileID') or 0),
+                                      int((v.get('deactivateGameObject') or {}).get('fileID') or 0), groups]
             elif n in ('DeactivateIfPlayerdataTrue', 'DeactivateIfPlayerdataFalse') and v.get('boolName'):
                 state['pd_off'] = [str(v['boolName']), 1 if n.endswith('True') else 0]
             if n.startswith('EnemyHitEffects') and isinstance(v.get('profile'), dict):
@@ -106,6 +116,9 @@ def gather_objects(sc, scripts, collider_shapes, rect_of):
             if n == 'HealthManager':
                 flags |= ENEMY
                 hp = int(f(v.get('hp')))
+                # the rosaries (small, medium, large, large smooth) and shell shards a kill flings out
+                enemy['geo'] = [int(f(v.get(k))) for k in ('smallGeoDrops', 'mediumGeoDrops', 'largeGeoDrops',
+                                                           'largeSmoothGeoDrops', 'shellShardDrops')] +                                [int(f(v.get('megaFlingGeo')))]
             elif n == 'Breakable':
                 flags |= BREAKABLE
             elif n == 'DamageHero':

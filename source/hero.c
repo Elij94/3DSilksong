@@ -40,7 +40,6 @@ static void snd(const char *name) { sfx_play_name(name, 0.75f, 0); }
 #define SPRINT_TURN  0.30f   // "Sprint Turn"
 #define AIR_SPRINT_T 0.235f  // the glide after an air dash, longer while R is held
 // Cling Grip
-#define WALL_CLING_DECEL 80.0f
 #define WALL_STICK   0.15f
 #define WALL_SLIDE_ACC 24.0f
 #define WALL_SLIDE_MAX 12.0f
@@ -80,12 +79,13 @@ bool hero_init(Hero *h) {
                                          "Dash", "Air Dash", "DownSpike Antic", "Downspike Recovery",
                                          "Mantle Cling", "Mantle Vault", "Mantle Land", "Sprint", "Sprint Turn",
                                          "Sprint Air", "Sprint Air Loop", "Wall Cling", "Wall Slide", "Walljump",
-                                         "Double Jump", "Double Jump Wings 2", "Umbrella Float", "Harpoon Dash"};
+                                         "Double Jump", "Double Jump Wings 2", "Umbrella Float", "Harpoon Dash", "Sit", "Sit Idle",
+                                         "Get Off", "Bind Silk", "BindCharge Ground", "BindBurst Ground"};
             for (unsigned i = 0; i < sizeof warm / sizeof *warm; i++) sprite_preload_clip(s_set, warm[i]);
         }
     }
-    h->body.set = h->fx.set = s_set;
-    h->body.clip = h->fx.clip = -1;
+    h->body.set = h->fx.set = h->bsilk.set = s_set;
+    h->body.clip = h->fx.clip = h->bsilk.clip = -1;
     h->maxhp = h->hp = 5;
     h->face = 1;
     anim_play_name(&h->body, "Idle", true);
@@ -267,12 +267,14 @@ void hero_respawn(Hero *h, float x, float y) {
 }
 
 void hero_sit(Hero *h, float x) {
-    h->x = x;
+    h->sit_x0 = h->x;
+    h->sit_x1 = x;
     h->vx = h->vy = 0;
     h->state = HS_SIT;
     h->st = 0;
+    h->phase = 0;
     h->attack = ATK_NONE;
-    h->fx_on = false;
+    h->fx_on = h->silk_on = false;
     body(h, "Sit", true);
 }
 
@@ -312,6 +314,7 @@ static bool touching_wall(const Hero *h, const Room *r, int side) {
 static void to_normal(Hero *h) {
     h->state = HS_NORMAL;
     h->st = 0;
+    h->silk_on = false;
 }
 
 static void start_wall(Hero *h, int side) {
@@ -343,7 +346,7 @@ static void start_dash(Hero *h) {
     h->skid_t = h->turn_t = 0;
     h->wj_t = -1;
     body(h, h->ground ? "Dash" : "Air Dash", true);
-    snd("hornet_hunter_new_dash");
+    snd("hero_dash");
 }
 
 static void approach(float *v, float target, float step) {
@@ -351,6 +354,7 @@ static void approach(float *v, float target, float step) {
 }
 
 bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
+    if (h->flash_t > 0) h->flash_t -= dt;
     bool hit_frame = false;
     int dir = (in->held & KEY_RIGHT ? 1 : 0) - (in->held & KEY_LEFT ? 1 : 0);
     bool jump_down = in->down & KEY_B, jump_held = in->held & KEY_B;
@@ -376,14 +380,31 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         if (move_y(h, r, h->vy * dt) && h->vy < 0) h->vy = 0;
         anim_update(&h->body, dt);
         return false;
-    case HS_SIT:
+    case HS_SIT: {
         anim_update(&h->body, dt);
-        if (h->st > 0.4f && (dir || jump_down || atk_down || dash_down)) {
-            to_normal(h);
+        float k = h->st / 0.2f;                // iTweenMoveTo, 0.2 s
+        if (k > 1) k = 1;
+        k = k * k * (3 - 2 * k);
+        h->x = h->sit_x0 + (h->sit_x1 - h->sit_x0) * k;
+        if (h->phase == 0 && h->st >= 0.3f) {  // Rest Burst: the rest's flash
+            h->phase = 1;
+            h->flash_t = 0.3f;
+            snd("bench_rest");
+        }
+        if (h->phase == 1 && h->body.done) {   // then Sit Idle
+            h->phase = 2;
+            body(h, "Sit Idle", true);
+        }
+        if (h->phase == 3) {                   // getting up: Get Off, then control back
+            if (h->body.done) { to_normal(h); body(h, "Idle", true); }
+            return false;
+        }
+        if (h->phase >= 1 && h->st > 0.6f && (dir || jump_down || atk_down || dash_down)) {
+            h->phase = 3;
             body(h, "Get Off", true);
-            break;
         }
         return false;
+    }
     case HS_RESPAWN:
         anim_update(&h->body, dt);
         if (h->body.done || h->st > 1.2f) { to_normal(h); body(h, "Idle", true); }
@@ -409,6 +430,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
     case HS_BIND:
         // silk binds into health: a short charge (held in the air), then the burst; without a full spool it fails
         anim_update(&h->body, dt);
+        if (h->silk_on) anim_update(&h->bsilk, dt);
         h->vx = 0;
         if (!h->ground) h->vy = fmaxf(h->vy - GRAVITY * 0.1f * dt, -2.0f);
         else h->vy = 0;
@@ -421,6 +443,8 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 h->hp = h->hp + BIND_HEAL > h->maxhp ? h->maxhp : h->hp + BIND_HEAL;
                 body(h, h->ground ? "BindBurst Ground" : "BindBurst Air", true);
                 snd("hornet_ability_bind");
+                h->silk_on = false;     // Heal: the silk's renderer off, Hornet flashes white
+                h->flash_t = 0.25f;
             }
             if (h->st >= BIND_TIME + 0.2f) to_normal(h);
         }
@@ -527,17 +551,13 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         }
         if (dash_down && h->dash_cd <= 0) { h->face = -side; start_dash(h); break; }
         if (claw_down || atk_down) { to_normal(h); h->face = -side; break; }
-        bool holding = dir == side;
         if (dir == -side && h->st > 0.06f) { to_normal(h); h->face = -side; break; }
-        if (holding) {
-            if (h->vy < -10) h->vy = -10;
-            approach(&h->vy, 0, WALL_CLING_DECEL * dt);
+        h->wall_t += dt;
+        if (h->wall_t < WALL_STICK) {
+            h->vy = 0;
             if (!clip_is(h, "Wall Cling")) body(h, "Wall Cling", true);
-            h->wall_t = 0;
         } else {
-            h->wall_t += dt;
-            if (h->wall_t < WALL_STICK) h->vy = 0;
-            else h->vy = fmaxf(h->vy - WALL_SLIDE_ACC * dt, -WALL_SLIDE_MAX);
+            h->vy = fmaxf(h->vy - WALL_SLIDE_ACC * dt, -WALL_SLIDE_MAX);
             if (!clip_is(h, "Wall Slide")) body(h, "Wall Slide", true);
         }
         h->vx = 0;
@@ -644,7 +664,12 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         walljumping = h->wj_t >= 0 && h->wj_t < WJ_TIME;
         if (dir && h->attack == ATK_NONE && !walljumping && h->turn_t <= 0) {
             if (dir != h->face) {
-                if (h->sprint && h->ground) h->turn_t = SPRINT_TURN;   // a sprint turns with a skid
+                if (h->sprint && h->ground) {                          // a sprint turns with a skid
+                    h->turn_t = SPRINT_TURN;
+                    h->face = dir;
+                    body(h, "Sprint Turn", true);
+                    snd("hornet_slide_after_sprint");
+                }
                 else { h->sprint = false; h->fast_air = false; h->face = dir; }
             } else h->face = dir;
         }
@@ -661,8 +686,8 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         }
         if (h->turn_t > 0) {
             h->turn_t -= dt;
-            h->vx *= powf(SKID, frames);
-            if (h->turn_t <= 0) { h->face = -h->face; h->vx = 0; }
+            h->vx *= powf(0.9f, frames);
+            if (h->body.done && clip_is(h, "Sprint Turn")) h->turn_t = 0;
         } else if (h->sprint) {
             approach(&h->vx, h->face * SPRINT_V, SPRINT_ACC * dt);
         } else if (walljumping) {
@@ -693,7 +718,11 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 h->sprint = h->jumping = h->floating = false;
                 h->djump_t = -1;
                 body(h, h->ground ? "BindCharge Ground" : "BindCharge Air", true);
-                if (h->phase == 0) snd("hornet_bind_ready");
+                if (h->phase == 0) {
+                    snd("hornet_bind_ready");
+                    h->silk_on = anim_play_name(&h->bsilk, "Bind Silk", true);
+                    h->silk_sx = (rand() & 1) ? 1.0f : -1.0f;
+                }
                 return false;
             }
         }
@@ -927,7 +956,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
             } else if (!one_shot && !clip_is(h, "Airborne") && !clip_is(h, "Fall") && !clip_is(h, "Sprint Air"))
                 body(h, h->was_ground && h->vy <= 0 ? "Fall" : "Airborne", false);
         } else if (h->turn_t > 0) {
-            body(h, "Sprint Turn", false);
+            if (!clip_is(h, "Sprint Turn")) body(h, "Sprint Turn", false);
         } else if (h->sprint) {
             if (!(clip_is(h, "Land to Sprint") && !h->body.done)) body(h, "Sprint", false);
         } else if (h->skid_t > 0) {
@@ -965,7 +994,13 @@ void hero_draw(Hero *h) {
     gfx_blend(BLEND_NORMAL);
     // the art faces left: flip it when facing right
     float sx = h->face > 0 ? -1.0f : 1.0f;
-    sprite_draw(h->body.set, anim_frame(&h->body), h->x, h->y, sx, 1, 1, NULL);
+    C2D_ImageTint white, *tint = NULL;
+    if (h->flash_t > 0) {   // a white flash fading out
+        C2D_PlainImageTint(&white, C2D_Color32(255, 255, 255, 255), fminf(1, h->flash_t / 0.15f) * 0.85f);
+        tint = &white;
+    }
+    sprite_draw(h->body.set, anim_frame(&h->body), h->x, h->y, sx, 1, 1, tint);
+    if (h->silk_on) sprite_draw(h->bsilk.set, anim_frame(&h->bsilk), h->x, h->y, sx * h->silk_sx, 1, 1, NULL);
     if (h->fx_on) {
         sprite_draw(h->fx.set, anim_frame(&h->fx), h->x, h->y, sx, 1, 1, NULL);
     }

@@ -60,6 +60,8 @@ void sprite_draw_uv(SpriteSet *s, int page, float u0, float v0, float u1, float 
                     float y1, float par, const C2D_ImageTint *tint);
 // frame f with its origin at screen pixel (px, py), scale pixels per unit (the HUD)
 void sprite_draw_screen(SpriteSet *s, int f, float px, float py, float scale, const C2D_ImageTint *tint);
+// the same with its own x and y scales (negative x: mirrored)
+void sprite_draw_screen_xy(SpriteSet *s, int f, float px, float py, float sx, float sy, const C2D_ImageTint *tint);
 
 typedef struct {
     SpriteSet *set;

@@ -58,8 +58,11 @@ typedef struct {
     float air_sprint_t;     // the glide after an air dash, -1 when none
     float turn_t;           // a sprint turning round
     bool bind_done;
-    Anim body, fx;
-    bool fx_on;
+    float sit_x0, sit_x1;   // the bench: from where she stood to the seat
+    Anim body, fx, bsilk;  // bsilk: the bind silk round her
+    bool fx_on, silk_on;
+    float silk_sx;          // the bind silk's mirroring (RandomlyFlipFloat)
+    float flash_t;          // a white flash on her (flashFocusHeal, flashBenchRest)
     int fx_kind;
 } Hero;
 

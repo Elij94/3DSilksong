@@ -69,7 +69,9 @@ What it does (0.6.0):
   Up near an NPC or anything waiting for it starts it.
 - **Music and sounds** (`audio.c`): each room's music and ambience (`music/rooms.txt`), streamed as PCM, with fades;
   the FSMs' sound effects on 8 more channels, by distance.
-- **Game** (`game.c`): title screen, pause menu, camera, gates between rooms, the game's HUD (spool, masks, silk),
+- **Rosaries and shell shards** (`currency.c`): flung out of kills, picked up, counted in PlayerData.
+- **Game** (`game.c`): title screen, pause menu, camera, gates between rooms, the game's HUD at the game's size (bind
+  orb, masks, silk spool, counters),
   benches as respawn points, the room menu (SELECT), saves in `SD:/3ds/3dsilksong/save.txt`.
 
 Controls: pad or Circle Pad to move (and look up/down), B jump (in the air: double jump, then held: float), Y needle
