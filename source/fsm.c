@@ -4,6 +4,7 @@
 #include "fsm.h"
 #include "fsm_ops.h"
 #include "autotest.h"
+#include "dialogue.h"
 
 enum { T_NONE, T_FLOAT, T_INT, T_BOOL, T_STR, T_VAR, T_NODE, T_EVENT, T_VEC, T_LIST, T_TARGET };
 #define N_OWNER (-2)
@@ -424,6 +425,9 @@ static void send_self(Fsm *f, const Val *v) { int e = ev_of(f, v); if (e >= 0) f
 
 // ------------------------------------------------------------------ actions
 
+static void settle(Fsm *f);
+static void settle_later(Fsm *f) { (void)f; }   // fsm_update settles every FSM with a transition waiting
+
 static bool hero_in(int node) {
     Obj *o = node_obj(node);
     if (!o || !s_hero || o->rw <= 0 || o->nocoll) return false;
@@ -455,6 +459,13 @@ static void play_clip(int node, const Val *clip, Fsm *f) {
     Obj *o = node_obj(node);
     if (!o || !o->anim.set) return;
     anim_play_name(&o->anim, str_at(a_str(f, clip)), true);
+}
+
+static void convo_end(void *ctx) {
+    static int ev = -2;
+    if (ev == -2 || ev >= s_nstr) ev = str_find("CONVO_END");
+    Fsm *f = ctx;
+    if (f >= s_fsm && f < s_fsm + s_nfsm) { fsm_event(f, ev); settle_later(f); }
 }
 
 // runs action a of the current state; enter: its first frame. Returns true when it is over (no more updates).
@@ -801,6 +812,10 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
     case OP_WaitForHeroInPosition: send_self(f, ARG(0)); return true;
     case OP_CheckHeroPerformanceRegion: send_self(f, ARG(1)); return true;
     case OP_FinishFSM: f->stopped = true; return true;
+    case OP_RunDialogue: case OP_RunDialogueV2: case OP_RunDialogueV3: case OP_RunDialogueV4:
+        // the text box; the FSM gets CONVO_END when it closes
+        if (enter) { dlg_open(str_at(a_str(f, ARG(0))), str_at(a_str(f, ARG(1))), convo_end, f); return false; }
+        return !dlg_active();
     default: return true;                         // RunDialogue, ActivateInteractible, sounds: not yet
     }
 #undef ARG
@@ -880,6 +895,31 @@ void fsm_update(float dt, Hero *h, Objects *os) {
     // events sent to FSMs already updated this frame
     for (int k = 0; k < s_nfsm; k++) if (s_fsm[k].next >= 0 && s_fsm[k].started) settle(&s_fsm[k]);
 }
+
+static bool interact(float x0, float y0, float x1, float y1, bool send) {
+    static int ev = -2;
+    if (ev == -2 || ev >= s_nstr) ev = str_find("INTERACT");
+    if (ev < 0) return false;
+    for (int k = 0; k < s_nfsm; k++) {
+        Fsm *f = &s_fsm[k];
+        if (f->stopped || !f->started || f->cur < 0 || !fsm_node_active(f->owner)) continue;
+        State *st = &f->states[f->cur];
+        bool listens = false;
+        for (int i = 0; i < st->ntr; i++) if (st->tr[i * 2] == ev) listens = true;
+        if (!listens) continue;
+        float nx, ny;
+        node_pos(f->owner, &nx, &ny);
+        Obj *o = node_obj(f->owner);
+        bool near = o && o->rw > 0 ? rects_overlap(x0 - 1, y0 - 1, x1 - x0 + 2, y1 - y0 + 2, o->rx, o->ry, o->rw, o->rh)
+                                   : fabsf(nx - (x0 + x1) * 0.5f) < 2.5f && fabsf(ny - (y0 + y1) * 0.5f) < 3;
+        if (!near) continue;
+        if (send) { fsm_event(f, ev); settle(f); }
+        return true;
+    }
+    return false;
+}
+bool fsm_interact(float x0, float y0, float x1, float y1) { return interact(x0, y0, x1, y1, true); }
+bool fsm_can_interact(float x0, float y0, float x1, float y1) { return interact(x0, y0, x1, y1, false); }
 
 bool fsm_solid(float x0, float y0, float x1, float y1) {
     for (int i = 0; i < s_nsolids; i++) {

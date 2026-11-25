@@ -96,4 +96,8 @@
 #define OP_ActivateInteractible            92   // Target Activate
 #define OP_FinishFSM                       93   // 
 #define OP_PlayAudioEvent                  94   // audioClip
-#define OP_COUNT 95
+#define OP_RunDialogueV4                   95   // Sheet Key
+#define OP_EndDialogue                     96   // ReturnControl
+#define OP_RunDialogueV3                   97   // Sheet Key
+#define OP_RunDialogueV2                   98   // Sheet Key
+#define OP_COUNT 99

@@ -107,6 +107,10 @@ OPS = [
     ('ActivateInteractible', 'Target Activate'),
     ('FinishFSM', ''),
     ('PlayAudioEvent', 'audioClip'),
+    ('RunDialogueV4', 'Sheet Key'),
+    ('EndDialogue', 'ReturnControl'),
+    ('RunDialogueV3', 'Sheet Key'),
+    ('RunDialogueV2', 'Sheet Key'),
 ]
 OP_ID = {n: i for i, (n, _) in enumerate(OPS)}
 

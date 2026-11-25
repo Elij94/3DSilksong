@@ -14,6 +14,9 @@ void fsm_update(float dt, Hero *h, Objects *os);
 bool fsm_strike(float x0, float y0, float x1, float y1);
 // the walls FSMs open and close (breakable walls, battle gates...): is something solid in this box?
 bool fsm_solid(float x0, float y0, float x1, float y1);
+// Up near something whose FSM waits for INTERACT (an NPC, a lever, a door...): sends it; true when one took it
+bool fsm_interact(float x0, float y0, float x1, float y1);
+bool fsm_can_interact(float x0, float y0, float x1, float y1);   // for the prompt
 // is the node active, with all its parents
 bool fsm_node_active(int node);
 // the player's progress flags (PlayerData), kept with the save

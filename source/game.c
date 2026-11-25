@@ -12,6 +12,7 @@
 #include "particles.h"
 #include "audio.h"
 #include "fsm.h"
+#include "dialogue.h"
 
 #define FIRST_ROOM "Tut_01"
 #define SAVE_PATH  "sdmc:" SS_DATADIR "save.txt"
@@ -294,6 +295,7 @@ static void list_rooms(void) {
 
 bool game_start(void) {
     if (!hero_init(&s_hero)) message("sprites/knight.sss missing");
+    dlg_init();
     list_rooms();
     char scene[48] = FIRST_ROOM;
     float x = 0, y = 0;
@@ -350,8 +352,13 @@ static bool probe_enemy(float x0, float y0, float x1, float y1, int face, float 
     return objects_enemy_in(&s_objs, x0, y0, x1, y1, s_hero.x, ex);
 }
 
-static void play(const Input *in, float dt) {
+static void play(const Input *in_raw, float dt) {
     Hero *h = &s_hero;
+    // a dialogue open: it takes the buttons, Hornet stands
+    Input none = {0}, *in = (Input *)in_raw;
+    if (dlg_active()) { dlg_update(in_raw->down); in = &none; }
+    else if ((in_raw->down & KEY_UP) && h->ground && h->state == HS_NORMAL &&
+             fsm_interact(h->x - HERO_HW, h->y + HERO_FOOT, h->x + HERO_HW, h->y + HERO_HEAD)) in = &none;
     float box[4];
     hero_probe = probe_enemy;
     bool hitting = hero_update(h, &s_room, in, dt, box);
@@ -430,6 +437,8 @@ static void play(const Input *in, float dt) {
             }
             break;
         }
+        // something to talk to or use
+        if (!s_bench_prompt && !dlg_active()) s_bench_prompt = fsm_can_interact(x0, y0, x1, y1);
     }
 
     // gates
@@ -653,6 +662,7 @@ void game_draw(void) {
     draw_band(-1e30f, zcur);
     gfx_blend(BLEND_NORMAL);
     draw_hud();
+    dlg_draw();
     if (s_bench_prompt && s_mode == GS_PLAY) {   // a small arrow over Hornet: Up to sit
         float px = g_view.sw * 0.5f + (s_hero.x - g_view.cx) * g_view.sx;
         float py = g_view.sh * 0.5f - (s_hero.y + 1.9f - g_view.cy) * g_view.sy;
