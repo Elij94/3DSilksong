@@ -15,9 +15,12 @@
 #include "dialogue.h"
 #include "fx.h"
 #include "currency.h"
+#include "menu.h"
+#include "font.h"
 
 #define FIRST_ROOM "Tut_01"
-#define SAVE_PATH  "sdmc:" SS_DATADIR "save.txt"
+#define OLD_SAVE   "sdmc:" SS_DATADIR "save.txt"   // before the 4 slots: becomes slot 1
+#define TITLE_ROOM "Menu_Title"
 #define NEEDLE_DMG 5
 
 static Room s_room;
@@ -44,6 +47,8 @@ static float s_msg_t;
 // title, play, pause
 enum { GS_TITLE, GS_PLAY, GS_PAUSE };
 static int s_mode = GS_TITLE;
+static int s_slot = 1;            // the save slot played (1..4)
+static char s_status[1024];       // the debug info (bottom screen, when the option is on)
 static int s_pause_sel;
 static bool s_quit;
 // the last bench sat on: where Hornet comes back after dying
@@ -278,7 +283,8 @@ void game_save(void) {
     if (!s_loaded) return;
     mkdir("sdmc:/3ds", 0777);
     mkdir("sdmc:" SS_DATADIR, 0777);
-    FILE *f = fopen(SAVE_PATH, "w");
+    if (s_mode == GS_TITLE || !strcmp(s_room.scene, TITLE_ROOM)) return;
+    FILE *f = fopen(menu_save_path(s_slot), "w");
     if (!f) return;
     fprintf(f, "%s %.3f %.3f %d\n", s_room.scene, s_safe_x, s_safe_y, s_hero.hp);
     fprintf(f, "bench %s %.3f %.3f\n", s_bench_scene[0] ? s_bench_scene : "-", s_bench_x, s_bench_y);
@@ -296,7 +302,7 @@ static void list_rooms(void) {
     struct dirent *e;
     while ((e = readdir(d))) {
         size_t n = strlen(e->d_name);
-        if (n < 5 || n > 36 || strcmp(e->d_name + n - 4, ".ssr")) continue;
+        if (n < 5 || n > 36 || strcmp(e->d_name + n - 4, ".ssr") || !strncmp(e->d_name, "Menu_", 5)) continue;
         if (s_nrooms == cap) s_rooms = realloc(s_rooms, sizeof *s_rooms * (cap *= 2));
         memcpy(s_rooms[s_nrooms], e->d_name, n - 4);
         s_rooms[s_nrooms++][n - 4] = 0;
@@ -305,15 +311,15 @@ static void list_rooms(void) {
     qsort(s_rooms, s_nrooms, sizeof *s_rooms, cmp_names);
 }
 
-bool game_start(void) {
-    if (!hero_init(&s_hero)) message("sprites/knight.sss missing");
-    dlg_init();
-    list_rooms();
+// a slot's save: where Hornet was, her masks, the last bench, the PlayerData
+static bool load_slot(int slot) {
     char scene[48] = FIRST_ROOM;
     float x = 0, y = 0;
     int hp = 0;
     bool saved = false;
-    FILE *f = fopen(SAVE_PATH, "r");
+    s_bench_scene[0] = 0;
+    pd_clear();
+    FILE *f = fopen(menu_save_path(slot), "r");
     if (f) {
         saved = fscanf(f, "%47s %f %f %d", scene, &x, &y, &hp) >= 3;
         char kw[8];
@@ -326,6 +332,7 @@ bool game_start(void) {
     }
     if (!saved || !room_exists(scene)) { strcpy(scene, FIRST_ROOM); saved = false; }
     if (!room_exists(scene) && s_nrooms) snprintf(scene, sizeof scene, "%s", s_rooms[0]), saved = false;
+    hero_init(&s_hero);
     go(scene, NULL);
     if (!s_loaded) return false;
     if (saved) {
@@ -336,8 +343,40 @@ bool game_start(void) {
     }
     for (int i = 0; i < s_nrooms; i++)
         if (!strcmp(s_rooms[i], s_room.scene)) s_menu_sel = i;
+    return true;
+}
+
+// the title screen: the game's Menu_Title scene behind the menu, its camera where the game puts it
+static void to_title(void) {
+    s_mode = GS_TITLE;
+    s_menu = false;
+    menu_open_title();
+    if (room_exists(TITLE_ROOM) && enter(TITLE_ROOM)) {
+        g_view.cx = 18.6f;
+        g_view.cy = 9.2f;
+        room_preload_view(&s_room);
+    }
+    s_fade = 1;
+}
+
+bool game_start(void) {
+    if (!hero_init(&s_hero)) message("sprites/knight.sss missing");
+    dlg_init();
+    menu_init();
+    list_rooms();
+    // the save from before the slots: slot 1
+    struct stat st;
+    if (stat(OLD_SAVE, &st) == 0 && stat(menu_save_path(1), &st) != 0) rename(OLD_SAVE, menu_save_path(1));
     s_tbuf = C2D_TextBufNew(512);
-    s_mode = autotest_on() ? GS_PLAY : GS_TITLE;
+    struct stat at;
+    if (autotest_on() && stat("sdmc:" SS_DATADIR "autotitle", &at) != 0) {   // testing: autotitle keeps the title
+        s_slot = 1;
+        if (!load_slot(1)) return false;
+        s_mode = GS_PLAY;
+        return true;
+    }
+    to_title();
+    if (!s_loaded && !load_slot(1)) return false;
     return true;
 }
 
@@ -483,7 +522,7 @@ static void play(const Input *in_raw, float dt) {
     }
 }
 
-static void menu_update(const Input *in) {
+static void rooms_update(const Input *in) {
     if (!s_nrooms) { s_menu = false; return; }
     int step = 0;
     if (in->down & KEY_DOWN) step = 1;
@@ -548,22 +587,10 @@ static void new_game(void) {
     s_bench_scene[0] = 0;
     pd_clear();
     s_fade = 1;
+    hero_init(&s_hero);
     go(FIRST_ROOM, NULL);
     s_hero.hp = s_hero.maxhp;
     s_hero.state = HS_NORMAL;
-}
-
-static const char *const PAUSE_ITEMS[] = {"Resume", "Rooms", "Save and quit"};
-
-static void pause_update(const Input *in) {
-    if (in->down & KEY_DOWN) s_pause_sel = (s_pause_sel + 1) % 3;
-    if (in->down & KEY_UP) s_pause_sel = (s_pause_sel + 2) % 3;
-    if (in->down & (KEY_B | KEY_START)) s_mode = GS_PLAY;
-    if (in->down & KEY_A) {
-        if (s_pause_sel == 0) s_mode = GS_PLAY;
-        else if (s_pause_sel == 1) { s_mode = GS_PLAY; s_menu = true; }
-        else { game_save(); s_quit = true; }
-    }
 }
 
 // the game's FreezeMoment: time slows to a stop (down), stays stopped (hold), comes back (up)
@@ -587,17 +614,26 @@ static float time_scale(float dt) {
 void game_update(const Input *in, float dt) {
     log_state();
     objects_freeze = freeze;
-    if (s_mode == GS_TITLE) {
-        if (in->down & KEY_A) { s_mode = GS_PLAY; s_fade = 1; }
-        if (in->down & KEY_X) { new_game(); s_mode = GS_PLAY; }
-        if (in->down & KEY_START) s_quit = true;
+    if (s_mode == GS_TITLE || s_mode == GS_PAUSE) {
+        int slot = 1;
+        MenuAction m = menu_update(in, &slot);
+        if (s_mode == GS_TITLE) {   // the title scene lives on behind the menu
+            if (s_fade > 0) s_fade = s_fade - dt * 2 < 0 ? 0 : s_fade - dt * 2;
+            objects_update(&s_objs, dt);
+            particles_update(dt);
+        }
+        if (m == MA_QUIT) s_quit = true;
+        else if (m == MA_LOAD) { s_slot = slot; load_slot(slot); s_mode = GS_PLAY; s_fade = 1; }
+        else if (m == MA_NEW) { s_slot = slot; new_game(); s_mode = GS_PLAY; game_save(); }
+        else if (m == MA_RESUME) s_mode = GS_PLAY;
+        else if (m == MA_ROOMS) { s_mode = GS_PLAY; s_menu = true; }
+        else if (m == MA_TO_TITLE) { game_save(); to_title(); }
         return;
     }
-    if (s_mode == GS_PAUSE) { pause_update(in); return; }
-    if ((in->down & KEY_START) && !s_menu) { s_mode = GS_PAUSE; s_pause_sel = 0; return; }
+    if ((in->down & KEY_START) && !s_menu) { s_mode = GS_PAUSE; menu_open_pause(); return; }
     if (s_msg_t > 0) s_msg_t -= dt;
-    if (in->down & KEY_SELECT) s_menu = !s_menu;
-    if (s_menu) { menu_update(in); return; }
+    if ((in->down & KEY_SELECT) && (menu_debug() || s_menu)) s_menu = !s_menu;
+    if (s_menu) { rooms_update(in); return; }
     if (s_trans.active) {
         s_trans.t += dt;
         s_fade = fminf(1, s_trans.t / 0.2f);
@@ -810,7 +846,7 @@ static void draw_all(void) {
             draw_band(-0.001f, zcur);
             zcur = -0.001f;
             currency_draw();
-            hero_draw(&s_hero);
+            if (s_mode != GS_TITLE) hero_draw(&s_hero);
             hero_done = true;
         }
         float lower = rank == 4 ? 0.0f : L->z;
@@ -824,11 +860,11 @@ static void draw_all(void) {
         draw_band(-0.001f, zcur);
         zcur = -0.001f;
         currency_draw();
-        hero_draw(&s_hero);
+        if (s_mode != GS_TITLE) hero_draw(&s_hero);
     }
     draw_band(-1e30f, zcur);
     gfx_blend(BLEND_NORMAL);
-    draw_hud();
+    if (s_mode != GS_TITLE) draw_hud();
     dlg_draw();
     if (s_bench_prompt && s_mode == GS_PLAY) {   // a small arrow over Hornet: Up to sit
         float px = g_view.sw * 0.5f + (s_hero.x - g_view.cx) * g_view.sx;
@@ -839,58 +875,51 @@ static void draw_all(void) {
     }
     if (s_fade > 0)
         C2D_DrawRectSolid(0, 0, 0.9f, g_view.sw, g_view.sh, C2D_Color32(0, 0, 0, (u8)(s_fade * 255)));
-    if (s_mode == GS_TITLE || s_mode == GS_PAUSE) {
-        C2D_DrawRectSolid(0, 0, 0.9f, g_view.sw, g_view.sh, C2D_Color32(0, 0, 0, s_mode == GS_TITLE ? 170 : 140));
-        u32 hi = C2D_Color32(240, 236, 228, 255), lo = C2D_Color32(150, 146, 140, 255);
-        if (s_mode == GS_TITLE) {
-            draw_text("HOLLOW KNIGHT", g_view.sw * 0.5f, 56, 0.55f, lo);
-            draw_text("SILKSONG", g_view.sw * 0.5f, 74, 1.3f, hi);
-            draw_text(s_bench_scene[0] || strcmp(s_room.scene, FIRST_ROOM) ? "A   Continue" : "A   Start",
-                      g_view.sw * 0.5f, 150, 0.6f, hi);
-            draw_text("X   New game          START   Quit", g_view.sw * 0.5f, 174, 0.5f, lo);
-        } else {
-            draw_text("PAUSED", g_view.sw * 0.5f, 56, 0.9f, hi);
-            for (int i = 0; i < 3; i++)
-                draw_text(PAUSE_ITEMS[i], g_view.sw * 0.5f, 106 + i * 26, 0.65f, i == s_pause_sel ? hi : lo);
-        }
-    }
+    if (s_mode == GS_TITLE || s_mode == GS_PAUSE) menu_draw();
 }
 
 void game_status(float fps, float ms) {
-    printf("\x1b[1;1H3DSilksong %-8s %5.1f fps %4.1f ms\x1b[K\n", SS_VERSION, fps, ms);
+    char *o = s_status;
+    size_t cap = sizeof s_status;
+    int n = snprintf(o, cap, "3DSilksong %s   %.1f fps  %.1f ms\n", SS_VERSION, fps, ms);
     if (s_menu) {
-        printf("\x1b[2;1H\x1b[K\n ROOMS  (%d)  A: go  B: close  L/R: page\x1b[K\n\x1b[K\n", s_nrooms);
-        int top = s_menu_sel - 10;
+        n += snprintf(o + n, cap - n, "ROOMS (%d)  A: go  B: close  L/R: page\n", s_nrooms);
+        int top = s_menu_sel - 7;
         if (top < 0) top = 0;
-        for (int i = 0; i < 24; i++) {
+        for (int i = 0; i < 15 && n < (int)cap - 64; i++) {
             int k = top + i;
-            if (k < s_nrooms) printf("%s %-36s\x1b[K\n", k == s_menu_sel ? ">" : " ", s_rooms[k]);
-            else printf("\x1b[K\n");
+            if (k < s_nrooms) n += snprintf(o + n, cap - n, "%s %s\n", k == s_menu_sel ? ">" : " ", s_rooms[k]);
         }
         return;
     }
-    printf("\x1b[2;1H\x1b[K\nRoom  %-32s\x1b[K\n", s_room.scene);
-    printf("Pos   %7.2f %7.2f  %s\x1b[K\n", s_hero.x, s_hero.y, s_hero.ground ? "ground" : "air   ");
-    printf("Cam   %7.2f %7.2f  st %d vy %6.2f\x1b[K\n", g_view.cx, g_view.cy, s_hero.state, s_hero.vy);
-    printf("Masks %d/%d  objects %d  rosaries %d\x1b[K\n", s_hero.hp, s_hero.maxhp, s_objs.n, pd_int("geo"));
-    printf("Tiles %d cached   linear %lu KB free\x1b[K\n", room_cache_used(), (unsigned long)(linearSpaceFree() / 1024));
-    printf("Silk  %d/%d  shards %d  music %.14s\x1b[K\n", s_hero.silk, SILK_MAX, pd_int("ShellShards"),
-           audio_on() ? (audio_track(0)[0] ? audio_track(0) : "-") : "off");
-    printf("\x1b[K\n%s\x1b[K\n\x1b[K\n", s_msg_t > 0 ? s_msg : "");
-    printf("Controls\x1b[K\n");
-    printf(" Pad / Circle Pad  move, look up/down\x1b[K\n");
-    printf(" B      jump (hold: higher); in the air:\x1b[K\n");
-    printf("        double jump, then hold: float\x1b[K\n");
-    printf(" Y      needle (up+Y, down+Y in air)\x1b[K\n");
-    printf(" R/ZR   dash (hold on: sprint)\x1b[K\n");
-    printf(" L/ZL   Clawline; down+L held: Silk Soar\x1b[K\n");
-    printf(" A      bind: 9 silk give back 3 masks\x1b[K\n");
-    printf(" Wall   slide down it, B: wall jump\x1b[K\n");
-    printf(" Up     door, bench (rest, respawn)\x1b[K\n");
-    printf(" SELECT room menu\x1b[K\n");
-    printf(" START  pause (save and quit)\x1b[K\n");
-    // the rest of the 30 lines cleared, the last without a line feed: a feed there would scroll the console every
-    // frame, and the screen would show it half scrolled
-    for (int i = 0; i < 6; i++) printf("\x1b[K\n");
-    printf("\x1b[K");
+    n += snprintf(o + n, cap - n, "Room %s\nPos %.2f %.2f %s  st %d\nCam %.2f %.2f\n", s_room.scene, s_hero.x, s_hero.y,
+                  s_hero.ground ? "ground" : "air", s_hero.state, g_view.cx, g_view.cy);
+    n += snprintf(o + n, cap - n, "Masks %d/%d  objects %d  silk %d/%d\n", s_hero.hp, s_hero.maxhp, s_objs.n, s_hero.silk,
+                  SILK_MAX);
+    n += snprintf(o + n, cap - n, "Tiles %d  linear %lu KB free\n", room_cache_used(),
+                  (unsigned long)(linearSpaceFree() / 1024));
+    n += snprintf(o + n, cap - n, "Music %s\n%s\n", audio_on() ? (audio_track(0)[0] ? audio_track(0) : "-") : "off",
+                  s_msg_t > 0 ? s_msg : "");
+}
+
+// the bottom screen (320x240): the area's name on a dark screen (the map and the inventory will be here), or the
+// debug info when the option is on
+void game_draw_bottom(void) {
+    View save = g_view;
+    g_view.sw = 320; g_view.sh = 240; g_view.sx = g_view.sy;   // square pixels down there
+    C2D_DrawRectSolid(0, 0, 0.5f, 320, 240, C2D_Color32(8, 7, 10, 255));
+    if (menu_debug() || s_menu) {
+        if (s_tbuf) {
+            C2D_Text t;
+            C2D_TextBufClear(s_tbuf);
+            C2D_TextParse(&t, s_tbuf, s_status);
+            C2D_TextOptimize(&t);
+            C2D_DrawText(&t, C2D_WithColor, 6, 4, 0.6f, 0.42f, 0.42f, C2D_Color32(230, 226, 220, 255));
+        }
+    } else if (s_mode != GS_TITLE && s_loaded) {
+        const char *z = menu_zone_name(s_room.scene);
+        Font *f = font_get("trajanpro_bold_sdf");
+        if (z[0]) font_draw(f, z, 160, 18, 16, C2D_Color32(220, 214, 200, 255), FONT_CENTER);
+    }
+    g_view = save;
 }

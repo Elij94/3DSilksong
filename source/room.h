@@ -25,6 +25,7 @@ typedef struct {
     u32 off, size;
     s16 slot;              // texture cache slot, -1 if not loaded
     u8 pending;            // queued for the loader thread
+    u8 fmt;                // its texture format: the layer's, or RGB565 for a tile with no transparency
 } RTile;
 
 typedef struct {
@@ -32,7 +33,8 @@ typedef struct {
     float z, par, ox, oy, ppu;
     u16 tile, ntx, nty, ntiles;
     u8 fmt, blend;
-    float tsize;           // a tile's side in units
+    float tsx, tsy;        // a tile's width and height in units
+    float ppy;             // pixels a unit down (the bake can have fewer than across)
     u8 dx, dy;             // tiles shrunk by these factors when loaded (1, 2, 4), across and down: what the screen shows
     RTile *tiles;
     s16 *lut;              // ntx * nty -> tile index, -1 = empty

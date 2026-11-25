@@ -8,6 +8,7 @@ void audio_play(int c, const char *track);
 void audio_update(float dt);
 void audio_exit(void);
 bool audio_on(void);
+extern float g_music_vol, g_sfx_vol;   // 0..1, the options (music applies at the next fade step)
 const char *audio_track(int c);
 // a sound effect by the guid of its AudioClip (the FSMs' sounds); vol 0..1, pan -1 left .. 1 right
 void sfx_play(const char *guid, float vol, float pan);

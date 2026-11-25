@@ -77,6 +77,22 @@ bool tex_inflate_scaled2(const void *z, size_t zlen, int w, int h, int fmt, int 
             }
         return true;
     }
+    if (fmt == GPU_RGB565) {
+        const u16 *in = (const u16 *)s_big;
+        u16 *out = dst;
+        for (int y = 0; y < oh; y++)
+            for (int x = 0; x < ow; x++) {
+                u32 c0 = 0, c1 = 0, c2 = 0;
+                for (int j = 0; j < fy; j++)
+                    for (int i = 0; i < fx; i++) {
+                        u16 t = in[tex_index(x * fx + i, y * fy + j, w)];
+                        c0 += t >> 11; c1 += (t >> 5) & 63; c2 += t & 31;
+                    }
+                c0 = (c0 + n / 2) / n; c1 = (c1 + n / 2) / n; c2 = (c2 + n / 2) / n;
+                out[tex_index(x, y, ow)] = (u16)(c0 << 11 | c1 << 5 | c2);
+            }
+        return true;
+    }
     if (fmt != GPU_RGBA8 && fmt != GPU_RGB8 && fmt != GPU_A8 && fmt != GPU_L8) return false;
     int bpp = (int)(tex_bytes(8, 8, fmt) / 64);
     const u8 *in = s_big;

@@ -45,9 +45,11 @@ bool audio_init(void) {
     return true;
 }
 
+float g_music_vol = 1, g_sfx_vol = 1;   // the options' volumes
+
 static void set_vol(int c, float v) {
     float mix[12] = {0};
-    mix[0] = mix[1] = v;
+    mix[0] = mix[1] = v * g_music_vol;
     ndspChnSetMix(c, mix);
 }
 
@@ -269,6 +271,7 @@ static int sfx_start(const char *name, float vol, float pan, bool loop) {
     ndspChnSetFormat(c, NDSP_FORMAT_MONO_PCM16);
     float mix[12] = {0};
     pan = clampf(pan, -1, 1);
+    vol *= g_sfx_vol;
     mix[0] = vol * (pan > 0 ? 1 - pan : 1);
     mix[1] = vol * (pan < 0 ? 1 + pan : 1);
     ndspChnSetMix(c, mix);

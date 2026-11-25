@@ -9,6 +9,7 @@
 #define MAXPAGES 16
 
 static const char *s_lang = "en";
+static bool s_lang_set;
 static char s_text[MAXTEXT];
 static char *s_page[MAXPAGES];
 static int s_npages, s_cur;
@@ -24,8 +25,17 @@ void dlg_init(void) {
         CFGU_GetSystemLanguage(&lang);
         cfguExit();
     }
-    s_lang = lang == CFG_LANGUAGE_FR ? "fr" : "en";
+    if (!s_lang_set) s_lang = lang == CFG_LANGUAGE_FR ? "fr" : "en";
     if (!s_buf) s_buf = C2D_TextBufNew(4096);
+}
+
+void text_set_lang(const char *lang) { s_lang = strcmp(lang, "en") ? "fr" : "en"; s_lang_set = true; }
+const char *text_lang(void) { return s_lang; }
+static bool find_line(const char *sheet, const char *key, char *out, size_t cap);
+bool text_line(const char *sheet, const char *key, char *out, size_t cap) {
+    if (find_line(sheet, key, out, cap)) return true;
+    snprintf(out, cap, "%s", key);
+    return false;
 }
 
 // the line KEY<TAB>text of text/<lang>/<sheet>.txt, unescaped (\n, \f, \\)

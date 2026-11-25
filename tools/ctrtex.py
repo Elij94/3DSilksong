@@ -7,8 +7,10 @@
 # Width and height must be powers of two, 8 to 1024.
 import numpy as np
 
-FMT_RGBA8, FMT_RGBA4, FMT_A8 = 0, 4, 8      # the GPU_TEXCOLOR values
-FORMATS = {'rgba8': FMT_RGBA8, 'rgba4': FMT_RGBA4}
+FMT_RGBA8, FMT_RGB565, FMT_RGBA4, FMT_A8 = 0, 3, 4, 8      # the GPU_TEXCOLOR values
+FORMATS = {'rgba8': FMT_RGBA8, 'rgba4': FMT_RGBA4, 'rgb565': FMT_RGB565}
+# a 4x4 ordered dither (Bayer), -0.5..0.5 of a step: 4-bit colour without visible bands
+_BAYER = (np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]], np.float32) + 0.5) / 16 - 0.5
 
 _M = None
 
@@ -36,7 +38,7 @@ def _swizzle(px):
     return out.reshape(-1)
 
 
-def encode(rgba, fmt=FMT_RGBA8):
+def encode(rgba, fmt=FMT_RGBA8, dither=False):
     """rgba: (h, w, 4) uint8 array or PIL RGBA image -> bytes"""
     a = np.asarray(rgba, dtype=np.uint8)
     h, w = a.shape[:2]
@@ -46,8 +48,19 @@ def encode(rgba, fmt=FMT_RGBA8):
     if fmt == FMT_RGBA8:
         return _swizzle((r << 24) | (g << 16) | (b << 8) | al).astype('<u4').tobytes()
     if fmt == FMT_RGBA4:
-        q = lambda c: (c * 15 + 127) // 255
+        if dither:
+            d = np.tile(_BAYER, (h // 4 + 1, w // 4 + 1))[:h, :w]
+            q = lambda c: np.clip(np.floor(c.astype(np.float32) * 15 / 255 + 0.5 + d), 0, 15).astype(np.uint32)
+        else:
+            q = lambda c: (c * 15 + 127) // 255
         return _swizzle(((q(r) << 12) | (q(g) << 8) | (q(b) << 4) | q(al)).astype(np.uint16)).astype('<u2').tobytes()
+    if fmt == FMT_RGB565:
+        if dither:
+            d = np.tile(_BAYER, (h // 4 + 1, w // 4 + 1))[:h, :w]
+            q = lambda c, n: np.clip(np.floor(c.astype(np.float32) * n / 255 + 0.5 + d), 0, n).astype(np.uint32)
+        else:
+            q = lambda c, n: (c * n + 127) // 255
+        return _swizzle(((q(r, 31) << 11) | (q(g, 63) << 5) | q(b, 31)).astype(np.uint16)).astype('<u2').tobytes()
     if fmt == FMT_A8:
         return _swizzle(al.astype(np.uint8)).astype(np.uint8).tobytes()
     raise ValueError(f'unknown texture format {fmt}')

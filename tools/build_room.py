@@ -11,7 +11,8 @@
 
   python tools/build_room.py <out_dir> Tut_01 [Tut_02 ...]      (or --list tools/data/all_rooms.txt)
 Options:
-  --ppu N        scenery pixels per world unit (default 28: the HD top screen shows about 28 units across 800 px)
+  --ppu N        scenery pixels per world unit across (default 28: the 800 wide top screen shows 27.6)
+  --aspect A     pixels a unit down / across (default 0.5: the top screen has 240 lines, half as many a unit)
   --cpu N        collision cells per world unit (default 4)
   --fmt F        scenery texture format, rgba8 or rgba4 (default rgba4: half the size)
   --no-art       no scenery (fast)
@@ -426,9 +427,10 @@ def image_of(r):
     return img, (x0, y0, x1, y1), m
 
 
-def bake_layer(items, z_l, ppu, stats, clip=None):
+def bake_layer(items, z_l, ppu, stats, clip=None, aspect=1.0):
     """Draw a layer's renderables onto one canvas -> (RGBA array, world x of its left edge, world y of its top edge,
-    the ppu used). clip: (x0, y0, x1, y1), the part of the layer the camera can show; sprites outside are left out."""
+    the ppu used). clip: (x0, y0, x1, y1), the part of the layer the camera can show; sprites outside are left out.
+    aspect: pixels a unit down / across (0.5 for the 800 wide top screen, whose pixels are twice as tall as wide)."""
     k_of = lambda z: (CAM_Z + z_l) / (CAM_Z + z)
     prepared, boxes = [], []
     for r in items:
@@ -461,16 +463,17 @@ def bake_layer(items, z_l, ppu, stats, clip=None):
     wx1, wy1 = allc.max(0)
     if clip:
         wx0, wy0, wx1, wy1 = max(wx0, clip[0]), max(wy0, clip[1]), min(wx1, clip[2]), min(wy1, clip[3])
-    area = (wx1 - wx0) * (wy1 - wy0) * ppu * ppu
+    area = (wx1 - wx0) * (wy1 - wy0) * ppu * ppu * aspect
     if area > MAX_PIXELS:
         ppu = ppu * math.sqrt(MAX_PIXELS / area)
         stats['lowres'] += 1
-    W, H = int(math.ceil((wx1 - wx0) * ppu)) + 2, int(math.ceil((wy1 - wy0) * ppu)) + 2
+    ppy = ppu * aspect
+    W, H = int(math.ceil((wx1 - wx0) * ppu)) + 2, int(math.ceil((wy1 - wy0) * ppy)) + 2
     canvas = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     for img, (x0, y0, x1, y1), A, t, col, corners in prepared:
         # canvas pixel (cx, cy) -> world (wx0 + cx/ppu, wy1 - cy/ppu) -> local -> sprite pixel
         cxs = (corners[:, 0] - wx0) * ppu
-        cys = (wy1 - corners[:, 1]) * ppu
+        cys = (wy1 - corners[:, 1]) * ppy
         bx0, by0 = int(max(0, math.floor(cxs.min()))), int(max(0, math.floor(cys.min())))
         bx1, by1 = int(min(W, math.ceil(cxs.max()))), int(min(H, math.ceil(cys.max())))
         if bx1 <= bx0 or by1 <= by0:
@@ -483,7 +486,7 @@ def bake_layer(items, z_l, ppu, stats, clip=None):
         sxu, syu = iw / (x1 - x0), ih / (y1 - y0)
         # sprite px = sxu * (lx - x0); sprite py = syu * (y1 - ly); local = Ai @ (world - t)
         # world x = wx0 + (bx0 + u) / ppu ; world y = wy1 - (by0 + v) / ppu   (u, v: pixel in the bbox image)
-        M = np.array([[1 / ppu, 0, wx0 + bx0 / ppu - t[0]], [0, -1 / ppu, wy1 - by0 / ppu - t[1]]])
+        M = np.array([[1 / ppu, 0, wx0 + bx0 / ppu - t[0]], [0, -1 / ppy, wy1 - by0 / ppy - t[1]]])
         L = Ai @ M                                       # (u, v, 1) -> local (lx, ly)
         S = np.array([[sxu, 0, -sxu * x0], [0, -syu, syu * y1]])
         T = S @ np.vstack([L, [0, 0, 1]])                # (u, v, 1) -> sprite pixel
@@ -493,15 +496,16 @@ def bake_layer(items, z_l, ppu, stats, clip=None):
             src = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
         # shrunk a lot (several sprite pixels to a canvas pixel): first a proper Lanczos shrink, which the affine
         # transform's bilinear sampling isn't (it would skip pixels and leave the picture grainy)
-        k = math.sqrt(abs(np.linalg.det(T[:, :2])))
-        if k > 1.25:
-            nw, nh = max(1, int(round(iw / k))), max(1, int(round(ih / k)))
+        kx, ky = math.hypot(T[0, 0], T[0, 1]), math.hypot(T[1, 0], T[1, 1])
+        if kx > 1.25 or ky > 1.25:
+            nw = max(1, int(round(iw / max(1.0, kx))))
+            nh = max(1, int(round(ih / max(1.0, ky))))
             src = src.resize((nw, nh), Image.LANCZOS)
             T = np.diag([nw / iw, nh / ih]) @ T
         part = src.transform((bx1 - bx0, by1 - by0), Image.AFFINE, data=tuple(T.reshape(-1)), resample=Image.BILINEAR)
         canvas.alpha_composite(part, (bx0, by0))
         stats['drawn'] += 1
-    return np.asarray(canvas), float(wx0), float(wy1), ppu
+    return np.asarray(canvas), float(wx0), float(wy1), ppu, ppy
 
 
 def tiles_of(arr, fmt):
@@ -514,7 +518,12 @@ def tiles_of(arr, fmt):
                 continue
             if t.shape[0] < TILE or t.shape[1] < TILE:
                 t = np.pad(t, ((0, TILE - t.shape[0]), (0, TILE - t.shape[1]), (0, 0)))
-            out.append((tx // TILE, ty // TILE, zlib.compress(ctrtex.encode(t, fmt), 9)))
+            # a tile with no transparency: RGB565 (smoother colour), flagged in its x index; else the layer's format,
+            # 4-bit colour dithered against banding
+            if fmt == ctrtex.FMT_RGBA4 and t[..., 3].min() == 255:
+                out.append(((tx // TILE) | 0x8000, ty // TILE, zlib.compress(ctrtex.encode(t, ctrtex.FMT_RGB565, True), 9)))
+            else:
+                out.append((tx // TILE, ty // TILE, zlib.compress(ctrtex.encode(t, fmt, True), 9)))
     return out, (W + TILE - 1) // TILE, (H + TILE - 1) // TILE
 
 
@@ -547,6 +556,16 @@ def build(name, out, a, scripts, sorting):
         print(f'{name}: no scene in the export')
         return False
     sc = Scene(path)
+    # the title screen (MenuStyles): its first style (the one a new save shows) switched on, the others stay off
+    for gid, comps in sc.comps.items():
+        for t, v in comps:
+            if t == 'MonoBehaviour' and isinstance(v.get('Styles'), list) and v['Styles']:
+                k = v.get('StyleDefault')
+                k = int(k) if isinstance(k, int) and 0 <= k < len(v['Styles']) else 0
+                so = (v['Styles'][k].get('StyleObject') or {}).get('fileID')
+                if so in sc.go:
+                    sc.go[so]['m_IsActive'] = 1
+                    sc._active.clear()
     solids, gates, triggers = gather(sc, scripts)
     gx, gy, gw, gh, grid = collision_grid(solids, a.cpu)
     spawn = next((t['rect'][:2] for t in triggers if t['kind'] == 'respawn'), None) or \
@@ -566,14 +585,14 @@ def build(name, out, a, scripts, sorting):
             # what the camera can show of this layer while it stays in the room: room +- view / parallax
             rx0, ry0 = gx, gy
             rx1, ry1 = gx + gw / a.cpu, gy + gh / a.cpu
-            clip = (rx0 - VIEW[0] / par, ry0 - VIEW[1] / par, rx1 + VIEW[0] / par, ry1 + VIEW[1] / par) if solids else None
+            clip = (rx0 - VIEW[0] / par, ry0 - VIEW[1] / par, rx1 + VIEW[0] / par, ry1 + VIEW[1] / par)                 if solids and not name.startswith('Menu_') else None
             # as many pixels a unit as the screen shows of this layer (its parallax scales it on screen)
-            got = bake_layer(items, z_l, max(4.0, a.ppu * min(par, 1.6)), stats, clip)
+            got = bake_layer(items, z_l, max(4.0, a.ppu * min(par, 1.6)), stats, clip, a.aspect)
             if not got:
                 continue
-            arr, ox, oy, lppu = got
+            arr, ox, oy, lppu, lppy = got
             tiles, ntx, nty = tiles_of(arr, ctrtex.FORMATS[a.fmt])
-            layers.append(dict(name=lname, blend=blend, z=z_l, parallax=par, ox=ox, oy=oy, ppu=lppu,
+            layers.append(dict(name=lname, blend=blend, z=z_l, parallax=par, ox=ox, oy=oy, ppu=lppu, ppy=lppy,
                                ntx=ntx, nty=nty, tiles=tiles, count=len(items)))
 
     os.makedirs(os.path.join(out, 'rooms'), exist_ok=True)
@@ -652,8 +671,10 @@ def build(name, out, a, scripts, sorting):
         b += struct.pack('<B3x4f4f', KIND[t['kind']], *t['rect'], *extra) + s(t['name'], 32)
     data, off = bytearray(), 0
     for L in layers:
-        b += s(L['name'], 8) + struct.pack('<5fHHHHBB2x', L['z'], L['parallax'], L['ox'], L['oy'], L['ppu'], TILE,
-                                         L['ntx'], L['nty'], len(L['tiles']), ctrtex.FORMATS[a.fmt], L['blend'])
+        # the spare 2 bytes: the pixels a unit down, in 1/256 (0: as across)
+        b += s(L['name'], 8) + struct.pack('<5fHHHHBBH', L['z'], L['parallax'], L['ox'], L['oy'], L['ppu'], TILE,
+                                         L['ntx'], L['nty'], len(L['tiles']), ctrtex.FORMATS[a.fmt], L['blend'],
+                                         min(65535, int(round(L.get('ppy', L['ppu']) * 256))))
         for tx, ty, blob in L['tiles']:
             b += struct.pack('<HHII', tx, ty, off, len(blob))
             data += blob
@@ -717,6 +738,7 @@ def main():
     ap.add_argument('--ppu', type=float, default=28)
     ap.add_argument('--cpu', type=int, default=4)
     ap.add_argument('--fmt', choices=list(ctrtex.FORMATS), default='rgba4')
+    ap.add_argument('--aspect', type=float, default=0.5)   # pixels a unit down / across (the 800 wide top screen)
     ap.add_argument('--no-art', action='store_true')
     ap.add_argument('--no-objects', action='store_true')
     ap.add_argument('--preview')

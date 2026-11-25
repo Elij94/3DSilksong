@@ -3,6 +3,19 @@
 #include "hero.h"
 #include "audio.h"
 #include "fx.h"
+#include "fsm.h"
+
+// Hornet's abilities, as the game keeps them (PlayerData): earned where the game gives them (the rooms' scripts set
+// them). SD:/3ds/3dsilksong/allabilities (testing) gives them all.
+static int s_all = -1;
+static bool has(const char *flag) {
+    if (s_all < 0) {
+        FILE *f = fopen("sdmc:/3ds/3dsilksong/allabilities", "r");
+        s_all = f != NULL;
+        if (f) fclose(f);
+    }
+    return s_all || pd_bool(flag);
+}
 
 static void snd(const char *name) { sfx_play_name(name, 0.75f, 0); }
 
@@ -366,9 +379,10 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
     bool hit_frame = false;
     int dir = (in->held & KEY_RIGHT ? 1 : 0) - (in->held & KEY_LEFT ? 1 : 0);
     bool jump_down = in->down & KEY_B, jump_held = in->held & KEY_B;
-    bool dash_down = in->down & (KEY_R | KEY_ZR), dash_held = in->held & (KEY_R | KEY_ZR);
+    bool can_dash = has("hasDash");                    // Swift Step: the dash and the sprint
+    bool dash_down = can_dash && (in->down & KEY_ZR), dash_held = can_dash && (in->held & KEY_ZR);
     bool atk_down = in->down & KEY_Y;
-    bool claw_down = in->down & (KEY_L | KEY_ZL), claw_held = in->held & (KEY_L | KEY_ZL);
+    bool claw_down = in->down & KEY_ZL, claw_held = in->held & KEY_ZL;   // the game's SuperDash: ZL (LeftTrigger)
     bool only_down = (in->held & KEY_DOWN) && !(in->held & (KEY_LEFT | KEY_RIGHT | KEY_UP));
     float frames = dt * 60.0f;
 
@@ -748,7 +762,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
             start_jump(h, false);
             if (h->attack == ATK_NONE) body(h, h->fast_air ? "Sprint Air" : "Airborne", true);
         } else if (jump_down && !h->ground && h->attack == ATK_NONE) {
-            if (!h->djump_used) {
+            if (!h->djump_used && has("hasDoubleJump")) {
                 // Faydown Cloak: the double jump
                 h->djump_used = true;
                 h->djump_t = 0;
@@ -761,7 +775,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 body(h, "Double Jump", true);
                 snd("hornet_sprint_jump_first_spin");
                 h->fx_on = anim_play_name(&h->fx, "Double Jump Wings 2", true);
-            } else if (!h->floating && h->djump_t < 0) {
+            } else if (!h->floating && h->djump_t < 0 && has("hasBrolly")) {
                 // Drifter's Cloak: float down while B is held
                 h->floating = true;
                 h->jumping = false;
@@ -774,8 +788,9 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         if (dash_down && h->dash_cd <= 0 && (h->ground || h->air_dash)) {
             if (dir) h->face = dir;
             start_dash(h);
-        } else if (claw_down && h->claw_cd <= 0 && h->attack == ATK_NONE) {
-            if (only_down && h->ground) {
+        } else if (claw_down && h->claw_cd <= 0 && h->attack == ATK_NONE &&
+                   (has("hasHarpoonDash") || (only_down && h->ground && has("hasSuperJump")))) {
+            if (only_down && h->ground && has("hasSuperJump")) {
                 h->state = HS_SOAR;
                 h->phase = 0;
                 h->st = 0;
@@ -923,7 +938,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
             anim_update(&h->body, dt);
             return false;
         }
-        if (h->vy <= 0 && !(h->wj_t >= 0 && h->wj_t < WJ_LOCK)) {
+        if (h->vy <= 0 && !(h->wj_t >= 0 && h->wj_t < WJ_LOCK) && has("hasWalljump")) {
             start_wall(h, h->face);
             anim_update(&h->body, dt);
             return false;

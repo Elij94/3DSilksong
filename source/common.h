@@ -46,6 +46,8 @@ void gfx_blend_reset(void);   // after C2D_Prepare / at the start of a frame
 void gfx_draw_world(C3D_Tex *tex, float u0, float v0, float u1, float v1,
                     float x0, float y0, float x1, float y1, float par, const C2D_ImageTint *tint);
 // the same on a screen rectangle (pixels, y down)
+// the depth images are drawn at (citro2d tests it): 0.5, more for what goes over the menus's shading
+extern float g_draw_depth;
 void gfx_draw_screen(C3D_Tex *tex, float u0, float v0, float u1, float v1, float l, float t, float r, float b,
                      const C2D_ImageTint *tint);
 // a plain rectangle in world units (debug, effects)

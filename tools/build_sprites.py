@@ -14,6 +14,7 @@ by '+', to make one set from several libraries (clip names must then be unique).
 Options:
   --clips A,B,C   only these clips (default: all)
   --scale S       resize the frames (default 0.4375: the game's 64 px per unit down to the scenery's 28)
+  --aspect A      the scale down / across (default 0.5: the 800 wide top screen has half as many pixels a unit down)
   --fmt F         rgba8 or rgba4 (default rgba4)
   --page N        texture page size (default 512, at most 1024)"""
 import os, sys, glob, struct, zlib, argparse, hashlib
@@ -81,9 +82,10 @@ def build(out, names, clips_wanted, scale, fmt, page):
                 frame_of[key] = -1
                 continue
             img, quad = got
-            if scale != 1:
+            sx, sy = scale if isinstance(scale, tuple) else (scale, scale)
+            if (sx, sy) != (1, 1):
                 h, w = img.shape[:2]
-                img = np.asarray(Image.fromarray(img).resize((max(1, round(w * scale)), max(1, round(h * scale))),
+                img = np.asarray(Image.fromarray(img).resize((max(1, round(w * sx)), max(1, round(h * sy))),
                                                              Image.LANCZOS))
             ys, xs = np.nonzero(img[..., 3])          # trim the transparent border (and move the quad with it)
             if len(xs):
@@ -152,7 +154,7 @@ def write_set(out, clips, frames, images, fmt, page=512, lost=0):
         ids = c['ids']
         tables += s(cname, 32) + struct.pack('<fHBBH', c['fps'], c['loop_start'], c['wrap'], 0, len(ids))
         tables += struct.pack(f'<{len(ids)}h', *ids)
-    blobs = [zlib.compress(ctrtex.encode(cv, fmt), 9) for cv in canv]
+    blobs = [zlib.compress(ctrtex.encode(cv, fmt, True), 9) for cv in canv]
     page_table = b''.join(struct.pack('<HHBBxxII', page, page, fmt, 0, 0, len(bl)) for bl in blobs)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     with open(out, 'wb') as fh:
@@ -198,12 +200,14 @@ def main():
     ap.add_argument('library', nargs='?')
     ap.add_argument('--clips')
     ap.add_argument('--scale', type=float, default=28 / 64)
+    ap.add_argument('--aspect', type=float, default=0.5)   # scale down / across: the 800 wide top screen
     ap.add_argument('--fmt', choices=list(ctrtex.FORMATS), default='rgba4')
     ap.add_argument('--page', type=int, default=512)
     ap.add_argument('--list', nargs='?', const='', metavar='PATTERN')
     ap.add_argument('--objects', metavar='OUT_DIR')
     ap.add_argument('--jobs', type=int, default=6)
     a = ap.parse_args()
+    a.scale = (a.scale, a.scale * a.aspect)
     if a.objects:
         return from_objects(a)
     if a.list is not None:

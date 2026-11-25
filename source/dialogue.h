@@ -9,3 +9,7 @@ bool dlg_active(void);
 void dlg_update(u32 keys_down);            // A, B or Y: next page
 void dlg_draw(void);                       // on the top screen, over the game
 void dlg_close(void);
+// the game's text: KEY of text/<lang>/<sheet>.txt into out (the key itself if missing); the language (fr, en)
+bool text_line(const char *sheet, const char *key, char *out, size_t cap);
+void text_set_lang(const char *lang);
+const char *text_lang(void);

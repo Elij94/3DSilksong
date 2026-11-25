@@ -5,8 +5,9 @@
 bool game_start(void);
 void game_update(const Input *in, float dt);
 void game_draw(void);
-// the bottom screen's text (console)
+// the debug info (the bottom screen shows it when the option is on), and the bottom screen itself
 void game_status(float fps, float ms);
+void game_draw_bottom(void);
 void game_save(void);
 // frees the room (and closes its files): before romfsUnmount, or the C library's exit crashes on them
 void game_end(void);

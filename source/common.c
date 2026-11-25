@@ -78,6 +78,8 @@ void gfx_draw_world(C3D_Tex *tex, float u0, float v0, float u1, float v1,
     gfx_draw_screen(tex, u0, v0, u1, v1, l, t, r, b, tint);
 }
 
+float g_draw_depth = 0.5f;
+
 void gfx_draw_screen(C3D_Tex *tex, float u0, float v0, float u1, float v1, float l, float t, float r, float b,
                      const C2D_ImageTint *tint) {
     const View *v = &g_view;
@@ -90,7 +92,7 @@ void gfx_draw_screen(C3D_Tex *tex, float u0, float v0, float u1, float v1, float
     Tex3DS_SubTexture sub = {(u16)tex->width, (u16)tex->height, u1, 1.0f - v0, u0, 1.0f - v1};
     C2D_Image img = {tex, &sub};
     float w = r - l, h = b - t;
-    C2D_DrawParams p = {{l + w * 0.5f, t + h * 0.5f, w, h}, {w * 0.5f, h * 0.5f}, 0.5f, (float)M_PI};
+    C2D_DrawParams p = {{l + w * 0.5f, t + h * 0.5f, w, h}, {w * 0.5f, h * 0.5f}, g_draw_depth, (float)M_PI};
     C2D_DrawImage(img, &p, tint);
 }
 

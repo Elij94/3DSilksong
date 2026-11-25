@@ -2,3 +2,5 @@
 #   <file name in romfs/sprites>|<tk2d animation library>[+<library>...]|<clips, comma-separated; empty = all>
 # python tools/build_sprites.py --list [pattern]  lists the libraries of your export.
 hero|Hornet Anim|
+knight|Knight|
+hud_anim|HUD Anim|

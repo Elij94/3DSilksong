@@ -228,7 +228,7 @@ static bool tile_request(Room *r, Layer *L, RTile *t) {
     for (int i = 0; i < NJOBS; i++) {
         Job *j = &s_jobs[i];
         if (j->state != JOB_FREE) continue;
-        size_t need = tex_bytes(L->tile / L->dx, L->tile / L->dy, L->fmt);
+        size_t need = tex_bytes(L->tile / L->dx, L->tile / L->dy, t->fmt);
         if (need > j->cap) {
             free(j->buf);
             j->buf = malloc(need);
@@ -236,7 +236,7 @@ static bool tile_request(Room *r, Layer *L, RTile *t) {
             if (!j->buf) return false;
         }
         j->t = t; j->off = t->off; j->size = t->size;
-        j->tile = L->tile; j->fmt = L->fmt; j->dx = L->dx; j->dy = L->dy; j->blend = L->blend;
+        j->tile = L->tile; j->fmt = t->fmt; j->dx = L->dx; j->dy = L->dy; j->blend = L->blend;
         j->gen = s_gen;
         t->pending = 1;
         __atomic_store_n(&j->state, JOB_QUEUED, __ATOMIC_RELEASE);   // after the fields above
@@ -277,15 +277,15 @@ static bool tile_load(Room *r, Layer *L, RTile *t, bool prefetch) {
     if (t->slot >= 0) return true;
     if (!r->ssl || t->size == 0) return false;
     int w = L->tile / L->dx, h = L->tile / L->dy;
-    int si = slot_get(w, h, L->fmt, prefetch);
+    int si = slot_get(w, h, t->fmt, prefetch);
     if (si < 0) return false;
     Slot *s = &s_slots[si];
     if (!read_tile(r->ssl, t->off, t->size, &s_scratch, &s_scratch_size) ||
-        !tex_inflate_scaled2(s_scratch, t->size, L->tile, L->tile, L->fmt, L->dx, L->dy, s->tex.data)) {
+        !tex_inflate_scaled2(s_scratch, t->size, L->tile, L->tile, t->fmt, L->dx, L->dy, s->tex.data)) {
         t->size = 0;   // broken: don't try again
         return false;
     }
-    if (L->blend == BLEND_MULTIPLY) tex_premultiply(s->tex.data, w, h, L->fmt);
+    if (L->blend == BLEND_MULTIPLY) tex_premultiply(s->tex.data, w, h, t->fmt);
     C3D_TexFlush(&s->tex);
     s->owner = t;
     s->last_used = g_view.frame;
@@ -368,13 +368,16 @@ bool room_load(Room *r, const char *scene) {
         L->fmt = p[36]; L->blend = p[37];
         if (L->par <= 0) L->par = 1;
         if (L->ppu <= 0) L->ppu = 64;
-        L->tsize = L->tile / L->ppu;
+        L->ppy = rd16(p + 38) / 256.0f;
+        if (L->ppy <= 0) L->ppy = L->ppu;
+        L->tsx = L->tile / L->ppu;
+        L->tsy = L->tile / L->ppy;
         // the screen shows g_view.sx * par pixels per unit of this layer across and g_view.sy * par down (twice as
         // many across in the 800 wide mode): keep about that much of its ppu each way
         L->dx = L->dy = 1;
         while (L->dx < 4 && L->tile / (L->dx * 2) >= 32 && L->ppu / (L->dx * 2) >= 0.75f * g_view.sx * L->par)
             L->dx *= 2;
-        while (L->dy < 4 && L->tile / (L->dy * 2) >= 32 && L->ppu / (L->dy * 2) >= 0.75f * g_view.sy * L->par)
+        while (L->dy < 4 && L->tile / (L->dy * 2) >= 32 && L->ppy / (L->dy * 2) >= 0.75f * g_view.sy * L->par)
             L->dy *= 2;
         p += 40;
         if (p + 12 * L->ntiles > end) goto bad;
@@ -383,7 +386,8 @@ bool room_load(Room *r, const char *scene) {
         for (int k = 0; k < L->ntx * L->nty; k++) L->lut[k] = -1;
         for (int k = 0; k < L->ntiles; k++, p += 12) {
             RTile *t = &L->tiles[k];
-            t->tx = rd16(p); t->ty = rd16(p + 2); t->off = rd32(p + 4); t->size = rd32(p + 8); t->slot = -1;
+            t->tx = rd16(p) & 0x7FFF; t->ty = rd16(p + 2); t->off = rd32(p + 4); t->size = rd32(p + 8); t->slot = -1;
+            t->fmt = (rd16(p) & 0x8000) ? GPU_RGB565 : L->fmt;
             if (t->tx < L->ntx && t->ty < L->nty) L->lut[t->ty * L->ntx + t->tx] = k;
         }
     }
@@ -444,10 +448,10 @@ bool room_box_solid(const Room *r, float x0, float y0, float x1, float y1) {
 static void layer_range(const Layer *L, int margin, int *tx0, int *tx1, int *ty0, int *ty1) {
     const View *v = &g_view;
     float hw = v->hw / L->par, hh = v->hh / L->par;
-    *tx0 = (int)floorf((v->cx - hw - L->ox) / L->tsize) - margin;
-    *tx1 = (int)floorf((v->cx + hw - L->ox) / L->tsize) + margin;
-    *ty0 = (int)floorf((L->oy - (v->cy + hh)) / L->tsize) - margin;
-    *ty1 = (int)floorf((L->oy - (v->cy - hh)) / L->tsize) + margin;
+    *tx0 = (int)floorf((v->cx - hw - L->ox) / L->tsx) - margin;
+    *tx1 = (int)floorf((v->cx + hw - L->ox) / L->tsx) + margin;
+    *ty0 = (int)floorf((L->oy - (v->cy + hh)) / L->tsy) - margin;
+    *ty1 = (int)floorf((L->oy - (v->cy - hh)) / L->tsy) + margin;
     if (*tx0 < 0) *tx0 = 0;
     if (*ty0 < 0) *ty0 = 0;
     if (*tx1 >= L->ntx) *tx1 = L->ntx - 1;
@@ -463,9 +467,9 @@ void room_draw_layer(Room *r, int li, bool all) {
     // so there is no gap and no overlap (an overlap shows as a bright line on additive layers, a dark one on
     // multiply layers).
     const View *v = &g_view;
-    float k = L->par, T = L->tsize;
-#define EX(tx) floorf(v->sw * 0.5f + (L->ox + (tx) * T - v->cx) * k * v->sx + 0.5f)
-#define EY(ty) floorf(v->sh * 0.5f - (L->oy - (ty) * T - v->cy) * k * v->sy + 0.5f)
+    float k = L->par, TX = L->tsx, TY = L->tsy;
+#define EX(tx) floorf(v->sw * 0.5f + (L->ox + (tx) * TX - v->cx) * k * v->sx + 0.5f)
+#define EY(ty) floorf(v->sh * 0.5f - (L->oy - (ty) * TY - v->cy) * k * v->sy + 0.5f)
     for (int ty = ty0; ty <= ty1; ty++) {
         float top = EY(ty), bot = EY(ty + 1);
         for (int tx = tx0; tx <= tx1; tx++) {

@@ -106,10 +106,9 @@ static bool page_ready(SpriteSet *s, int i) {
     pg->last_used = g_view.frame;
     if (pg->loaded) return true;
     if (pg->csize == 0xFFFFFFFF) return false;   // failed before
-    // the big pages (Hornet's are 1024x1024) at half size: on screen a sprite gets far fewer pixels than that; in
-    // the 800 wide mode only half as tall (there are twice the pixels across)
-    int f = (pg->w >= 512 && pg->h >= 512) ? 2 : 1;
-    int fx = g_view.sx > g_view.sy * 1.5f ? 1 : f, fy = f;
+    // the sets are made for the 800 wide top screen (28 pixels a unit across, 14 down, as the screen shows them);
+    // in the 400 mode the big pages (Hornet's) are halved across, which is all that screen shows
+    int fx = (g_view.sx < g_view.sy * 1.5f && pg->w >= 512) ? 2 : 1, fy = 1;
     if (!tex_alloc(&pg->tex, pg->w / fx, pg->h / fy, pg->fmt)) return false;
     if (!tex_inflate_scaled2(pg->cdata, pg->csize, pg->w, pg->h, pg->fmt, fx, fy, pg->tex.data)) {
         C3D_TexDelete(&pg->tex);

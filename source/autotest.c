@@ -28,7 +28,7 @@ static bool s_on;
 
 static u32 key_of(const char *k) {
     static const struct { const char *n; u32 k; } T[] = {
-        {"A", KEY_A}, {"B", KEY_B}, {"X", KEY_X}, {"Y", KEY_Y}, {"L", KEY_L}, {"R", KEY_R}, {"ZR", KEY_ZR},
+        {"A", KEY_A}, {"B", KEY_B}, {"X", KEY_X}, {"Y", KEY_Y}, {"L", KEY_L}, {"R", KEY_R}, {"ZR", KEY_ZR}, {"ZL", KEY_ZL},
         {"UP", KEY_UP}, {"DOWN", KEY_DOWN}, {"LEFT", KEY_LEFT}, {"RIGHT", KEY_RIGHT}, {"SELECT", KEY_SELECT},
         {"START", KEY_START}};
     for (unsigned i = 0; i < sizeof T / sizeof *T; i++)

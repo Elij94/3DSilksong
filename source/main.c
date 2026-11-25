@@ -110,11 +110,11 @@ int main(void) {
     }
     printf("Game data: %s\nLoading...\n", data);
 
-    // the view: 240 px for ~19 units of height
+    // the view: 240 px for the game's 17.4 units of height
     View *v = &g_view;
     v->sw = top->frameBuf.height;   // the top screen's framebuffer is rotated: its height is the width
     v->sh = top->frameBuf.width;
-    v->sy = 12.5f;
+    v->sy = 240.0f / (2 * 8.710664f);   // the game's framing: its camera shows 8.71 units above and below the centre
     v->sx = v->sy * v->sw / 400.0f;   // the same view, with twice the pixels across in 800 mode
 
     v->hw = v->sw * 0.5f / v->sx;
@@ -137,6 +137,9 @@ int main(void) {
         return 0;
     }
     consoleClear();
+    // from here the bottom screen is drawn like the top one (the area, the map, the inventory, the debug info)
+    gfxSetScreenFormat(GFX_BOTTOM, GSP_BGR8_OES);
+    C3D_RenderTarget *bot = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
 
     Thread wd = autotest_on() ? threadCreate(watchdog, NULL, 8 * 1024, 0x18, 1, false) : NULL;
     if (!wd && autotest_on()) wd = threadCreate(watchdog, NULL, 8 * 1024, 0x18, -2, false);
@@ -185,6 +188,9 @@ int main(void) {
         C2D_Prepare();
         gfx_blend_reset();
         game_draw();
+        C2D_TargetClear(bot, clear);
+        C2D_SceneBegin(bot);
+        game_draw_bottom();
         ms += ((svcGetSystemTick() - t0) / (float)(SYSCLOCK_ARM11 / 1000) - ms) * 0.1f;
         g_where = "FrameEnd";
         C3D_FrameEnd(0);
