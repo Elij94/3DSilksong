@@ -100,7 +100,7 @@ bool hero_init(Hero *h) {
     }
     h->body.set = h->fx.set = h->bsilk.set = h->heal.set = s_set;
     h->body.clip = h->fx.clip = h->bsilk.clip = h->heal.clip = -1;
-    h->bind_loop = -1;
+    h->bind_loop = h->needolin_loop = -1;
     h->maxhp = h->hp = 5;
     h->face = 1;
     anim_play_name(&h->body, "Idle", true);
@@ -111,6 +111,8 @@ void hero_place(Hero *h, float x, float y, int face) {
     h->x = x; h->y = y;
     h->vx = h->vy = 0;
     if (face) h->face = face;
+    h->ctrl_off = h->anim_ext = h->performing = false;   // a new room: no script holds her
+    if (h->needolin_loop >= 0) { sfx_stop(h->needolin_loop); h->needolin_loop = -1; }
     if (h->bind_loop >= 0) { sfx_stop(h->bind_loop); h->bind_loop = -1; }
     h->silk_on = h->heal_on = false;
     h->state = HS_NORMAL;
@@ -334,7 +336,9 @@ static void to_normal(Hero *h) {
     h->state = HS_NORMAL;
     h->st = 0;
     h->silk_on = false;
+    h->performing = false;
     if (h->bind_loop >= 0) { sfx_stop(h->bind_loop); h->bind_loop = -1; }
+    if (h->needolin_loop >= 0) { sfx_stop(h->needolin_loop); h->needolin_loop = -1; }
 }
 
 static void start_wall(Hero *h, int side) {
@@ -377,6 +381,8 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
     if (h->heal_on) { anim_update(&h->heal, dt); if (h->heal.done) h->heal_on = false; }
     if (h->flash_t > 0) h->flash_t -= dt;
     bool hit_frame = false;
+    static const Input none = {0, 0, 0};
+    if (h->ctrl_off) in = &none;   // a script holds her
     int dir = (in->held & KEY_RIGHT ? 1 : 0) - (in->held & KEY_LEFT ? 1 : 0);
     bool jump_down = in->down & KEY_B, jump_held = in->held & KEY_B;
     bool can_dash = has("hasDash");                    // Swift Step: the dash and the sprint
@@ -402,6 +408,28 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         if (move_y(h, r, h->vy * dt) && h->vy < 0) h->vy = 0;
         anim_update(&h->body, dt);
         return false;
+    case HS_NEEDOLIN: {
+        // the Needolin: out (Needolin Start), played while X is held (Needolin Play, its melody), put away
+        anim_update(&h->body, dt);
+        h->vx = 0;
+        if (h->phase == 0 && h->body.done) {
+            h->phase = 1;
+            body(h, "Needolin Play", true);
+            h->performing = true;
+            if (h->needolin_loop < 0) h->needolin_loop = sfx_loop_name("hornet_needolin_general_02", 0.8f);
+        }
+        if (h->phase < 2 && !(in->held & KEY_X)) {
+            h->phase = 2;
+            h->performing = false;
+            if (h->needolin_loop >= 0) { sfx_stop(h->needolin_loop); h->needolin_loop = -1; }
+            body(h, "Needolin End", true);
+        }
+        if (h->phase == 2 && h->body.done) { to_normal(h); body(h, "Idle", true); }
+        if (dir && dir != h->face && h->phase == 1) { h->face = dir; body(h, "Needolin Turn", true); h->phase = 3; }
+        if (h->phase == 3 && h->body.done) { h->phase = 1; body(h, "Needolin Play", true); }
+        if (h->phase == 3 && !(in->held & KEY_X)) h->phase = 1;
+        return false;
+    }
     case HS_SIT: {
         anim_update(&h->body, dt);
         float k = h->st / 0.2f;                // iTweenMoveTo, 0.2 s
@@ -733,6 +761,16 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
             h->vx = (recovering && h->ground) ? 0 : dir * RUN_SPEED;
         }
         if (h->recoil_t > 0) h->vx = h->recoil_v;
+        if ((in->down & KEY_X) && h->ground && h->attack == ATK_NONE && has("hasNeedolin")) {
+            h->state = HS_NEEDOLIN;
+            h->st = 0;
+            h->phase = 0;
+            h->vx = 0;
+            h->sprint = false;
+            body(h, "Needolin Start", true);
+            snd("hornet_pull_out_needolin");
+            return false;
+        }
         if (in->down & KEY_A) {
             if (h->attack == ATK_NONE) {
                 h->state = HS_BIND;
@@ -969,8 +1007,8 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
     if (look != h->look) { h->look = look; h->look_t = 0; }
     else h->look_t += dt;
 
-    // ---- animation
-    if (h->state == HS_NORMAL && h->attack == ATK_NONE) {
+    // ---- animation (unless a script plays them)
+    if (h->state == HS_NORMAL && h->attack == ATK_NONE && !h->anim_ext) {
         static const char *ONE_SHOT[] = {"Mantle Cancel To Jump", "DownSpikeBounce 1", "DownSpikeBounce 2",
                                          "Downspike Recovery", "Walljump", "Double Jump", "Harpoon Catch",
                                          "Harpoon Needle Return", "Super Jump Hit Roof Q", "Super Jump Loop Cancel",
@@ -1006,7 +1044,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
             body(h, "Idle", false);
         }
     }
-    if (h->state == HS_NORMAL && h->attack == ATK_NONE && h->body.done && h->ground && !dir && !h->sprint &&
+    if (h->state == HS_NORMAL && h->attack == ATK_NONE && !h->anim_ext && h->body.done && h->ground && !dir && !h->sprint &&
         h->skid_t <= 0) body(h, "Idle", true);
     anim_update(&h->body, dt);
     if (h->fx_on) {

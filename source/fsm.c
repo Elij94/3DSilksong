@@ -100,6 +100,9 @@ static int s_nfsm;
 static Objects *s_os;
 static const Room *s_room;
 static Hero *s_hero;
+static u32 s_in_down, s_in_held, s_in_up;   // this frame's buttons (ListenFor... actions)
+float g_fsm_fade;                           // ScreenFader: the black over the screen, 0..1
+void fsm_input(u32 down, u32 held, u32 up) { s_in_down = down; s_in_held = held; s_in_up = up; }
 static u16 s_ev_finished;
 static Delayed s_delayed[32];
 static int s_ndelayed;
@@ -624,6 +627,7 @@ static int find_child(int parent, int name) {
 }
 
 static void play_clip(int node, const Val *clip, Fsm *f) {
+    if (node == N_HERO && s_hero) { anim_play_name(&s_hero->body, str_at(a_str(f, clip)), true); return; }
     Obj *o = node_obj(node);
     if (!o || !o->anim.set) return;
     anim_play_name(&o->anim, str_at(a_str(f, clip)), true);
@@ -1354,8 +1358,12 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         int nd = a_node(f, ARG(0));
         bool play = ac->op == OP_Tk2dPlayAnimationWithEvents;
         if (enter && play) play_clip(nd, ARG(1), f);
-        Obj *o = node_obj(nd);
         int ce = play ? 3 : 2;
+        if (nd == N_HERO && s_hero) {   // Hornet's clip, played by a script
+            if (s_hero->body.done) { send_self(f, ARG(ce)); return true; }
+            return false;
+        }
+        Obj *o = node_obj(nd);
         if (!o || !o->anim.set) { if (!enter || !play) { send_self(f, ARG(ce)); return true; } return false; }
         if (o->anim.done) { send_self(f, ARG(ce)); return true; }
         return false;
@@ -1379,7 +1387,163 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
     case OP_PlayerDataBoolTest: send_self(f, ARG(pd_bool(str_at(a_str(f, ARG(0)))) ? 1 : 2)); return true;
     case OP_SetPlayerDataBool: pd_set_bool(str_at(a_str(f, ARG(0))), a_i(f, ARG(1)) != 0); return true;
     case OP_GetPlayerDataBool: set_i(f, ARG(1), pd_bool(str_at(a_str(f, ARG(0))))); return !ac->every;
-    case OP_SetPlayerDataInt: pd_set_int(str_at(a_str(f, ARG(0))), a_i(f, ARG(1))); return true;
+    case OP_SetPlayerDataInt: {
+        const char *nm = str_at(a_str(f, ARG(0)));
+        pd_set_int(nm, a_i(f, ARG(1)));
+        if (s_hero && !strcmp(nm, "health")) s_hero->hp = a_i(f, ARG(1));      // Hornet's masks are PlayerData's
+        if (s_hero && !strcmp(nm, "maxHealth") && a_i(f, ARG(1)) > 0) s_hero->maxhp = a_i(f, ARG(1));
+        return true;
+    }
+    case OP_CallMethodProper: case OP_SendMessage: case OP_HeroControllerMethods: {
+        // HeroController's methods the scripts call: control, animation control, facing, health
+        static const char *const M[] = {"SetAllowNailChargingWhileRelinquished", "RelinquishControlNotVelocity",
+                                        "StopAnimationControl", "FlipSprite", "ShouldHardLand", "StartAnimationControlToIdle",
+                                        "RegainControl", "RelinquishControl", "DoHardLanding", "", "ResetGravity", "", "",
+                                        "", "", "", "AffectedByGravity", "StartAnimationControl"};
+        const char *m;
+        int nd;
+        float num;
+        if (ac->op == OP_HeroControllerMethods) {
+            int k = a_i(f, ARG(0));
+            m = k >= 0 && k < (int)(sizeof M / sizeof *M) ? M[k] : "";
+            nd = N_HERO;
+            num = a_i(f, ARG(1));
+        } else if (ac->op == OP_CallMethodProper) {
+            nd = a_node(f, ARG(0));
+            if (strcmp(str_at(a_str(f, ARG(1))), "HeroController")) return true;
+            m = str_at(a_str(f, ARG(2)));
+            num = a_f(f, ARG(3));
+        } else {
+            nd = a_node(f, ARG(0));
+            m = str_at(a_str(f, ARG(1)));
+            num = a_f(f, ARG(2));
+        }
+        if (nd != N_HERO || !s_hero) return true;
+        Hero *h = s_hero;
+        if (!strcmp(m, "RelinquishControl") || !strcmp(m, "RelinquishControlNotVelocity") || !strcmp(m, "IgnoreInput")) {
+            h->ctrl_off = true;
+            if (!strcmp(m, "RelinquishControl")) h->vx = 0;
+        } else if (!strcmp(m, "RegainControl") || !strcmp(m, "AcceptInput")) h->ctrl_off = false;
+        else if (!strcmp(m, "StopAnimationControl")) h->anim_ext = true;
+        else if (!strcmp(m, "StartAnimationControl") || !strcmp(m, "StartAnimationControlToIdle")) h->anim_ext = false;
+        else if (!strcmp(m, "FlipSprite")) h->face = -h->face;
+        else if (!strcmp(m, "FaceLeft")) h->face = -1;
+        else if (!strcmp(m, "FaceRight")) h->face = 1;
+        else if (!strcmp(m, "AddHealth")) { h->hp += (int)num; if (h->hp > h->maxhp) h->hp = h->maxhp; }
+        return true;
+    }
+    case OP_ScreenFader: {   // the screen to black (or back) over a time
+        if (enter) { rt->x0 = a_f(f, ARG(0)); rt->dx = a_f(f, ARG(1)); rt->dur = a_f(f, ARG(2)); rt->t = 0; }
+        else rt->t += s_dt;
+        float k = rt->dur > 0 ? rt->t / rt->dur : 1;
+        if (k > 1) k = 1;
+        g_fsm_fade = rt->x0 + (rt->dx - rt->x0) * k;
+        return k >= 1;
+    }
+    case OP_ListenForCast: case OP_ListenForJump: case OP_ListenForAttack: case OP_ListenForDash: case OP_ListenForUp:
+    case OP_ListenForDown: case OP_ListenForLeft: case OP_ListenForRight: case OP_ListenForDreamNail:
+    case OP_ListenForQuickCast: {
+        // the game's actions on the 3DS buttons (its default layout)
+        u32 key = ac->op == OP_ListenForCast ? KEY_A : ac->op == OP_ListenForJump ? KEY_B :
+                  ac->op == OP_ListenForAttack ? KEY_Y : ac->op == OP_ListenForDash ? KEY_ZR :
+                  ac->op == OP_ListenForUp ? KEY_UP : ac->op == OP_ListenForDown ? KEY_DOWN :
+                  ac->op == OP_ListenForLeft ? KEY_LEFT : ac->op == OP_ListenForRight ? KEY_RIGHT :
+                  ac->op == OP_ListenForDreamNail ? KEY_X : KEY_R;
+        if (s_in_down & key) send_self(f, ARG(0));
+        if (s_in_up & key) send_self(f, ARG(1));
+        if (s_in_held & key) send_self(f, ARG(2));
+        else send_self(f, ARG(3));
+        return false;
+    }
+    case OP_SendEventToRegister: {   // EventRegister: every script listening for that name
+        int e = str_find(str_at(a_str(f, ARG(0))));
+        if (e >= 0)
+            for (int k = 0; k < s_nfsm; k++)
+                if (s_fsm[k].started && !s_fsm[k].stopped) fsm_event(&s_fsm[k], e);
+        return true;
+    }
+    case OP_iTweenMoveBy: case OP_iTweenMoveTo: {
+        bool by = ac->op == OP_iTweenMoveBy;
+        int nd = a_node(f, ARG(0));
+        float time = a_f(f, by ? ARG(2) : ARG(3)), delay = a_f(f, by ? ARG(3) : ARG(4));
+        if (enter) {
+            node_pos(nd, &rt->x0, &rt->y0);
+            if (by) {
+                const Val *v = deref(f, ARG(1));
+                rt->dx = v->t == T_VEC ? v->f[0] : 0;
+                rt->dy = v->t == T_VEC ? v->f[1] : 0;
+            } else {
+                float tx = rt->x0, ty = rt->y0;
+                int tn = a_node(f, ARG(1));
+                const Val *v = deref(f, ARG(2));
+                if (tn != N_NONE) node_pos(tn, &tx, &ty);
+                else if (v->t == T_VEC) { tx = v->f[0]; ty = v->f[1]; }
+                rt->dx = tx - rt->x0;
+                rt->dy = ty - rt->y0;
+            }
+            rt->t = 0;
+            rt->done = 0;
+        } else rt->t += s_dt;
+        if (rt->done) return true;
+        float k = time > 0 ? (rt->t - delay) / time : 1;
+        if (k < 0) return false;
+        if (k > 1) k = 1;
+        float e = k * k * (3 - 2 * k);   // iTween's easeInOut, about
+        node_set_pos(nd, rt->x0 + rt->dx * e, rt->y0 + rt->dy * e);
+        if (k >= 1) { rt->done = 1; send_self(f, by ? ARG(4) : ARG(5)); return true; }
+        return false;
+    }
+    case OP_ActivateGameObjectDelay: {
+        if (enter) rt->t = 0; else rt->t += s_dt;
+        if (rt->t < a_f(f, ARG(2))) return false;
+        int nd = a_node(f, ARG(0));
+        if (nd >= 0) s_nodes[nd].active = a_i(f, ARG(1)) != 0;
+        return true;
+    }
+    case OP_CheckHeroPerformanceRegion: case OP_CheckHeroPerformanceRegionV2: {
+        // the Needolin heard: inside the region around Hornet (17 x 12), its outer part (26 x 19), or not at all
+        bool v2 = ac->op == OP_CheckHeroPerformanceRegionV2;
+        int o = v2 ? 1 : 0;
+        int state = 0;
+        if (s_hero && s_hero->performing) {
+            if (a_i(f, ARG(6 + o))) state = 1;
+            else {
+                float x, y, rad = v2 ? a_f(f, ARG(1)) : 0;
+                node_pos(a_node(f, ARG(0)), &x, &y);
+                float dx = fabsf(x - s_hero->x) - rad, dy = fabsf(y - (s_hero->y - 0.6f)) - rad;
+                state = dx <= 8.5f && dy <= 6 ? 1 : dx <= 13 && dy <= 9.5f ? 2 : 0;
+            }
+        }
+        if (enter) { rt->done = 0xFF; rt->t = -1; }
+        if (state != rt->done && rt->t < 0) {   // a change: heard after a short reaction delay
+            rt->dx = (float)state;
+            rt->t = frand(a_f(f, ARG(1 + o)), a_f(f, ARG(2 + o)));
+        }
+        if (rt->t >= 0) {
+            rt->t -= s_dt;
+            if (rt->t < 0) {
+                rt->done = (u8)rt->dx;
+                send_self(f, ARG(3 + o + rt->done));
+            }
+        }
+        return !ac->every && rt->t < 0 && rt->done != 0xFF;
+    }
+    case OP_RandomFloatEither: set_f(f, ARG(2), (rand() & 1) ? a_f(f, ARG(0)) : a_f(f, ARG(1))); return true;
+    case OP_GetPlayerDataVariable: {
+        const char *nm = str_at(a_str(f, ARG(0)));
+        Val *v = var_of(f, ARG(1));
+        if (!v) return true;
+        if (v->t == T_BOOL) v->i = pd_bool(nm);
+        else { v->i = pd_int(nm); v->f[0] = (float)v->i; }
+        return true;
+    }
+    case OP_SetPlayerDataVariable: {
+        const char *nm = str_at(a_str(f, ARG(0)));
+        const Val *v = deref(f, ARG(1));
+        if (v->t == T_BOOL) pd_set_bool(nm, v->i != 0);
+        else pd_set_int(nm, v->t == T_FLOAT ? (int)v->f[0] : v->i);
+        return true;
+    }
     case OP_GetPlayerDataInt: set_i(f, ARG(1), pd_int(str_at(a_str(f, ARG(0))))); return !ac->every;
     case OP_SetFsmBool: case OP_SetFsmFloat: case OP_SetFsmInt: case OP_SetFsmString: {
         Val *v = fsm_var(fsm_on(a_node(f, ARG(0)), a_str(f, ARG(1))), a_str(f, ARG(2)));
@@ -1423,7 +1587,6 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         return true;
     case OP_ReceivedDamage: return false;          // fsm_strike looks for it
     case OP_WaitForHeroInPosition: send_self(f, ARG(0)); return true;
-    case OP_CheckHeroPerformanceRegion: send_self(f, ARG(1)); return true;
     case OP_FinishFSM: f->stopped = true; return true;
     case OP_PlayAudioEvent: case OP_AudioPlayerOneShotSingle: case OP_AudioPlaySimple:
         play_sfx(f, ARG(0), a_none(f, ARG(1)) ? 1 : a_f(f, ARG(1)), a_node(f, ARG(2)));

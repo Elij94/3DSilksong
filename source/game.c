@@ -140,6 +140,7 @@ static void camera_snap(void);
 
 static bool enter(const char *scene) {
     unload();
+    g_fsm_fade = 0;   // a script's fade ends with its room
     if (!room_load(&s_room, scene)) return false;
     objects_load(&s_objs, scene);
     fsm_load(scene, &s_objs);
@@ -417,6 +418,7 @@ static void play(const Input *in_raw, float dt) {
     g_where = "objects/enemies";
     objects_update(&s_objs, dt);
     g_where = "fsm_update";
+    fsm_input(in_raw->down, in_raw->held, in_raw->up);
     fsm_update(dt, h, &s_objs, &s_room);
     g_where = "play";
     enemies_update(&s_objs, &s_room, h->x, h->y - 0.6f, dt);
@@ -873,8 +875,9 @@ static void draw_all(void) {
         u32 c = C2D_Color32(240, 236, 228, 230);
         C2D_DrawTriangle(px - w, py, c, px + w, py, c, px, py - 7, c, 0.6f);
     }
-    if (s_fade > 0)
-        C2D_DrawRectSolid(0, 0, 0.9f, g_view.sw, g_view.sh, C2D_Color32(0, 0, 0, (u8)(s_fade * 255)));
+    float fade = s_fade > g_fsm_fade ? s_fade : g_fsm_fade;   // the room's fade in, or a script's ScreenFader
+    if (fade > 0)
+        C2D_DrawRectSolid(0, 0, 0.9f, g_view.sw, g_view.sh, C2D_Color32(0, 0, 0, (u8)(clampf(fade, 0, 1) * 255)));
     if (s_mode == GS_TITLE || s_mode == GS_PAUSE) menu_draw();
 }
 

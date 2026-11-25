@@ -10,7 +10,7 @@
 #define HERO_HEAD 0.30f
 
 enum { HS_NORMAL, HS_DASH, HS_HURT, HS_RESPAWN, HS_DEAD, HS_SIT, HS_BIND, HS_MANTLE, HS_SPIKE, HS_WALL, HS_HARPOON,
-       HS_SOAR };
+       HS_SOAR, HS_NEEDOLIN };
 #define SILK_MAX  9       // the spool, and what a bind costs
 #define BIND_HEAL 3
 enum { ATK_NONE, ATK_SIDE, ATK_UP, ATK_DOWN, ATK_HARPOON };
@@ -58,6 +58,10 @@ typedef struct {
     float air_sprint_t;     // the glide after an air dash, -1 when none
     float turn_t;           // a sprint turning round
     bool bind_done;
+    bool ctrl_off;          // a script holds her (RelinquishControl): no input
+    bool anim_ext;          // a script plays her animations (StopAnimationControl)
+    bool performing;        // playing the Needolin (the scripts' CheckHeroPerformanceRegion hear it)
+    int needolin_loop;      // its sound's voice, -1 when none
     float sit_x0, sit_x1;   // the bench: from where she stood to the seat
     Anim body, fx, bsilk;  // bsilk: the bind silk round her
     bool fx_on, silk_on;

@@ -33,5 +33,8 @@ void pd_set_int(const char *name, int v);
 void pd_save(FILE *f);              // "pd name value" lines
 void pd_load_line(const char *line);
 void pd_clear(void);                // a new game
+// the buttons this frame, for the scripts that listen to them; the scripts' screen fade (black, 0..1)
+void fsm_input(u32 down, u32 held, u32 up);
+extern float g_fsm_fade;
 void pd_clear_semi(void);           // a bench rest
 int fsm_count(void);                // for the status screen

@@ -102,7 +102,6 @@ OPS = [
     ('DamageHeroDirectly', 'damager damageAmount'),
     ('ReceivedDamage', 'Target sendEvent sendEventHeavy'),
     ('WaitForHeroInPosition', 'sendEvent'),
-    ('CheckHeroPerformanceRegion', 'Target None'),
     ('RunDialogue', 'Sheet Key Target'),
     ('ActivateInteractible', 'Target Activate'),
     ('FinishFSM', ''),
@@ -161,8 +160,55 @@ OPS = [
     ('GetPosition2d', 'gameObject vector_2d x y'),
     ('StartCrawler', 'Target'),
     ('StopCrawler', 'Target'),
+    # Hornet taken over by a script (cutscenes, shrines, benches...), and what scripts do around it
+    ('CallMethodProper', 'gameObject behaviour methodName p_num p_bool'),
+    ('HeroControllerMethods', 'method p_bool'),
+    ('SendMessage', 'gameObject fn p_num'),
+    ('ScreenFader', 'start_a end_a duration'),
+    ('ListenForCast', 'wasPressed wasReleased isPressed isNotPressed'),
+    ('ListenForJump', 'wasPressed wasReleased isPressed isNotPressed'),
+    ('ListenForAttack', 'wasPressed wasReleased isPressed isNotPressed'),
+    ('ListenForDash', 'wasPressed wasReleased isPressed isNotPressed'),
+    ('ListenForUp', 'wasPressed wasReleased isPressed isNotPressed'),
+    ('ListenForDown', 'wasPressed wasReleased isPressed isNotPressed'),
+    ('ListenForLeft', 'wasPressed wasReleased isPressed isNotPressed'),
+    ('ListenForRight', 'wasPressed wasReleased isPressed isNotPressed'),
+    ('ListenForDreamNail', 'wasPressed wasReleased isPressed isNotPressed'),
+    ('ListenForQuickCast', 'wasPressed wasReleased isPressed isNotPressed'),
+    ('SendEventToRegister', 'eventName'),
+    ('iTweenMoveBy', 'gameObject vector time delay finishEvent'),
+    ('iTweenMoveTo', 'gameObject transformPosition vectorPosition time delay finishEvent'),
+    ('ActivateGameObjectDelay', 'gameObject activate delay'),
+    ('RandomFloatEither', 'value1 value2 storeResult'),
+    ('GetPlayerDataVariable', 'VariableName StoreValue'),
+    ('SetPlayerDataVariable', 'VariableName SetValue'),
+    ('CheckHeroPerformanceRegion', 'Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange'),
+    ('CheckHeroPerformanceRegionV2', 'Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter '
+                                     'IgnoreNeedolinRange'),
 ]
 OP_ID = {n: i for i, (n, _) in enumerate(OPS)}
+
+
+def flatten(t, p):
+    """the parameters some actions nest: a method's first argument, a message's name, a fade's alphas"""
+    p = dict(p)
+    if t in ('CallMethodProper', 'HeroControllerMethods'):
+        args = p.get('parameters') or []
+        first = args[0] if args and isinstance(args[0], dict) else {}
+        if 'var' in first:
+            p['p_num'] = p['p_bool'] = first
+        else:
+            p['p_num'] = float(first.get('f') or first.get('i') or 0)
+            p['p_bool'] = bool(first.get('b'))
+    elif t == 'SendMessage':
+        fc = p.get('functionCall') or {}
+        p['fn'] = fc.get('function') or ''
+        v = fc.get('v')
+        p['p_num'] = float(v) if isinstance(v, (int, float)) else float(fc.get('f') or 0)
+    elif t == 'ScreenFader':
+        p['start_a'] = float((p.get('startColour') or {}).get('a', 0) or 0)
+        p['end_a'] = float((p.get('endColour') or {}).get('a', 0) or 0)
+    return p
 
 T_NONE, T_FLOAT, T_INT, T_BOOL, T_STR, T_VAR, T_NODE, T_EVENT, T_VEC, T_LIST, T_TARGET = range(11)
 N_OWNER, N_HERO, N_NONE = -2, -3, -1
@@ -308,6 +354,7 @@ def compile_room(romfs, scene, out_path):
                 acts.append((t, a.get('params') or {}))
             b += struct.pack('<H', len(acts))
             for t, p in acts:
+                p = flatten(t, p)
                 keys = OPS[OP_ID[t]][1].split()
                 every = bool(p.get('everyFrame') or p.get('EveryFrame'))
                 b += struct.pack('<BBB', OP_ID[t], int(every), len(keys))
@@ -325,7 +372,9 @@ def compile_room(romfs, scene, out_path):
                                             'targetSpeed', 'offsetX', 'offsetY', 'xOffset', 'yOffset', 'waitMin', 'waitMax',
                                             'roamingRange', 'roamingRangeX', 'roamingRangeY', 'minAboveHero', 'angle',
                                             'lowerValue', 'upperValue', 'newRecoilSpeed', 'GroundDistance',
-                                            'SkinHeight', 'float1', 'float2') and t not in (
+                                            'SkinHeight', 'float1', 'float2', 'p_num', 'start_a', 'end_a',
+                                            'duration', 'value1', 'value2', 'MinReactDelay',
+                                            'MaxReactDelay', 'Radius') and t not in (
                                                 'RandomInt', 'IntCompare', 'IntAdd') else None
                     b += val(v, vars_ix, kind)
                 stats['kept'] += 1
