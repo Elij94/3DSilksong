@@ -130,7 +130,7 @@ typedef struct {
     RTile *t;
     u32 off, size;
     u16 tile;
-    u8 fmt, down;
+    u8 fmt, down, blend;
     u32 gen;
     u8 *buf;
     size_t cap;
@@ -175,6 +175,7 @@ static void loader_main(void *arg) {
                 any = true;
                 bool ok = j->gen == s_gen && read_tile(s_file, j->off, j->size, &s_wbuf, &s_wbuf_size) &&
                           tex_inflate_scaled(s_wbuf, j->size, j->tile, j->tile, j->fmt, j->down, j->buf);
+                if (ok && j->blend == BLEND_MULTIPLY) tex_premultiply(j->buf, j->tile / j->down, j->tile / j->down, j->fmt);
                 __atomic_store_n(&j->state, ok ? JOB_DONE : JOB_FAILED, __ATOMIC_RELEASE);
             }
         }
@@ -236,7 +237,7 @@ static bool tile_request(Room *r, Layer *L, RTile *t) {
             if (!j->buf) return false;
         }
         j->t = t; j->off = t->off; j->size = t->size;
-        j->tile = L->tile; j->fmt = L->fmt; j->down = L->down;
+        j->tile = L->tile; j->fmt = L->fmt; j->down = L->down; j->blend = L->blend;
         j->gen = s_gen;
         t->pending = 1;
         __atomic_store_n(&j->state, JOB_QUEUED, __ATOMIC_RELEASE);   // after the fields above
@@ -285,6 +286,7 @@ static bool tile_load(Room *r, Layer *L, RTile *t, bool prefetch) {
         t->size = 0;   // broken: don't try again
         return false;
     }
+    if (L->blend == BLEND_MULTIPLY) tex_premultiply(s->tex.data, size, size, L->fmt);
     C3D_TexFlush(&s->tex);
     s->owner = t;
     s->last_used = g_view.frame;

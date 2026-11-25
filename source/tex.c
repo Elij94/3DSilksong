@@ -23,6 +23,27 @@ static inline u32 tex_index(u32 x, u32 y, u32 w) {
     return ((y >> 3) * (w >> 3) + (x >> 3)) * 64 + m;
 }
 
+// colour times alpha, in place: a multiply layer's texels as the factor dst * (c * a + 1 - a) needs them (the GPU
+// blend is dst * src + dst * (1 - a)); the converter stores them with straight alpha
+void tex_premultiply(void *data, int w, int h, int fmt) {
+    size_t n = (size_t)w * h;
+    if (fmt == GPU_RGBA4) {
+        u16 *p = data;
+        for (size_t i = 0; i < n; i++) {
+            u32 t = p[i], a = t & 15;
+            u32 r = ((t >> 12) * a + 7) / 15, g = (((t >> 8) & 15) * a + 7) / 15, b = (((t >> 4) & 15) * a + 7) / 15;
+            p[i] = (u16)(r << 12 | g << 8 | b << 4 | a);
+        }
+    } else if (fmt == GPU_RGBA8) {
+        u32 *p = data;
+        for (size_t i = 0; i < n; i++) {
+            u32 t = p[i], a = t & 255;
+            u32 r = ((t >> 24) * a + 127) / 255, g = (((t >> 16) & 255) * a + 127) / 255, b = (((t >> 8) & 255) * a + 127) / 255;
+            p[i] = r << 24 | g << 16 | b << 8 | a;
+        }
+    }
+}
+
 static __thread u8 *s_big;      // per thread: the tile loader thread has its own
 static __thread size_t s_big_size;
 

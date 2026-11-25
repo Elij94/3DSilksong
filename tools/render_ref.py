@@ -85,8 +85,8 @@ def blend_into(canvas, img, x, y, mode):
     dst = canvas[y0:y1, x0:x1]
     if mode == 1:
         dst += src[..., :3] * a
-    elif mode == 2:
-        dst *= src[..., :3] + 1 - a
+    elif mode == 2:     # multiply: dst * (c * a + 1 - a)
+        dst *= src[..., :3] * a + 1 - a
     else:
         dst *= 1 - a
         dst += src[..., :3] * a
