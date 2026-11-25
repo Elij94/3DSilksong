@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1
+
+- The top screen in 400x240: in the 800x240 mode only the left half of the picture reached the screen, twice as
+  wide (the view looked zoomed in and Hornet sat on its right edge). Azahar does show the mode, so it is now tested
+  as the console runs it.
+- The view zoomed out a little: about 19 units of height instead of 17.
+
 ## 0.6.0 — playable
 
 - Drawing: textures the right way up (the converted data is mirrored on the GPU, and citro2d takes a subtexture

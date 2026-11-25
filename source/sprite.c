@@ -159,7 +159,7 @@ void sprite_draw_screen(SpriteSet *s, int f, float px, float py, float scale, co
     if (!s || f < 0 || f >= s->nframes) return;
     const SFrame *fr = &s->frames[f];
     if (fr->page >= s->npages || !page_ready(s, fr->page)) return;
-    float ax = g_view.sx / g_view.sy;   // 2 in the 800x240 mode: screen pixels half as wide
+    float ax = g_view.sx / g_view.sy;   // 1: square pixels (kept should the view ever be stretched)
     gfx_draw_screen(&s->pages[fr->page].tex, fr->u0, fr->v0, fr->u1, fr->v1, px + fr->x0 * scale * ax,
                     py - fr->y1 * scale, px + fr->x1 * scale * ax, py - fr->y0 * scale, tint);
 }

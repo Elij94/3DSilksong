@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import ctrtex  # noqa: E402
 
 SY = 14.0          # screen pixels per unit (source/main.c)
-SW, SH = 400, 240  # the 400x240 frame (the 800x240 mode only doubles x)
+SW, SH = 400, 240  # the 400x240 frame 
 
 
 def unswizzle(data, w, h, fmt):

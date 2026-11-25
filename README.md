@@ -1,6 +1,6 @@
 # 3DSilksong
 
-Tools that convert **Hollow Knight: Silksong** into data for the **New 3DS / New 2DS XL** (800x240 top screen,
+Tools that convert **Hollow Knight: Silksong** into data for the **New 3DS / New 2DS XL** (400x240 top screen,
 124 MB of RAM), modelled on the tools of [HK3DS](https://github.com/silviognotti/HK3DS).
 
 > Unofficial project, **not affiliated with Team Cherry**. This repository holds **no game file** (no image, sound,
@@ -73,8 +73,7 @@ sound effects, the map and inventory, text.
 
 `tools/emu_run.ps1` runs the engine in [Azahar](https://github.com/azahar-emu/azahar) (portable, in `../Azahar`)
 without taking the focus and saves a screenshot of its window. With `SD:/3ds/3dsilksong/autotest.txt` the engine
-reads its input from a script and writes Hornet's state to `log.txt` (see `source/autotest.c`); `nowide` there turns
-the 800x240 mode off, which emulators don't do. `tools/render_ref.py` draws a room from the converted files with the
+reads its input from a script and writes Hornet's state to `log.txt` (see `source/autotest.c`). `tools/render_ref.py` draws a room from the converted files with the
 engine's math, to tell an engine bug from a data one.
 
 ## Requirements

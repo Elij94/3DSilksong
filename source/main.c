@@ -1,4 +1,4 @@
-// 3DSilksong: entry point. New 3DS at 804 MHz, top screen at 800x240, the game data file mounted from the SD card,
+// 3DSilksong: entry point. New 3DS at 804 MHz, top screen at 400x240, the game data file mounted from the SD card,
 // then the game loop (game.c) on the top screen and its status on the bottom one.
 #include <3ds.h>
 #include <citro2d.h>
@@ -49,9 +49,9 @@ int main(void) {
     if (n3ds) osSetSpeedupEnable(true);           // 804 MHz, the extra L2 cache
 
     gfxInitDefault();
-    // 800x240 top screen on the New 3DS; SD:/3ds/3dsilksong/nowide turns it off (emulators that don't do the mode)
-    struct stat nw;
-    gfxSetWide(n3ds && stat("sdmc:" SS_DATADIR "nowide", &nw) != 0);
+    // 400x240: with the 800x240 mode on, only the left half of citro2d's 800 wide target reached the screen,
+    // stretched (on the console and in Azahar), and the GPU had twice the pixels to fill for no sharper picture
+    gfxSetWide(false);
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 2);
     C2D_Init(8192);
     C2D_Prepare();
@@ -70,12 +70,13 @@ int main(void) {
     }
     printf("Game data: %s\nLoading...\n", data);
 
-    // the view: 240 px for ~17 units of height, as the game's camera shows at 16:9
+    // the view: 240 px for ~19 units of height
     View *v = &g_view;
     v->sw = top->frameBuf.height;   // the top screen's framebuffer is rotated: its height is the width
     v->sh = top->frameBuf.width;
-    v->sy = 14.0f;
-    v->sx = v->sy * v->sw / 400.0f;  // 800 px in the same width as 400: pixels half as wide
+    v->sy = 12.5f;
+    v->sx = v->sy;
+
     v->hw = v->sw * 0.5f / v->sx;
     v->hh = v->sh * 0.5f / v->sy;
     room_cache_init();

@@ -23,8 +23,8 @@ void *file_load(const char *path, size_t *size);
 // "romfs:/" + rel
 const char *data_path(const char *fmt, ...);
 
-// The camera: (cx, cy) is the centre of the view in world units, y up. sx, sy: screen pixels per unit (sx doubles
-// in the 800x240 mode, where pixels are half as wide). hw, hh: half the view in units.
+// The camera: (cx, cy) is the centre of the view in world units, y up. sx, sy: screen pixels per unit (equal on the
+// 400x240 screen). hw, hh: half the view in units.
 typedef struct {
     float cx, cy;
     float sx, sy;
