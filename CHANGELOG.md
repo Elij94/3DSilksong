@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.0 — the sharp 800-pixel top screen, the game's bind, the bench without a stall
+
+- The top screen in the 800x240 mode on the New 3DS (twice the pixels across; no 3D): the render target is made at
+  the framebuffer's real size (citro2d's own is 400 wide). `SD:/3ds/3dsilksong/nowide` keeps 400x240 (emulators
+  show the 800 mode stretched).
+- The bind as the Bind FSM does it: Bind Time 1.2 s, a voice line, the silk taken off at the start (the spool's
+  chunks go down), bind_pt_1 and a shake, the Bind Silk round her at its place and size, its loop only while
+  binding, then the heal: a white flash, a shake, the Bind Flash burst, bind_pt_2; the masks given back play their
+  Health Refill. Looping sounds (`sfx_loop_name`, `sfx_stop`).
+- The bench saves once Hornet is seated: writing the card no longer stalls her sitting down.
+
 ## 0.11.0 — the game's HUD at its size, rosaries and shell shards, fixes from the console
 
 - The HUD placed and sized as the game's HudCamera shows it (13.8 pixels a unit, anchored top left): the bind orb,

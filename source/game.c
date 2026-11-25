@@ -50,6 +50,7 @@ static bool s_quit;
 static char s_bench_scene[48];
 static float s_bench_x, s_bench_y;
 static bool s_bench_prompt;
+static float s_save_in;          // a save waiting (seconds)
 static C2D_TextBuf s_tbuf;
 
 // the room menu
@@ -392,6 +393,7 @@ static void play(const Input *in_raw, float dt) {
         }
     }
     float x0 = h->x - HERO_HW, y0 = h->y + HERO_FOOT, x1 = h->x + HERO_HW, y1 = h->y + HERO_HEAD;
+    if (s_save_in > 0 && (s_save_in -= dt) <= 0) game_save();
     if (h->state != HS_DEAD) currency_update(&s_room, dt, x0, y0, x1, y1);
 
     if (h->state == HS_DEAD) {
@@ -450,7 +452,7 @@ static void play(const Input *in_raw, float dt) {
                 s_bench_y = h->y;
                 s_safe_x = h->sit_x1;
                 s_safe_y = h->y;
-                game_save();
+                s_save_in = 0.8f;     // saved once she is seated: writing the card now would stall her sitting down
                 message("Rested. Hornet will come back here.");
             }
             break;
@@ -627,9 +629,17 @@ static SpriteSet *s_hud, *s_spool;
 static float s_hud_t;
 static int s_hud_hp = -1;
 static float s_break_t[16];
+static float s_refill_t[16];                 // a mask given back: its Health Refill
+static int s_hud_silk = -1;
+static float s_chunk_t[SILK_MAX];            // a chunk coming (> 0, Up) or going (< 0, Down) on the spool
+
+static float hud_dur(const char *clip) {
+    int c = s_hud ? sprite_clip(s_hud, clip) : -1;
+    return c >= 0 && s_hud->clips[c].fps > 0 ? s_hud->clips[c].n / s_hud->clips[c].fps : 0;
+}
 
 #define HUD_K   (240.0f / (2 * 8.710664f))
-#define HUD_X(x) (((x) + 8.710664f * 16 / 9) * HUD_K)
+#define HUD_X(x) (((x) + 8.710664f * 16 / 9) * HUD_K * g_view.sx / g_view.sy)
 #define HUD_Y(y) ((8.710664f - (y)) * HUD_K)
 
 static int hud_frame(const char *clip, float t, bool loop) {
@@ -655,8 +665,9 @@ static void hud_text(const char *str, float x, float y, float size, u32 color) {
     C2D_TextParse(&t, s_tbuf, str);
     C2D_TextOptimize(&t);
     float w, h;
-    C2D_TextGetDimensions(&t, size, size, &w, &h);
-    C2D_DrawText(&t, C2D_WithColor, x, y - h * 0.5f, 0.95f, size, size, color);
+    float ax = g_view.sx / g_view.sy;
+    C2D_TextGetDimensions(&t, size * ax, size, &w, &h);
+    C2D_DrawText(&t, C2D_WithColor, x, y - h * 0.5f, 0.95f, size * ax, size, color);
 }
 
 static void draw_hud(void) {
@@ -669,7 +680,15 @@ static void draw_hud(void) {
     s_hud_t += 1.0f / 60;
     if (s_hud_hp >= 0 && s_hero.hp < s_hud_hp)
         for (int i = s_hero.hp; i < s_hud_hp && i < 16; i++) s_break_t[i] = 0.001f;
+    if (s_hud_hp >= 0 && s_hero.hp > s_hud_hp)
+        for (int i = s_hud_hp; i < s_hero.hp && i < 16; i++) s_refill_t[i] = 0.001f;
     s_hud_hp = s_hero.hp;
+    if (s_hud_silk >= 0 && s_hero.silk != s_hud_silk)
+        for (int i = 0; i < SILK_MAX; i++) {
+            if (i >= s_hud_silk && i < s_hero.silk) s_chunk_t[i] = 0.001f;        // spun: Up
+            else if (i >= s_hero.silk && i < s_hud_silk) s_chunk_t[i] = -0.001f;  // taken: Down
+        }
+    s_hud_silk = s_hero.silk;
     if (!s_hud) {
         for (int i = 0; i < s_hero.maxhp; i++) {
             float x = HUD_X(-11.84f + 0.94f * i), y = HUD_Y(6.79f);
@@ -687,8 +706,12 @@ static void draw_hud(void) {
     // the masks
     for (int i = 0; i < s_hero.maxhp && i < 16; i++) {
         float x = HUD_X(-11.84f + 0.94f * i), y = HUD_Y(6.79f), S = K * 0.714f;
-        if (i < s_hero.hp) {
+        if (i < s_hero.hp && s_refill_t[i] > 0 && s_refill_t[i] < hud_dur("Health Refill")) {
+            s_refill_t[i] += 1.0f / 60;
+            sprite_draw_screen(s_hud, hud_frame("Health Refill", s_refill_t[i], false), x, y, S, NULL);
+        } else if (i < s_hero.hp) {
             s_break_t[i] = 0;
+            s_refill_t[i] = 0;
             sprite_draw_screen(s_hud, hud_frame("Health Idle", s_hud_t + i * 0.3f, true), x, y, S, NULL);
         } else if (s_break_t[i] > 0 && s_break_t[i] < 0.5f) {
             s_break_t[i] += 1.0f / 60;
@@ -710,8 +733,20 @@ static void draw_hud(void) {
     sprite_draw_screen_xy(cs, cap, HUD_X(tx), HUD_Y(ty), -K, K, NULL);
     sprite_draw_screen_xy(cs, cap, HUD_X(tx + len), HUD_Y(ty), K, K, NULL);
     bool glow = s_hero.silk >= SILK_MAX;   // a bind is ready: the silk glows
-    for (int i = 0; i < s_hero.silk && i < SILK_MAX; i++) {
+    for (int i = 0; i < SILK_MAX; i++) {
         char name[24];
+        float t = s_chunk_t[i];
+        if (t != 0) {   // coming or going: SilkChunk Up / Down, then idle or gone
+            snprintf(name, sizeof name, t > 0 ? "SilkChunk Up%d" : "SilkChunk Down%d", 1 + i % 3);
+            float at = fabsf(t);
+            if (at < hud_dur(name)) {
+                s_chunk_t[i] = t > 0 ? t + 1.0f / 60 : t - 1.0f / 60;
+                sprite_draw_screen(s_hud, hud_frame(name, at, false), HUD_X(tx + 0.085f + 0.18f * i), HUD_Y(ty), K, NULL);
+                continue;
+            }
+            s_chunk_t[i] = 0;
+        }
+        if (i >= s_hero.silk) continue;
         snprintf(name, sizeof name, glow ? "SilkChunk Glow %d" : "SilkChunk Idle %d", 1 + i % 3);
         sprite_draw_screen(s_hud, hud_frame(name, s_hud_t + i * 0.17f, true), HUD_X(tx + 0.085f + 0.18f * i), HUD_Y(ty), K,
                            NULL);

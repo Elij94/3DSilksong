@@ -124,7 +124,7 @@ def sounds(out):
     want = []
     for p in gm.values():
         b = os.path.basename(p)
-        if re.match(r'(rosary_(bounce|collect)|shell_shard_pickup)_\d\.ogg$', b) or b in ('hornet_slide_after_sprint.ogg', 'hero_dash.ogg',
+        if re.match(r'(rosary_(bounce|collect)|shell_shard_pickup)_\d\.ogg$', b) or b in ('hornet_slide_after_sprint.ogg', 'hero_dash.ogg', 'hornet_bind_pt_1.ogg', 'bind1.ogg', 'bind3.ogg', 'bind4.ogg',
                                                                     'hero_wall_slide.ogg', 'bench_rest.ogg'):
             want.append(p)
     rev = {v: k for k, v in gm.items()}

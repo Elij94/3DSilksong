@@ -168,7 +168,8 @@ void sprite_draw_screen_xy(SpriteSet *s, int f, float px, float py, float sx, fl
     if (!s || f < 0 || f >= s->nframes) return;
     const SFrame *fr = &s->frames[f];
     if (fr->page >= s->npages || !page_ready(s, fr->page)) return;
-    float x0 = px + fr->x0 * sx, x1 = px + fr->x1 * sx, u0 = fr->u0, u1 = fr->u1;
+    float ax = g_view.sx / g_view.sy;
+    float x0 = px + fr->x0 * sx * ax, x1 = px + fr->x1 * sx * ax, u0 = fr->u0, u1 = fr->u1;
     if (x1 < x0) {   // flipped: the quad's sides and the texture's swap
         float t = x0; x0 = x1; x1 = t;
         t = u0; u0 = u1; u1 = t;

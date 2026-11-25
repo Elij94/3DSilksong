@@ -2,6 +2,7 @@
 #include <math.h>
 #include "hero.h"
 #include "audio.h"
+#include "fx.h"
 
 static void snd(const char *name) { sfx_play_name(name, 0.75f, 0); }
 
@@ -36,7 +37,7 @@ static void snd(const char *name) { sfx_play_name(name, 0.75f, 0); }
 #define JUMP_BUF     0.12f
 #define INVULN       1.0f
 #define STEP_UP      0.55f
-#define BIND_TIME    0.55f
+#define BIND_TIME    1.2f    // Bind FSM "Set Normal": Bind Time
 #define SPRINT_TURN  0.30f   // "Sprint Turn"
 #define AIR_SPRINT_T 0.235f  // the glide after an air dash, longer while R is held
 // Cling Grip
@@ -84,8 +85,9 @@ bool hero_init(Hero *h) {
             for (unsigned i = 0; i < sizeof warm / sizeof *warm; i++) sprite_preload_clip(s_set, warm[i]);
         }
     }
-    h->body.set = h->fx.set = h->bsilk.set = s_set;
-    h->body.clip = h->fx.clip = h->bsilk.clip = -1;
+    h->body.set = h->fx.set = h->bsilk.set = h->heal.set = s_set;
+    h->body.clip = h->fx.clip = h->bsilk.clip = h->heal.clip = -1;
+    h->bind_loop = -1;
     h->maxhp = h->hp = 5;
     h->face = 1;
     anim_play_name(&h->body, "Idle", true);
@@ -96,6 +98,8 @@ void hero_place(Hero *h, float x, float y, int face) {
     h->x = x; h->y = y;
     h->vx = h->vy = 0;
     if (face) h->face = face;
+    if (h->bind_loop >= 0) { sfx_stop(h->bind_loop); h->bind_loop = -1; }
+    h->silk_on = h->heal_on = false;
     h->state = HS_NORMAL;
     h->attack = ATK_NONE;
     h->fx_on = false;
@@ -239,6 +243,8 @@ void hero_hurt(Hero *h, int dmg, float from_x) {
     if (h->invuln > 0 || h->state == HS_DEAD || h->state == HS_RESPAWN) return;
     h->hp -= dmg > 0 ? dmg : 1;
     h->invuln = INVULN;
+    h->silk_on = false;   // a hit breaks the bind
+    if (h->bind_loop >= 0) { sfx_stop(h->bind_loop); h->bind_loop = -1; }
     h->attack = ATK_NONE;
     h->fx_on = false;
     if (h->hp <= 0) {
@@ -315,6 +321,7 @@ static void to_normal(Hero *h) {
     h->state = HS_NORMAL;
     h->st = 0;
     h->silk_on = false;
+    if (h->bind_loop >= 0) { sfx_stop(h->bind_loop); h->bind_loop = -1; }
 }
 
 static void start_wall(Hero *h, int side) {
@@ -354,6 +361,7 @@ static void approach(float *v, float target, float step) {
 }
 
 bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
+    if (h->heal_on) { anim_update(&h->heal, dt); if (h->heal.done) h->heal_on = false; }
     if (h->flash_t > 0) h->flash_t -= dt;
     bool hit_frame = false;
     int dir = (in->held & KEY_RIGHT ? 1 : 0) - (in->held & KEY_LEFT ? 1 : 0);
@@ -439,14 +447,16 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         } else {
             if (!h->bind_done && h->st >= BIND_TIME) {
                 h->bind_done = true;
-                h->silk -= SILK_MAX;
+                if (h->bind_loop >= 0) { sfx_stop(h->bind_loop); h->bind_loop = -1; }
                 h->hp = h->hp + BIND_HEAL > h->maxhp ? h->maxhp : h->hp + BIND_HEAL;
                 body(h, h->ground ? "BindBurst Ground" : "BindBurst Air", true);
-                snd("hornet_ability_bind");
-                h->silk_on = false;     // Heal: the silk's renderer off, Hornet flashes white
+                snd("hornet_bind_pt_2");
+                fx_shake(0.12f);
+                h->silk_on = false;
                 h->flash_t = 0.25f;
+                h->heal_on = anim_play_name(&h->heal, "Bind Flash", true);
             }
-            if (h->st >= BIND_TIME + 0.2f) to_normal(h);
+            if (h->st >= BIND_TIME + 0.17f) to_normal(h);
         }
         if (h->phase == 1 && h->st >= 0.18f && !clip_is(h, "BindCancel Ground") && !clip_is(h, "BindCancel Air"))
             body(h, h->ground ? "BindCancel Ground" : "BindCancel Air", true);
@@ -719,9 +729,16 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 h->djump_t = -1;
                 body(h, h->ground ? "BindCharge Ground" : "BindCharge Air", true);
                 if (h->phase == 0) {
-                    snd("hornet_bind_ready");
+                    char v[8];
+                    snprintf(v, sizeof v, "bind%d", 1 + rand() % 4);
+                    sfx_play_name(v, 0.9f, 0);
+                    h->silk -= SILK_MAX;
+                    snd("hornet_bind_pt_1");
+                    fx_shake(0.12f);
                     h->silk_on = anim_play_name(&h->bsilk, "Bind Silk", true);
                     h->silk_sx = (rand() & 1) ? 1.0f : -1.0f;
+                    if (h->bind_loop >= 0) sfx_stop(h->bind_loop);
+                    h->bind_loop = sfx_loop_name("hornet_bind_loop", 0.75f);
                 }
                 return false;
             }
@@ -1000,7 +1017,11 @@ void hero_draw(Hero *h) {
         tint = &white;
     }
     sprite_draw(h->body.set, anim_frame(&h->body), h->x, h->y, sx, 1, 1, tint);
-    if (h->silk_on) sprite_draw(h->bsilk.set, anim_frame(&h->bsilk), h->x, h->y, sx * h->silk_sx, 1, 1, NULL);
+    if (h->silk_on)
+        sprite_draw(h->bsilk.set, anim_frame(&h->bsilk), h->x, h->y + 0.7f, 1.361f * sx * h->silk_sx, 1.361f, 1, NULL);
+    if (h->heal_on)
+        sprite_draw(h->heal.set, anim_frame(&h->heal), h->x + h->face * 0.25f, h->y + 0.17f, 1.845f * sx, 1.845f, 1,
+                    NULL);
     if (h->fx_on) {
         sprite_draw(h->fx.set, anim_frame(&h->fx), h->x, h->y, sx, 1, 1, NULL);
     }

@@ -225,7 +225,7 @@ static SfxBuf *sfx_get(const char *name) {
     return b;
 }
 
-static void sfx_start(const char *name, float vol, float pan);
+static int sfx_start(const char *name, float vol, float pan, bool loop);
 
 void sfx_play(const char *guid, float vol, float pan) {
     if (!s_on || !guid || strlen(guid) != 32 || vol <= 0.01f) return;
@@ -233,23 +233,34 @@ void sfx_play(const char *guid, float vol, float pan) {
     SfxIdx key;
     memcpy(key.guid, guid, 33);
     SfxIdx *e = bsearch(&key, s_idx, s_nidx, sizeof(SfxIdx), cmp_idx);
-    if (e) sfx_start(e->name, vol, pan);
+    if (e) sfx_start(e->name, vol, pan, false);
 }
 
 void sfx_play_name(const char *name, float vol, float pan) {
-    if (s_on && name && name[0] && vol > 0.01f) sfx_start(name, vol, pan);
+    if (s_on && name && name[0] && vol > 0.01f) sfx_start(name, vol, pan, false);
 }
 
-static void sfx_start(const char *name, float vol, float pan) {
+int sfx_loop_name(const char *name, float vol) {
+    return s_on && name && name[0] && vol > 0.01f ? sfx_start(name, vol, 0, true) : -1;
+}
+
+void sfx_stop(int v) {
+    if (s_on && v >= 0 && v < SFX_VOICES) {
+        ndspChnWaveBufClear(SFX_CH0 + v);
+        s_vwb[v].status = NDSP_WBUF_DONE;
+    }
+}
+
+static int sfx_start(const char *name, float vol, float pan, bool loop) {
     static int nosfx = -1;   // testing: SD:/3ds/3dsilksong/nosfx turns the sound effects off
     if (nosfx < 0) { FILE *t = fopen("sdmc:/3ds/3dsilksong/nosfx", "r"); nosfx = t != NULL; if (t) fclose(t); }
-    if (nosfx) return;
+    if (nosfx) return -1;
     SfxBuf *b = sfx_get(name);
-    if (!b) return;
+    if (!b) return -1;
     int v = -1;
     for (int i = 0; i < SFX_VOICES; i++)
         if (s_vwb[i].status == NDSP_WBUF_DONE || s_vwb[i].status == NDSP_WBUF_FREE) { v = i; break; }
-    if (v < 0) return;
+    if (v < 0) return -1;
     int c = SFX_CH0 + v;
     ndspChnWaveBufClear(c);
     ndspChnReset(c);
@@ -264,8 +275,10 @@ static void sfx_start(const char *name, float vol, float pan) {
     memset(&s_vwb[v], 0, sizeof s_vwb[v]);
     s_vwb[v].data_vaddr = b->data;
     s_vwb[v].nsamples = b->n;
+    s_vwb[v].looping = loop;
     s_vdata[v] = b->data;
     ndspChnWaveBufAdd(c, &s_vwb[v]);
+    return v;
 }
 
 static void sfx_free(void) {

@@ -12,3 +12,5 @@ const char *audio_track(int c);
 // a sound effect by the guid of its AudioClip (the FSMs' sounds); vol 0..1, pan -1 left .. 1 right
 void sfx_play(const char *guid, float vol, float pan);
 void sfx_play_name(const char *name, float vol, float pan);   // sfx/<name>.pcm
+int sfx_loop_name(const char *name, float vol);   // played on a loop: its voice, -1 if none; sfx_stop ends it
+void sfx_stop(int voice);

@@ -63,6 +63,9 @@ typedef struct {
     bool fx_on, silk_on;
     float silk_sx;          // the bind silk's mirroring (RandomlyFlipFloat)
     float flash_t;          // a white flash on her (flashFocusHeal, flashBenchRest)
+    Anim heal;              // "Heal Anim": the Bind Flash burst when the bind heals
+    bool heal_on;
+    int bind_loop;          // the bind's looping sound (its voice), -1 when none
     int fx_kind;
 } Hero;
 

@@ -94,7 +94,8 @@ void dlg_update(u32 down) {
 
 void dlg_draw(void) {
     if (!s_open || !s_buf) return;
-    float x0 = 24, y0 = 150, w = 352, h = 80;
+    float ax = g_view.sx / g_view.sy;   // 2 in the 800 wide mode
+    float x0 = 24 * ax, y0 = 150, w = 352 * ax, h = 80;
     C2D_DrawRectSolid(x0, y0, 0.96f, w, h, C2D_Color32(0, 0, 0, 200));
     C2D_DrawRectSolid(x0, y0, 0.96f, w, 1, C2D_Color32(220, 210, 190, 255));
     C2D_DrawRectSolid(x0, y0 + h - 1, 0.96f, w, 1, C2D_Color32(220, 210, 190, 255));
@@ -111,10 +112,11 @@ void dlg_draw(void) {
     C2D_Text t;
     C2D_TextParse(&t, s_buf, shown);
     C2D_TextOptimize(&t);
-    C2D_DrawText(&t, C2D_WithColor | C2D_WordWrap, x0 + 10, y0 + 8, 0.97f, 0.5f, 0.5f,
-                 C2D_Color32(240, 235, 225, 255), w - 20);
+    C2D_DrawText(&t, C2D_WithColor | C2D_WordWrap, x0 + 10 * ax, y0 + 8, 0.97f, 0.5f * ax, 0.5f,
+                 C2D_Color32(240, 235, 225, 255), w - 20 * ax);
     if (n == len) {   // more to read: a small mark
-        C2D_DrawTriangle(x0 + w - 16, y0 + h - 12, C2D_Color32(220, 210, 190, 255), x0 + w - 8, y0 + h - 12,
-                         C2D_Color32(220, 210, 190, 255), x0 + w - 12, y0 + h - 6, C2D_Color32(220, 210, 190, 255), 0.97f);
+        C2D_DrawTriangle(x0 + w - 16 * ax, y0 + h - 12, C2D_Color32(220, 210, 190, 255), x0 + w - 8 * ax, y0 + h - 12,
+                         C2D_Color32(220, 210, 190, 255), x0 + w - 12 * ax, y0 + h - 6, C2D_Color32(220, 210, 190, 255),
+                         0.97f);
     }
 }

@@ -82,13 +82,22 @@ int main(void) {
     if (n3ds) osSetSpeedupEnable(true);           // 804 MHz, the extra L2 cache
 
     gfxInitDefault();
-    // 400x240: with the 800x240 mode on, only the left half of citro2d's 800 wide target reached the screen,
-    // stretched (on the console and in Azahar), and the GPU had twice the pixels to fill for no sharper picture
-    gfxSetWide(false);
+    // the top screen in 800x240 (twice the pixels across, half as wide each: a sharper picture, no 3D) on the
+    // New 3DS (as devkitPro's wide_mode_3d example sets it up; emulators show it stretched, so test there with
+    // SD:/3ds/3dsilksong/nowide, which keeps 400x240). citro2d's screen target is 400 wide whatever the
+    // mode (that showed only the left half, stretched): the target is made here at the framebuffer's real size.
+    FILE *nw = fopen("sdmc:/3ds/3dsilksong/nowide", "r");
+    bool wide = n3ds && !nw;
+    if (nw) fclose(nw);
+    gfxSetWide(wide);
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 2);
     C2D_Init(8192);
     C2D_Prepare();
-    C3D_RenderTarget *top = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
+    C3D_RenderTarget *top = C3D_RenderTargetCreate(240, wide ? 800 : 400, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
+    C3D_RenderTargetSetOutput(top, GFX_TOP, GFX_LEFT,
+                              GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) |
+                              GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) |
+                              GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO));
     consoleInit(GFX_BOTTOM, NULL);
 
     const char *data = data_mount();
@@ -108,7 +117,7 @@ int main(void) {
     v->sw = top->frameBuf.height;   // the top screen's framebuffer is rotated: its height is the width
     v->sh = top->frameBuf.width;
     v->sy = 12.5f;
-    v->sx = v->sy;
+    v->sx = v->sy * v->sw / 400.0f;   // the same view, with twice the pixels across in 800 mode
 
     v->hw = v->sw * 0.5f / v->sx;
     v->hh = v->sh * 0.5f / v->sy;
