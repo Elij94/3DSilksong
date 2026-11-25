@@ -7,6 +7,8 @@
 #include "autotest.h"
 #include "dialogue.h"
 #include "audio.h"
+#include "fx.h"
+#include "room.h"
 
 enum { T_NONE, T_FLOAT, T_INT, T_BOOL, T_STR, T_VAR, T_NODE, T_EVENT, T_VEC, T_LIST, T_TARGET };
 #define N_OWNER (-2)
@@ -66,6 +68,11 @@ typedef struct {
     float vx, vy;
     u8 active;
     u8 nocoll;             // its collider switched off
+    float rx, ry, rw, rh;  // its colliders, relative to its position (w 0: none)
+    s8 body;               // Rigidbody2D: -1 none, 0 dynamic, 1 kinematic, 2 static
+    bool kin;              // made kinematic by an FSM
+    float grav, sx;        // gravity scale, scale x (when it has no object)
+    u8 coll, coll_prev;    // the sides it touched this frame and the last: 1 top, 2 right, 4 bottom, 8 left
 } Node;
 
 typedef struct {
@@ -91,6 +98,7 @@ static int s_nnodes;
 static Fsm *s_fsm;
 static int s_nfsm;
 static Objects *s_os;
+static const Room *s_room;
 static Hero *s_hero;
 static u16 s_ev_finished;
 static Delayed s_delayed[32];
@@ -99,7 +107,7 @@ static float s_dt;
 
 // ------------------------------------------------------------------ PlayerData
 
-typedef struct { char name[40]; int v; u8 kind; } PD;    // kind 0 bool, 1 int
+typedef struct { char name[64]; int v; u8 kind; } PD;    // kind 0 bool, 1 int
 static PD *s_pd;
 static int s_npd, s_pdcap;
 
@@ -117,6 +125,9 @@ static PD *pd_find(const char *name, bool make, u8 kind) {
     return p;
 }
 void pd_clear(void) { s_npd = 0; }
+void pd_clear_semi(void) {   // a bench rest: the semi-persistent kills come back
+    for (int i = 0; i < s_npd; i++) if (!strncmp(s_pd[i].name, "semi:", 5)) s_pd[i].v = 0;
+}
 bool pd_bool(const char *name) { PD *p = pd_find(name, false, 0); return p && p->v; }
 void pd_set_bool(const char *name, bool v) { if (name[0]) pd_find(name, true, 0)->v = v; }
 int pd_int(const char *name) { PD *p = pd_find(name, false, 1); return p ? p->v : 0; }
@@ -127,7 +138,7 @@ void pd_save(FILE *f) {
 void pd_load_line(const char *line) {
     int kind, v, n = 0;
     if (sscanf(line, "pd %d %d %n", &kind, &v, &n) >= 2 && n > 0) {
-        char name[40];
+        char name[64];
         snprintf(name, sizeof name, "%s", line + n);
         char *e = name + strlen(name);
         while (e > name && (e[-1] == '\n' || e[-1] == '\r')) *--e = 0;
@@ -138,6 +149,7 @@ void pd_load_line(const char *line) {
 // ------------------------------------------------------------------ loading
 
 static void node_pos(int node, float *x, float *y);
+static const char *str_at_load(int i) { return i >= 0 && i < s_nstr ? s_str[i] : ""; }
 
 static const u8 *rd_val(const u8 *p, Val *v) {
     memset(v, 0, sizeof *v);
@@ -219,12 +231,24 @@ void fsm_load(const char *scene, Objects *os) {
         s_str[i][n] = 0;
         p += n;
     }
+    int ver = rd16(s_data + 4);
     s_nnodes = rd16(p); p += 2;
     s_nodes = calloc(s_nnodes + 1, sizeof(Node));
-    for (int i = 0; i < s_nnodes; i++, p += 18) {   // u16 name, s16 parent, s16 obj, f32 x, y, u8 active, 3 pad
+    int nsize = ver >= 4 ? 42 : 18;
+    for (int i = 0; i < s_nnodes; i++, p += nsize) {
         Node *n = &s_nodes[i];
         n->name = rd16(p); n->parent = rds16(p + 2); n->obj = rds16(p + 4);
         n->x = rdf(p + 6); n->y = rdf(p + 10); n->active = p[14];
+        n->body = -1;
+        n->sx = 1;
+        if (ver >= 4) {
+            n->body = (s8)p[15];
+            float rx = rdf(p + 18), ry = rdf(p + 22);
+            n->rw = rdf(p + 26); n->rh = rdf(p + 30);
+            n->rx = rx - n->x; n->ry = ry - n->y;
+            n->grav = rdf(p + 34);
+            n->sx = rdf(p + 38);
+        }
         if (n->obj >= os->n) n->obj = -1;
         if (n->obj >= 0) {
             os->o[n->obj].node = i;
@@ -282,20 +306,124 @@ void fsm_load(const char *scene, Objects *os) {
             so->x0 = rdf(p + 2) - nx; so->y0 = rdf(p + 6) - ny; so->x1 = rdf(p + 10) - nx; so->y1 = rdf(p + 14) - ny;
         }
     }
+    // what a hit and a kill do, per enemy (version 3)
+    if (rd16(s_data + 4) >= 3 && p + 2 <= s_data + size) {
+        int n = rd16(p); p += 2;
+        for (int i = 0; i < n && p + 22 <= s_data + size; i++) {
+            int oi = rds16(p);
+            int hit = rd16(p + 2), death = rd16(p + 4), corpse = rd16(p + 6);
+            float fling = rdf(p + 8);
+            u8 fl = p[12];
+            float rv = rdf(p + 13), rd = rdf(p + 17);
+            int ns = p[21];
+            p += 22;
+            Obj *o = oi >= 0 && oi < os->n ? &os->o[oi] : NULL;
+            if (o) {
+                o->hitp = fx_profile(str_at_load(hit));
+                o->deathp = fx_profile(str_at_load(death));
+                o->fling = fling;
+                o->eflags = fl;
+                if (fl & 16) { o->recoil_v = rv; o->recoil_dur = rd > 0 ? rd : 0.15f; }
+                if (corpse && str_at_load(corpse)[0]) {
+                    char path[80];
+                    snprintf(path, sizeof path, "sprites/%s.sss", str_at_load(corpse));
+                    o->corpse_set = sprites_get(path);
+                }
+                o->ndsnd = 0;
+            }
+            for (int k = 0; k < ns; k++, p += 2)
+                if (o && o->ndsnd < 4) o->dsnd[o->ndsnd++] = str_at_load(rd16(p));
+            if (rd16(s_data + 4) >= 5) {
+                int w = *p++;
+                if (w) {
+                    if (o) {
+                        o->has_walker = true;
+                        o->w_speed[0] = rdf(p); o->w_speed[1] = rdf(p + 4);
+                        o->w_pauses = rdf(p + 8) != 0;
+                        o->w_pause[0] = rdf(p + 12); o->w_pause[1] = rdf(p + 16);
+                        o->w_wait[0] = rdf(p + 20); o->w_wait[1] = rdf(p + 24);
+                        o->w_ignore_holes = p[28];
+                        o->walking = !p[29];
+                        o->w_edge = rdf(p + 34);
+                    }
+                    p += 38;
+                }
+            }
+            if (rd16(s_data + 4) >= 6) {
+                if (*p++) {        // Crawler
+                    if (o) {
+                        o->crawler = true;
+                        o->crawl_speed = rdf(p);
+                        o->crawl_sfr = p[4];
+                        o->crawl_anim = str_at_load(rd16(p + 5));
+                        o->turn_anim = "Turn";
+                        o->idle_anim = "Idle";
+                        o->walking = !p[7];
+                    }
+                    p += 8;
+                }
+                if (*p++) {        // WalkerV2
+                    if (o) {
+                        o->crawler = true;
+                        o->crawl_speed = fabsf(rdf(p));
+                        o->crawl_sfr = false;
+                        o->crawl_anim = str_at_load(rd16(p + 4));
+                        o->turn_anim = str_at_load(rd16(p + 6));
+                        o->idle_anim = str_at_load(rd16(p + 8));
+                        o->walking = p[18];
+                    }
+                    p += 19;
+                }
+            }
+        }
+    }
+    // remembered kills, and what PlayerData switches off (version 6)
+    if (rd16(s_data + 4) >= 6 && p + 2 <= s_data + size) {
+        int n = rd16(p); p += 2;
+        for (int i = 0; i < n && p + 10 <= s_data + size; i++, p += 10) {
+            int oi = rds16(p);
+            Obj *o = oi >= 0 && oi < os->n ? &os->o[oi] : NULL;
+            if (!o) continue;
+            if (p[2] && (o->flags & OF_ENEMY)) {
+                snprintf(o->persist, sizeof o->persist, "%s%s:%s:%d", p[3] ? "semi:" : "", scene, str_at_load(rd16(p + 4)), oi);
+                if (pd_bool(o->persist)) o->alive = false;      // killed before: not there
+            }
+            if (p[6]) {
+                bool v = pd_bool(str_at_load(rd16(p + 8)));
+                if (v == (p[7] != 0) && o->node >= 0) s_nodes[o->node].active = 0;
+            }
+        }
+    }
     int fin = str_find("FINISHED");
     s_ev_finished = fin >= 0 ? fin : 0xFFFF;
-    // enemies keep their own behaviour (enemy.c) for now: their FSMs need much more than the engine runs
-    for (int k = 0; k < s_nfsm; k++) {
-        Node *n = &s_nodes[s_fsm[k].owner];
-        for (int nd = s_fsm[k].owner; nd >= 0; nd = s_nodes[nd].parent) {
-            int o = s_nodes[nd].obj;
-            if (o >= 0 && (os->o[o].flags & OF_ENEMY)) { s_fsm[k].stopped = true; break; }
-        }
-        (void)n;
-    }
+    // the "Hero" variables (set in the game by GetHero / FindGameObject at start)
+    for (int k = 0; k < s_nfsm; k++)
+        for (int i = 0; i < s_fsm[k].nvars; i++)
+            if (!strcmp(str_at_load(s_fsm[k].var_names[i]), "Hero")) { s_fsm[k].vars[i].t = T_NODE; s_fsm[k].vars[i].node = N_HERO; }
 }
 
 int fsm_count(void) { return s_nfsm; }
+
+int fsm_node_fsms(int node) {
+    int n = 0;
+    for (int k = 0; k < s_nfsm; k++) if (s_fsm[k].owner == node) n++;
+    return n;
+}
+
+void fsm_node_stop(int node) {
+    for (int k = 0; k < s_nfsm; k++) {
+        int o = s_fsm[k].owner;
+        for (int g = 0; o >= 0 && g < 64; o = s_nodes[o].parent, g++)
+            if (o == node) { s_fsm[k].stopped = true; break; }
+    }
+    if (node >= 0 && node < s_nnodes) s_nodes[node].vx = s_nodes[node].vy = 0;
+}
+
+void fsm_node_velocity(int node, float *vx, float *vy, bool set) {
+    if (node < 0 || node >= s_nnodes) { if (!set) *vx = *vy = 0; return; }
+    if (set) { s_nodes[node].vx = *vx; s_nodes[node].vy = *vy; }
+    else { *vx = s_nodes[node].vx; *vy = s_nodes[node].vy; }
+}
 
 // ------------------------------------------------------------------ nodes
 
@@ -495,6 +623,420 @@ static void convo_end(void *ctx) {
     if (ev == -2 || ev >= s_nstr) ev = str_find("CONVO_END");
     Fsm *f = ctx;
     if (f >= s_fsm && f < s_fsm + s_nfsm) { fsm_event(f, ev); settle_later(f); }
+}
+
+// ------------------------------------------------------------------ enemies: physics and their actions
+
+// a node's box in the world: its object's collider, else its own colliders, else nothing (false)
+static bool node_box(int node, float *x0, float *y0, float *x1, float *y1) {
+    if (node < 0 || node >= s_nnodes) return false;
+    Obj *o = node_obj(node);
+    if (o && o->rw > 0) { *x0 = o->rx; *y0 = o->ry; *x1 = o->rx + o->rw; *y1 = o->ry + o->rh; return true; }
+    Node *n = &s_nodes[node];
+    if (n->rw <= 0) return false;
+    float x, y;
+    node_pos(node, &x, &y);
+    *x0 = x + n->rx; *y0 = y + n->ry; *x1 = *x0 + n->rw; *y1 = *y0 + n->rh;
+    return true;
+}
+
+static float node_scale(int node) {
+    Obj *o = node_obj(node);
+    if (o) return o->scx;
+    return node >= 0 && node < s_nnodes ? s_nodes[node].sx : 1;
+}
+static void node_set_scale(int node, float sx) {
+    Obj *o = node_obj(node);
+    if (o) o->scx = sx;
+    if (node >= 0 && node < s_nnodes) s_nodes[node].sx = sx;
+}
+
+static bool solid(float x0, float y0, float x1, float y1) {
+    return s_room && room_box_solid(s_room, x0, y0, x1, y1);
+}
+
+// moves a body by (dx, dy) against the room, in small steps; notes the sides it hits
+static void body_move(int node, float dx, float dy) {
+    Node *n = &s_nodes[node];
+    float x0, y0, x1, y1;
+    if (!node_box(node, &x0, &y0, &x1, &y1)) {
+        float x, y;
+        node_pos(node, &x, &y);
+        node_set_pos(node, x + dx, y + dy);
+        return;
+    }
+    for (int axis = 0; axis < 2; axis++) {
+        float d = axis ? dy : dx;
+        while (fabsf(d) > 1e-4f) {
+            float st = clampf(d, -0.2f, 0.2f);
+            d -= st;
+            node_box(node, &x0, &y0, &x1, &y1);
+            bool hit = axis ? solid(x0 + 0.02f, y0 + st, x1 - 0.02f, y1 + st) : solid(x0 + st, y0 + 0.02f, x1 + st, y1 - 0.02f);
+            if (hit) {
+                if (axis) { n->coll |= st < 0 ? 4 : 1; n->vy = 0; }       // 1 top, 2 right, 4 bottom, 8 left
+                else { n->coll |= st > 0 ? 2 : 8; n->vx = 0; }
+                break;
+            }
+            float x, y;
+            node_pos(node, &x, &y);
+            node_set_pos(node, x + (axis ? 0 : st), y + (axis ? st : 0));
+        }
+    }
+}
+
+static void physics(float dt) {
+    for (int i = 0; i < s_nnodes; i++) {
+        Node *n = &s_nodes[i];
+        n->coll_prev = n->coll;
+        n->coll = 0;
+        Obj *o = node_obj(i);
+        if (o && (o->dead || o->recoil_t > 0)) continue;           // enemy.c moves those
+        bool body = n->body >= 0;
+        if (!body && n->vx == 0 && n->vy == 0) continue;
+        if (n->body == 2) continue;                                // static
+        if (!fsm_node_active(i)) continue;
+        bool dynamic = n->body == 0 && !n->kin;
+        if (dynamic && n->grav != 0) n->vy = fmaxf(n->vy - 60.0f * n->grav * dt, -40.0f);
+        if (n->vx == 0 && n->vy == 0) {
+            // resting on the floor still counts as touching it
+            float x0, y0, x1, y1;
+            if (dynamic && node_box(i, &x0, &y0, &x1, &y1) && solid(x0 + 0.02f, y0 - 0.05f, x1 - 0.02f, y0)) n->coll |= 4;
+            continue;
+        }
+        if (dynamic) body_move(i, n->vx * dt, n->vy * dt);
+        else {
+            float x, y;
+            node_pos(i, &x, &y);
+            node_set_pos(i, x + n->vx * dt, y + n->vy * dt);
+        }
+    }
+}
+
+static float facing_sign(int node, bool sprite_faces_right) {
+    float s = node_scale(node);
+    return (s >= 0) == sprite_faces_right ? 1.0f : -1.0f;      // +1: looking right
+}
+
+static void face_to(int node, bool right, bool sprite_faces_right) {
+    float s = fabsf(node_scale(node));
+    if (s == 0) s = 1;
+    node_set_scale(node, (right == sprite_faces_right) ? s : -s);
+}
+
+// a ray against the room from (x, y) along (dx, dy) up to len: the distance to the first solid, or -1
+static float ray(float x, float y, float dx, float dy, float len) {
+    float l = hypotf(dx, dy);
+    if (l < 1e-5f || len <= 0) return -1;
+    dx /= l; dy /= l;
+    for (float d = 0; d <= len; d += 0.1f) {
+        float px = x + dx * d, py = y + dy * d;
+        if (solid(px - 0.02f, py - 0.02f, px + 0.02f, py + 0.02f)) return d;
+    }
+    return -1;
+}
+
+static bool alert_in(int node) {
+    float x0, y0, x1, y1;
+    if (!s_hero || !node_box(node, &x0, &y0, &x1, &y1)) return false;
+    return s_hero->x > x0 && s_hero->x < x1 && s_hero->y + HERO_FOOT < y1 && s_hero->y + HERO_HEAD > y0;
+}
+
+static int child_named(int parent, const char *name) {
+    int s = str_find(name);
+    return s < 0 ? N_NONE : find_child(parent, s);
+}
+
+static float fsm_shake;
+float fsm_take_shake(void) { float s = fsm_shake; fsm_shake = 0; return s; }
+
+// the enemy actions; *handled false when the op isn't one of them
+static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) {
+    Val *A = ac->a;
+    int n = ac->nargs;
+#define ARG(i) ((i) < n ? &A[(i)] : &A[n])
+    *handled = true;
+    switch (ac->op) {
+    case OP_GetHero: set_node(f, ARG(0), N_HERO); return true;
+    case OP_FindGameObject: {
+        const char *nm = str_at(a_str(f, ARG(0))), *tag = str_at(a_str(f, ARG(1)));
+        int nd = N_NONE;
+        if (!strcmp(tag, "Player") || !strncmp(nm, "Hero", 4) || !strcmp(nm, "Knight")) nd = N_HERO;
+        else if (nm[0]) { int s = str_find(nm); for (int i = 0; s >= 0 && i < s_nnodes; i++) if (s_nodes[i].name == s) { nd = i; break; } }
+        set_node(f, ARG(2), nd);
+        return true;
+    }
+    case OP_FindAlertRange: {
+        int nd = a_node(f, ARG(0));
+        set_node(f, ARG(1), child_named(nd, str_at(a_str(f, ARG(2)))));
+        return true;
+    }
+    case OP_CheckAlertRangeByName: case OP_CheckAlertRange: {
+        int nd;
+        if (ac->op == OP_CheckAlertRangeByName) {
+            nd = child_named(f->owner, str_at(a_str(f, ARG(1))));
+            if (nd < 0) nd = child_named(f->owner, "Alert Range");
+        } else nd = a_node(f, ARG(0));
+        bool in = alert_in(nd);
+        if (ac->op == OP_CheckAlertRangeByName) {
+            set_i(f, ARG(2), in);
+            if (in) send_target(f, ARG(0), ev_of(f, ARG(3)), 0);
+            else send_target(f, ARG(0), ev_of(f, ARG(4)), 0);
+        } else {
+            set_i(f, ARG(1), in);
+            send_self(f, ARG(in ? 2 : 3));
+        }
+        return !ac->every;
+    }
+    case OP_RayCast2d: case OP_RayCast2dV2: {
+        int nd = a_node(f, ARG(0));
+        if (nd == N_NONE) nd = f->owner;
+        float x, y;
+        node_pos(nd, &x, &y);
+        const Val *off = deref(f, ARG(1)), *dir = deref(f, ARG(2));
+        bool local = a_i(f, ARG(3)) == 1;
+        float sx = local ? (node_scale(nd) < 0 ? -1.0f : 1.0f) : 1.0f;
+        if (off->t == T_VEC) { x += off->f[0] * sx; y += off->f[1]; }
+        float dx = dir->t == T_VEC ? dir->f[0] * sx : 0, dy = dir->t == T_VEC ? dir->f[1] : -1;
+        float len = a_f(f, ARG(4));
+        float d = ray(x, y, dx, dy, len);
+        bool hit = d >= 0;
+        set_i(f, ARG(7), hit);
+        if (hit) {
+            Val *p = var_of(f, ARG(8));
+            float l = hypotf(dx, dy);
+            if (p && l > 0) { p->t = T_VEC; p->f[0] = x + dx / l * d; p->f[1] = y + dy / l * d; }
+            set_f(f, ARG(9), d);
+        }
+        send_self(f, ARG(hit ? 5 : 6));
+        return !ac->every;
+    }
+    case OP_CheckCollisionSide: case OP_CheckCollisionSideEnter: {
+        int nd = a_node(f, ARG(0));
+        if (nd == N_NONE) nd = f->owner;
+        if (nd < 0) return true;
+        u8 c = s_nodes[nd].coll, pc = s_nodes[nd].coll_prev;
+        if (ac->op == OP_CheckCollisionSideEnter) c &= ~pc;
+        static const u8 SIDE[4] = {1, 2, 4, 8};            // top, right, bottom, left
+        for (int k = 0; k < 4; k++) {
+            set_i(f, ARG(1 + k), (c & SIDE[k]) != 0);
+            if (c & SIDE[k]) send_self(f, ARG(5 + k));
+        }
+        return false;                                       // listens every frame
+    }
+    case OP_CheckIsCharacterGrounded: {
+        int nd = a_node(f, ARG(0));
+        float x0, y0, x1, y1;
+        bool g = false;
+        if (node_box(nd, &x0, &y0, &x1, &y1)) {
+            float depth = a_none(f, ARG(5)) ? 0.1f : fmaxf(0.05f, a_f(f, ARG(5)) + 0.05f);
+            g = solid(x0 + 0.05f, y0 - depth, x1 - 0.05f, y0);
+        }
+        set_i(f, ARG(2), g);
+        send_self(f, ARG(g ? 3 : 4));
+        return !ac->every;
+    }
+    case OP_FaceDirection: {
+        int nd = a_node(f, ARG(0));
+        if (nd >= 0 && fabsf(s_nodes[nd].vx) > 0.01f) face_to(nd, s_nodes[nd].vx > 0, a_i(f, ARG(1)) != 0);
+        return !ac->every;
+    }
+    case OP_FaceObject: {
+        int a = a_node(f, ARG(0));
+        float x0, y0, x1, y1;
+        node_pos(a, &x0, &y0);
+        node_pos(a_node(f, ARG(1)), &x1, &y1);
+        if (a >= 0) face_to(a, x1 > x0, a_i(f, ARG(2)) != 0);
+        return !ac->every;
+    }
+    case OP_FlipScale: {
+        int nd = a_node(f, ARG(0));
+        if (nd >= 0 && a_i(f, ARG(1))) node_set_scale(nd, -node_scale(nd));
+        return !ac->every;
+    }
+    case OP_RandomlyFlipScale: {
+        int nd = a_node(f, ARG(0));
+        if (nd >= 0 && (rand() & 1)) node_set_scale(nd, -node_scale(nd));
+        return true;
+    }
+    case OP_GetScale: {
+        int nd = a_node(f, ARG(0));
+        Obj *o = node_obj(nd);
+        set_f(f, ARG(1), node_scale(nd));
+        set_f(f, ARG(2), o ? o->scy : 1);
+        return !ac->every;
+    }
+    case OP_SendEventByScale:
+        send_target(f, ARG(1), ev_of(f, ARG(node_scale(a_node(f, ARG(0))) >= 0 ? 2 : 3)), 0);
+        return !ac->every;
+    case OP_CheckFacingTarget: {
+        int nd = a_node(f, ARG(0));
+        float x0, y0, x1, y1;
+        node_pos(nd, &x0, &y0);
+        node_pos(a_node(f, ARG(1)), &x1, &y1);
+        bool facing = (x1 > x0) == (facing_sign(nd, a_i(f, ARG(2)) != 0) > 0);
+        set_i(f, ARG(5), facing);
+        set_i(f, ARG(6), !facing);
+        send_self(f, ARG(facing ? 3 : 4));
+        return !ac->every;
+    }
+    case OP_GetXDistance: case OP_GetYDistance: {
+        float x0, y0, x1, y1;
+        node_pos(a_node(f, ARG(0)), &x0, &y0);
+        node_pos(a_node(f, ARG(1)), &x1, &y1);
+        float d = ac->op == OP_GetXDistance ? fabsf(x1 - x0) : (a_i(f, ARG(3)) ? y1 - y0 : fabsf(y1 - y0));
+        set_f(f, ARG(2), d);
+        return !ac->every;
+    }
+    case OP_GetAngleToTarget2D: {
+        float x0, y0, x1, y1;
+        node_pos(a_node(f, ARG(0)), &x0, &y0);
+        node_pos(a_node(f, ARG(1)), &x1, &y1);
+        float a = atan2f(y1 + a_f(f, ARG(3)) - y0, x1 + a_f(f, ARG(2)) - x0) * 180 / (float)M_PI;
+        if (a < 0) a += 360;
+        set_f(f, ARG(4), a);
+        return !ac->every;
+    }
+    case OP_SetVelocityAsAngle: case OP_FireAtTarget: {
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return true;
+        float a, sp = a_f(f, ARG(2));
+        if (ac->op == OP_FireAtTarget) {
+            float x0, y0, x1, y1;
+            node_pos(nd, &x0, &y0);
+            node_pos(a_node(f, ARG(1)), &x1, &y1);
+            a = atan2f(y1 - y0, x1 - x0);
+        } else a = a_f(f, ARG(1)) * (float)M_PI / 180;
+        s_nodes[nd].vx = cosf(a) * sp;
+        s_nodes[nd].vy = sinf(a) * sp;
+        return !ac->every;
+    }
+    case OP_ChaseObject: case OP_ChaseObjectV2: case OP_DistanceFly: case OP_AccelerateToY: case OP_ChaseObjectGround: {
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return false;
+        Node *nn = &s_nodes[nd];
+        float x0, y0, x1, y1;
+        node_pos(nd, &x0, &y0);
+        node_pos(a_node(f, ARG(1)), &x1, &y1);
+        float k = s_dt * 60;
+        if (ac->op == OP_AccelerateToY) {
+            nn->vy = approachf(nn->vy, a_f(f, ARG(2)), a_f(f, ARG(1)) * k);
+            return false;
+        }
+        if (ac->op == OP_ChaseObjectGround) {
+            float tx = x1 + a_f(f, ARG(2)), sm = a_f(f, ARG(3));
+            nn->vx = approachf(nn->vx, tx > x0 ? sm : -sm, a_f(f, ARG(4)) * k);
+            return false;
+        }
+        float sm = a_f(f, ARG(2)), acc;
+        float tx = x1, ty = y1;
+        if (ac->op == OP_DistanceFly) {
+            // keep its distance: towards the target when too far, away when too near, and above Hornet
+            float dist = a_f(f, ARG(2)), dd = hypotf(x1 - x0, y1 - y0);
+            sm = a_f(f, ARG(3));
+            acc = a_f(f, ARG(4));
+            float dirk = dd > dist ? 1 : -1;
+            tx = x0 + (x1 - x0) * dirk;
+            ty = y0 + (y1 - y0) * dirk;
+            if (y0 < y1 + a_f(f, ARG(5))) ty = y1 + a_f(f, ARG(5)) + 1;
+        } else {
+            tx += a_f(f, ARG(4));
+            ty += a_f(f, ARG(5));
+            acc = ac->op == OP_ChaseObjectV2 ? a_f(f, ARG(3)) * s_dt : a_f(f, ARG(3)) * k;
+        }
+        float dx = tx - x0, dy = ty - y0, d = hypotf(dx, dy);
+        if (d > 0.01f) {
+            float a = ac->op == OP_ChaseObjectV2 ? acc : acc;
+            nn->vx += dx / d * a;
+            nn->vy += dy / d * a;
+        }
+        float v = hypotf(nn->vx, nn->vy);
+        if (v > sm && v > 0) { nn->vx *= sm / v; nn->vy *= sm / v; }
+        return false;
+    }
+    case OP_IdleBuzz: case OP_IdleBuzzV3: {
+        // drifting around where it started: a random point within the range every so often
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return false;
+        Node *nn = &s_nodes[nd];
+        float x, y;
+        node_pos(nd, &x, &y);
+        if (enter) { rt->x0 = x; rt->y0 = y; rt->t = 0; rt->dur = 0; }
+        rt->t += s_dt;
+        if (rt->t >= rt->dur) {
+            rt->t = 0;
+            rt->dur = frand(a_f(f, ARG(1)), a_f(f, ARG(2)));
+            rt->dx = rt->x0 + frand(-1, 1) * a_f(f, ARG(5));
+            rt->dy = rt->y0 + frand(-1, 1) * a_f(f, ARG(6));
+        }
+        float dx = rt->dx - x, dy = rt->dy - y, d = hypotf(dx, dy), sm = a_f(f, ARG(3)), acc = a_f(f, ARG(4)) * s_dt;
+        if (d > 0.05f) { nn->vx += dx / d * acc; nn->vy += dy / d * acc; }
+        float v = hypotf(nn->vx, nn->vy);
+        if (v > sm && v > 0) { nn->vx *= sm / v; nn->vy *= sm / v; }
+        return false;
+    }
+    case OP_SetPositionToObject: case OP_SetPositionToObject2D: {
+        int nd = a_node(f, ARG(0));
+        float x, y;
+        node_pos(a_node(f, ARG(1)), &x, &y);
+        if (nd >= 0) node_set_pos(nd, x + a_f(f, ARG(2)), y + a_f(f, ARG(3)));
+        return !ac->every;
+    }
+    case OP_FloatTestToBool: {
+        float x = a_f(f, ARG(0)), y = a_f(f, ARG(1)), tol = a_f(f, ARG(2));
+        set_i(f, ARG(3), fabsf(x - y) <= tol);
+        set_i(f, ARG(4), x < y - tol);
+        set_i(f, ARG(5), x > y + tol);
+        return !ac->every;
+    }
+    case OP_FloatInRange: {
+        float x = a_f(f, ARG(0));
+        bool in = x >= a_f(f, ARG(1)) && x <= a_f(f, ARG(2));
+        set_i(f, ARG(3), in);
+        send_self(f, ARG(in ? 4 : 5));
+        return !ac->every;
+    }
+    case OP_Tk2dPlayFrame: {
+        Obj *o = node_obj(a_node(f, ARG(0)));
+        if (o && o->anim.set && o->anim.clip >= 0)
+            o->anim.t = a_i(f, ARG(1)) / fmaxf(1, o->anim.set->clips[o->anim.clip].fps);
+        return true;
+    }
+    case OP_SetIsKinematic2d: { int nd = a_node(f, ARG(0)); if (nd >= 0) s_nodes[nd].kin = a_i(f, ARG(1)) != 0; return true; }
+    case OP_SetInvincible: { Obj *o = node_obj(a_node(f, ARG(0))); if (o) o->invincible = a_i(f, ARG(1)) != 0; return true; }
+    case OP_SetRecoilSpeed: { Obj *o = node_obj(a_node(f, ARG(0))); if (o) o->recoil_v = a_f(f, ARG(1)); return true; }
+    case OP_DoCameraShake: fsm_shake = fmaxf(fsm_shake, 0.15f); return true;
+    case OP_SetDamageHeroAmount: { Obj *o = node_obj(a_node(f, ARG(0))); if (o) o->damage = a_i(f, ARG(1)); return true; }
+    case OP_StartCrawler: case OP_StopCrawler: {
+        Obj *o = node_obj(a_node(f, ARG(0)));
+        if (o) {
+            o->walking = ac->op == OP_StartCrawler;
+            if (!o->walking && o->node >= 0) s_nodes[o->node].vx = 0;
+        }
+        return true;
+    }
+    case OP_StartWalker: case OP_StartWalkerV2: case OP_StopWalker: {
+        Obj *o = node_obj(a_node(f, ARG(0)));
+        if (o) {
+            o->walking = ac->op != OP_StopWalker;
+            if (ac->op == OP_StartWalker && !a_none(f, ARG(1))) o->dir = a_i(f, ARG(1)) ? 1 : -1;
+            if (!o->walking && o->node >= 0) s_nodes[o->node].vx = 0;
+        }
+        return true;
+    }
+    case OP_GetPosition2d: {
+        float x, y;
+        node_pos(a_node(f, ARG(0)), &x, &y);
+        Val *v = var_of(f, ARG(1));
+        if (v) { v->t = T_VEC; v->f[0] = x; v->f[1] = y; }
+        set_f(f, ARG(2), x);
+        set_f(f, ARG(3), y);
+        return !ac->every;
+    }
+    default:
+        *handled = false;
+        return true;
+    }
+#undef ARG
 }
 
 // runs action a of the current state; enter: its first frame. Returns true when it is over (no more updates).
@@ -861,7 +1403,11 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         // the text box; the FSM gets CONVO_END when it closes
         if (enter) { dlg_open(str_at(a_str(f, ARG(0))), str_at(a_str(f, ARG(1))), convo_end, f); return false; }
         return !dlg_active();
-    default: return true;                         // RunDialogue, ActivateInteractible, sounds: not yet
+    default: {
+        bool handled;
+        bool r = run_enemy(f, ac, rt, enter, &handled);
+        return handled ? r : true;
+    }
     }
 #undef ARG
 }
@@ -897,11 +1443,12 @@ static void settle(Fsm *f) {
     }
 }
 
-void fsm_update(float dt, Hero *h, Objects *os) {
+void fsm_update(float dt, Hero *h, Objects *os, const Room *r) {
     if (!s_nfsm && !s_nnodes) return;
     s_dt = dt;
     s_hero = h;
     s_os = os;
+    s_room = r;
     // delayed events
     for (int i = 0; i < s_ndelayed;) {
         Delayed *d = &s_delayed[i];
@@ -912,14 +1459,7 @@ void fsm_update(float dt, Hero *h, Objects *os) {
         else if (d->node >= 0) node_event(d->node, d->fsm_name, d->ev);
         *d = s_delayed[--s_ndelayed];
     }
-    // node velocities
-    for (int i = 0; i < s_nnodes; i++) {
-        Node *n = &s_nodes[i];
-        if (n->vx == 0 && n->vy == 0) continue;
-        float x, y;
-        node_pos(i, &x, &y);
-        node_set_pos(i, x + n->vx * dt, y + n->vy * dt);
-    }
+    physics(dt);
     for (int k = 0; k < s_nfsm; k++) {
         Fsm *f = &s_fsm[k];
         if (f->stopped || !fsm_node_active(f->owner)) continue;
@@ -965,6 +1505,14 @@ static bool interact(float x0, float y0, float x1, float y1, bool send) {
 }
 bool fsm_interact(float x0, float y0, float x1, float y1) { return interact(x0, y0, x1, y1, true); }
 bool fsm_can_interact(float x0, float y0, float x1, float y1) { return interact(x0, y0, x1, y1, false); }
+
+void fsm_node_send(int node, const char *ev) {
+    if (node < 0 || node >= s_nnodes) return;
+    int e = str_find(ev);
+    if (e < 0) return;
+    for (int k = 0; k < s_nfsm; k++)
+        if (s_fsm[k].owner == node && s_fsm[k].started && !s_fsm[k].stopped) { fsm_event(&s_fsm[k], e); settle(&s_fsm[k]); }
+}
 
 bool fsm_solid(float x0, float y0, float x1, float y1) {
     for (int i = 0; i < s_nsolids; i++) {

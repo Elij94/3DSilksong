@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include "objects.h"
 #include "fsm.h"
+#include "fx.h"
+#include "audio.h"
+
+void (*objects_freeze)(float down, float hold, float up);
 
 #define PAR_D 38.1f   // parallax = d / (d + z), as for the scenery layers
 
@@ -60,6 +64,9 @@ void objects_load(Objects *os, const char *scene) {
         rdstr(o->clip, p + 116, 32);
         o->alive = !(o->flags & OF_INACTIVE);
         o->node = -1;
+        o->hitp = o->deathp = -1;
+        o->flash_t = -1;
+        o->recoil_v = 15; o->recoil_dur = 0.15f;
         o->par = PAR_D / (PAR_D + o->z);
         if (o->par <= 0.05f || o->par > 20) o->par = 1;
         o->anim.clip = -1;
@@ -104,6 +111,8 @@ void objects_update(Objects *os, float dt) {
         if (!o->alive) continue;
         anim_update(&o->anim, dt);
         if (o->flash > 0) o->flash -= dt;
+        if (o->flash_t >= 0) { o->flash_t += dt; if (o->flash_t > 0.12f) o->flash_t = -1; }
+        if (o->hit_cd > 0) o->hit_cd -= dt;
     }
 }
 
@@ -116,7 +125,14 @@ void objects_draw(Objects *os, float zmin, float zmax) {
         Obj *o = &os->o[i];
         if (o->z <= zmin || o->z > zmax || !o->anim.set || o->hidden || !obj_alive(os, i)) continue;
         // gfx_draw_world scales positions and sizes around the camera by the parallax
-        sprite_draw(o->anim.set, anim_frame(&o->anim), o->x, o->y, o->scx, o->scy, o->par, o->flash > 0 ? &white : NULL);
+        // the game's hit flash: white at 85 % for 0.07 s, gone 0.05 s later
+        const C2D_ImageTint *tint = NULL;
+        if (o->flash_t >= 0) {
+            float k = o->flash_t < 0.07f ? 0.85f : 0.85f * (1 - (o->flash_t - 0.07f) / 0.05f);
+            C2D_PlainImageTint(&white, C2D_Color32(255, 255, 255, 255), clampf(k, 0, 1));
+            tint = &white;
+        } else if (o->flash > 0) tint = &white;
+        sprite_draw(o->anim.set, anim_frame(&o->anim), o->x, o->y, o->scx, o->scy, o->par, tint);
     }
 }
 
@@ -134,20 +150,37 @@ void obj_move(Objects *os, int i, float dx, float dy) {
         if (os->o[j].parent == i && j != i) obj_move(os, j, dx, dy);
 }
 
-int objects_strike(Objects *os, float x0, float y0, float x1, float y1, int dmg, float from_x) {
+int objects_strike(Objects *os, float x0, float y0, float x1, float y1, int dmg, float from_x, int dir) {
+    static const char *const HIT_DIR[] = {"HIT RIGHT", "HIT UP", "HIT LEFT", "HIT DOWN"};
     int hits = 0;
     for (int i = 0; i < os->n; i++) {
         Obj *o = &os->o[i];
-        if (!hittable(o) || o->flash > 0.12f || !obj_alive(os, i)) continue;
+        if (!hittable(o) || o->hit_cd > 0 || !obj_alive(os, i)) continue;
         if (!rects_overlap(x0, y0, x1 - x0, y1 - y0, o->rx, o->ry, o->rw, o->rh)) continue;
         hits++;
-        o->flash = 0.2f;
+        o->hit_cd = 0.12f;
         if (o->flags & OF_ENEMY) {
-            o->hp -= dmg;
-            o->kb = 0.15f;
-            o->vx = (o->rx + o->rw * 0.5f < from_x ? -1 : 1) * 6.0f;
-            if (o->hp <= 0) enemy_kill(os, i, from_x);
-        } else o->alive = false;   // a breakable
+            // as HealthManager.TakeDamage: the damage, the events, the flash, the recoil (Recoil), the effects
+            if (!o->invincible) o->hp -= dmg;
+            float cx = o->rx + o->rw * 0.5f, cy = o->ry + o->rh * 0.5f;
+            fsm_node_send(o->node, "HIT");
+            fsm_node_send(o->node, "TOOK DAMAGE");
+            if (fx_flash(o->hitp)) o->flash_t = 0;
+            if (o->recoil_v > 0 && !(o->eflags & EF_FREEZE) && o->hp > 0) {
+                static const float DX[] = {1, 0, -1, 0}, DY[] = {0, 1, 0, -1};
+                o->rdx = DX[dir & 3];
+                o->rdy = DY[dir & 3];
+                o->recoil_t = o->recoil_dur;
+                fsm_node_send(o->node, "RECOIL");
+                if (!(dir & 1)) fsm_node_send(o->node, "RECOIL HORIZONTAL");
+                fsm_node_send(o->node, HIT_DIR[dir & 3]);
+            }
+            fx_hit(o->hitp, cx, cy, -0.5f, dir * 90.0f);
+            if (o->hp <= 0) enemy_kill(os, i, from_x, dir);
+        } else {   // a breakable
+            o->flash = 0.2f;
+            o->alive = false;
+        }
     }
     return hits;
 }

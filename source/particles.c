@@ -29,7 +29,19 @@ typedef struct {
     float acc, cyc;        // spawn accumulator, time in the cycle
     bool burst_done;
     int live;
+    bool fx_done;          // an effect: its one cycle is over
 } Emitter;
+
+// one-off effects (a hit, a death: fx/<name>.spt, tools/build_fx.py): templates read once, then copies placed
+// where they happen; their particles use emitter numbers FX_BASE + slot
+#define FX_BASE 20000
+#define FX_SLOTS 48
+#define FX_TEMPLATES 48
+typedef struct { char name[40]; Emitter *em; int n; } FxTemplate;
+static FxTemplate s_fxt[FX_TEMPLATES];
+static int s_nfxt;
+static Emitter s_fx[FX_SLOTS];
+static bool s_fx_on[FX_SLOTS];
 
 typedef struct {
     float x, y, vx, vy, age, life, size;
@@ -45,6 +57,8 @@ static int s_np;
 static SpriteSet *s_tex;
 
 static float frand(void) { return (float)rand() / (float)RAND_MAX; }
+static Emitter *em_at(int i) { return i >= FX_BASE ? &s_fx[i - FX_BASE] : &s_em[i]; }
+static bool parse(const u8 *p, Emitter *e, bool ambient);
 static float range(const float r[2]) { return r[0] + (r[1] - r[0]) * frand(); }
 
 static bool one_off(const char *name) {
@@ -59,6 +73,7 @@ void particles_free(void) {
     free(s_em);
     s_em = NULL;
     s_nem = s_np = 0;
+    memset(s_fx_on, 0, sizeof s_fx_on);
 }
 
 void particles_load(const char *scene) {
@@ -74,16 +89,22 @@ void particles_load(const char *scene) {
     int n = rd16(d + 6);
     if (8 + (size_t)n * 208 > size) n = (size - 8) / 208;
     s_em = calloc(n + 1, sizeof(Emitter));
-    for (int i = 0; i < n; i++) {
-        const u8 *p = d + 8 + i * 208;
-        Emitter *e = &s_em[s_nem];
+    for (int i = 0; i < n; i++)
+        if (parse(d + 8 + i * 208, &s_em[s_nem], true)) s_nem++;
+    free(d);
+}
+
+// one emitter of a .spt; ambient: only the ones that loop and play on their own
+static bool parse(const u8 *p, Emitter *e, bool ambient) {
+    {
         memset(e, 0, sizeof *e);
         e->flags = rd16(p);
         char tex[33], name[33];
         rdstr(tex, p + 144, 32);
         rdstr(name, p + 176, 32);
         // looping, playing on awake, active at load, with a texture, not a one-off effect
-        if ((e->flags & 5) != 5 || (e->flags & 16) || !tex[0] || one_off(name)) continue;
+        if (ambient && ((e->flags & 5) != 5 || (e->flags & 16) || one_off(name))) return false;
+        if (!tex[0]) return false;
         e->blend = p[2];
         e->shape = (s8)p[3];
         e->x = rdf(p + 4); e->y = rdf(p + 8); e->z = rdf(p + 12); e->rot = rdf(p + 16);
@@ -100,18 +121,64 @@ void particles_load(const char *scene) {
         e->tx = p[140] ? p[140] : 1;
         e->ty = p[141] ? p[141] : 1;
         e->clip = sprite_clip(s_tex, tex);
-        if (e->clip < 0 || (e->rate <= 0 && e->burst == 0) || e->life[1] <= 0 || e->size[1] <= 0) continue;
-        if (e->duration <= 0) e->duration = 5;
+        if (e->clip < 0 || (e->rate <= 0 && e->burst == 0) || e->life[1] <= 0 || e->size[1] <= 0) return false;
+        if (e->duration <= 0) e->duration = ambient ? 5 : 0.5f;
         e->par = PAR_D / (PAR_D + e->z);
         if (e->par <= 0.05f || e->par > 20) e->par = 1;
-        s_nem++;
+        return true;
     }
-    free(d);
 }
+
+static FxTemplate *fx_template(const char *name) {
+    for (int i = 0; i < s_nfxt; i++) if (!strcmp(s_fxt[i].name, name)) return &s_fxt[i];
+    if (s_nfxt >= FX_TEMPLATES || !s_tex) return NULL;
+    FxTemplate *t = &s_fxt[s_nfxt++];
+    snprintf(t->name, sizeof t->name, "%s", name);
+    size_t size;
+    u8 *d = file_load(data_path("fx/%s.spt", name), &size);
+    if (!d || size < 8 || memcmp(d, "SSPT", 4)) { free(d); return t; }
+    int n = rd16(d + 6);
+    if (8 + (size_t)n * 208 > size) n = (size - 8) / 208;
+    t->em = calloc(n + 1, sizeof(Emitter));
+    for (int i = 0; i < n; i++)
+        if (parse(d + 8 + i * 208, &t->em[t->n], false)) t->n++;
+    free(d);
+    return t;
+}
+
+void particles_fx(const char *name, float x, float y, float z, float angle) {
+    if (!s_tex) {
+        s_tex = sprites_get("particles/textures.sss");
+        if (s_tex) s_tex->pinned = true;
+    }
+    FxTemplate *t = fx_template(name);
+    if (!t) return;
+    float ca = cosf(angle * (float)M_PI / 180), sa = sinf(angle * (float)M_PI / 180);
+    for (int i = 0; i < t->n; i++) {
+        int k = 0;
+        while (k < FX_SLOTS && s_fx_on[k]) k++;
+        if (k == FX_SLOTS) return;
+        Emitter *e = &s_fx[k];
+        *e = t->em[i];
+        float ox = e->x, oy = e->y;              // the prefab's own offsets, turned with the effect
+        e->x = x + ox * ca - oy * sa;
+        e->y = y + ox * sa + oy * ca;
+        e->rot += angle;
+        e->z += z;
+        e->par = PAR_D / (PAR_D + e->z);
+        if (e->par <= 0.05f || e->par > 20) e->par = 1;
+        e->live = 0;
+        e->cyc = e->acc = 0;
+        e->burst_done = e->fx_done = false;
+        s_fx_on[k] = true;
+    }
+}
+
+static bool parse(const u8 *p, Emitter *e, bool ambient);
 
 static void spawn(int ei) {
     if (s_np >= MAX_PARTS) return;
-    Emitter *e = &s_em[ei];
+    Emitter *e = em_at(ei);
     if (e->live >= PER_EMITTER || (e->maxp && e->live >= e->maxp)) return;
     Part *q = &s_p[s_np++];
     e->live++;
@@ -166,11 +233,11 @@ void particles_update(float dt) {
         Part *q = &s_p[i];
         q->age += dt;
         if (q->age >= q->life) {
-            s_em[q->em].live--;
+            em_at(q->em)->live--;
             s_p[i] = s_p[--s_np];
             continue;
         }
-        Emitter *e = &s_em[q->em];
+        Emitter *e = em_at(q->em);
         q->vy -= e->gravity * 9.81f * dt;
         q->x += q->vx * dt;
         q->y += q->vy * dt;
@@ -190,6 +257,24 @@ void particles_update(float dt) {
         if (e->acc > 8) e->acc = 8;
         while (e->acc >= 1) { e->acc -= 1; spawn(ei); }
     }
+    // effects: one cycle, then gone once their particles are
+    for (int k = 0; k < FX_SLOTS; k++) {
+        if (!s_fx_on[k]) continue;
+        Emitter *e = &s_fx[k];
+        int ei = FX_BASE + k;
+        if (!e->fx_done) {
+            if (e->burst && !e->burst_done && e->cyc >= e->burst_t) {
+                e->burst_done = true;
+                for (int j = 0; j < e->burst && j < 24; j++) spawn(ei);
+            }
+            e->acc += e->rate * dt;
+            if (e->acc > 8) e->acc = 8;
+            while (e->acc >= 1) { e->acc -= 1; spawn(ei); }
+            e->cyc += dt;
+            if (e->cyc >= e->duration) e->fx_done = true;
+        }
+        if (e->fx_done && e->live <= 0) s_fx_on[k] = false;
+    }
 }
 
 void particles_draw(float zmin, float zmax) {
@@ -198,7 +283,7 @@ void particles_draw(float zmin, float zmax) {
     C2D_SetTintMode(C2D_TintMult);   // texture x colour
     for (int i = 0; i < s_np; i++) {
         Part *q = &s_p[i];
-        Emitter *e = &s_em[q->em];
+        Emitter *e = em_at(q->em);
         if (e->z <= zmin || e->z > zmax) continue;
         const SClip *c = &s_tex->clips[e->clip];
         if (!c->n) continue;
@@ -231,7 +316,7 @@ int particles_emitters(void) { return s_nem; }
 void particles_debug(char *out, int n) {
     if (!s_np) { snprintf(out, n, "-"); return; }
     Part *q = &s_p[0];
-    Emitter *e = &s_em[q->em];
+    Emitter *e = em_at(q->em);
     const SClip *c = s_tex ? &s_tex->clips[e->clip] : NULL;
     int f = c && c->n ? rds16((const u8 *)&c->frames[0]) : -1;
     snprintf(out, n, "p0=%.1f,%.1f sz=%.2f a=%.2f clip=%s f=%d page=%d", q->x, q->y, q->size, q->c[3],

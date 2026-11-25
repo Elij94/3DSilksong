@@ -179,7 +179,8 @@ def from_objects(a):
     from objects import safe
     libs = set()
     for p in glob.glob(os.path.join(WORK, 'rooms', '*.objs.json')):
-        libs |= {o['library'] for o in json.load(open(p)) if o.get('library')}
+        for o in json.load(open(p)):
+            libs |= {x for x in (o.get('library'), (o.get('enemy') or {}).get('corpse_library')) if x}
     jobs = [(os.path.join(a.objects, 'sprites', safe(l) + '.sss'), l, a.scale, ctrtex.FORMATS[a.fmt], a.page)
             for l in sorted(libs)]
     todo = [j for j in jobs if not os.path.exists(j[0])]

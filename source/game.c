@@ -366,13 +366,14 @@ static void play(const Input *in_raw, float dt) {
     g_where = "objects/enemies";
     objects_update(&s_objs, dt);
     g_where = "fsm_update";
-    fsm_update(dt, h, &s_objs);
+    fsm_update(dt, h, &s_objs, &s_room);
     g_where = "play";
     enemies_update(&s_objs, &s_room, h->x, h->y - 0.6f, dt);
     particles_update(dt);
     if (hitting && !h->atk_hit && fsm_strike(box[0], box[1], box[2], box[3])) h->atk_hit = true;
     if (hitting && !h->atk_hit) {
-        if (objects_strike(&s_objs, box[0], box[1], box[2], box[3], NEEDLE_DMG, h->x)) {
+        int dir = h->attack == ATK_UP ? 1 : h->attack == ATK_DOWN ? 3 : (h->face > 0 ? 0 : 2);
+        if (objects_strike(&s_objs, box[0], box[1], box[2], box[3], NEEDLE_DMG, h->x, dir)) {
             h->atk_hit = true;
             if (h->silk < SILK_MAX) h->silk++;   // hits spin silk
             if (h->attack == ATK_DOWN || h->attack == ATK_HARPOON) hero_pogo(h);
@@ -430,6 +431,7 @@ static void play(const Input *in_raw, float dt) {
             if (in->down & KEY_UP) {
                 hero_sit(h, o->rx + o->rw * 0.5f);
                 h->silk = SILK_MAX;   // a rest fills the spool
+                pd_clear_semi();      // and the enemies come back
                 h->hp = h->maxhp;
                 snprintf(s_bench_scene, sizeof s_bench_scene, "%s", s_room.scene);
                 s_bench_x = h->x;
@@ -502,6 +504,22 @@ static void log_state(void) {
     snprintf(clip, sizeof clip, "%s hp=%d enemies=%d/%d parts=%d/%d",
              h->body.set && h->body.clip >= 0 ? h->body.set->clips[h->body.clip].name : "-", h->hp, live, dead,
              particles_count(), particles_emitters());
+    // the nearest enemy: where, its hp, its clip
+    int ne = -1;
+    float bd = 1e9f;
+    for (int i = 0; i < s_objs.n; i++) {
+        const Obj *o = &s_objs.o[i];
+        if (!(o->flags & OF_ENEMY) || o->ai == AI_NONE || !o->alive) continue;
+        float d = fabsf(o->x - h->x) + fabsf(o->y - h->y);
+        if (d < bd) { bd = d; ne = i; }
+    }
+    if (ne >= 0) {
+        const Obj *o = &s_objs.o[ne];
+        char e[96];
+        snprintf(e, sizeof e, " E[%s %.1f,%.1f hp=%d %s%s]", o->name, o->x, o->y, o->hp,
+                 o->anim.set && o->anim.clip >= 0 ? o->anim.set->clips[o->anim.clip].name : "-", o->dead ? " dead" : "");
+        strncat(clip, e, sizeof clip - strlen(clip) - 1);
+    }
     char pd[96];
     particles_debug(pd, sizeof pd);
     strncat(clip, " ", sizeof clip - strlen(clip) - 1);
@@ -533,8 +551,27 @@ static void pause_update(const Input *in) {
     }
 }
 
+// the game's FreezeMoment: time slows to a stop (down), stays stopped (hold), comes back (up)
+static float s_frz_down, s_frz_hold, s_frz_up, s_frz_t = -1;
+static void freeze(float down, float hold, float up) {
+    s_frz_down = down; s_frz_hold = hold; s_frz_up = up; s_frz_t = 0;
+}
+static float time_scale(float dt) {
+    if (s_frz_t < 0) return 1;
+    float t = s_frz_t;
+    s_frz_t += dt;
+    if (t < s_frz_down) return 1 - t / s_frz_down;
+    t -= s_frz_down;
+    if (t < s_frz_hold) return 0;
+    t -= s_frz_hold;
+    if (t < s_frz_up) return t / s_frz_up;
+    s_frz_t = -1;
+    return 1;
+}
+
 void game_update(const Input *in, float dt) {
     log_state();
+    objects_freeze = freeze;
     if (s_mode == GS_TITLE) {
         if (in->down & KEY_A) { s_mode = GS_PLAY; s_fade = 1; }
         if (in->down & KEY_X) { new_game(); s_mode = GS_PLAY; }
@@ -556,8 +593,12 @@ void game_update(const Input *in, float dt) {
         return;
     }
     if (s_fade > 0) s_fade = fmaxf(0, s_fade - dt / 0.25f);
-    play(in, dt);
-    camera_update(dt);
+    float gdt = dt * time_scale(dt);
+    int hp0 = s_hero.hp;
+    play(in, gdt);
+    // Hornet hurt: the game's damage freeze (her DAMAGE_FREEZE_WAIT / _UP: 0.1 s stopped, 0.1 s back)
+    if (s_hero.hp < hp0 && s_hero.hp > 0) freeze(0, 0.1f, 0.1f);
+    camera_update(gdt);
     g_where = "room_prefetch";
     room_prefetch(&s_room);
     g_where = "update";

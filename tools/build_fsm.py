@@ -115,6 +115,52 @@ OPS = [
     ('AudioPlaySimple', 'oneShotClip volume gameObject'),
     ('AudioPlayRandom', 'audioClips weights gameObject'),
     ('AudioPlayerOneShot', 'audioClips weights spawnPoint volume'),
+    # enemies
+    ('FindGameObject', 'objectName withTag store'),
+    ('GetHero', 'storeResult'),
+    ('CheckAlertRangeByName', 'eventTarget alertRangeName storeResult sendEvent outOfRangeEvent'),
+    ('CheckAlertRange', 'alertRange storeResult InRangeEvent OutOfRangeEvent'),
+    ('FindAlertRange', 'target storeResult childName'),
+    ('RayCast2d', 'fromGameObject fromPosition direction space distance hitEvent noHitEvent storeDidHit storeHitPoint storeDistance'),
+    ('RayCast2dV2', 'fromGameObject fromPosition direction space distance hitEvent noHitEvent storeDidHit storeHitPoint storeDistance'),
+    ('CheckCollisionSide', 'collidingObject topHit rightHit bottomHit leftHit topHitEvent rightHitEvent bottomHitEvent leftHitEvent'),
+    ('CheckCollisionSideEnter', 'collidingObject topHit rightHit bottomHit leftHit topHitEvent rightHitEvent bottomHitEvent leftHitEvent'),
+    ('CheckIsCharacterGrounded', 'Target GroundDistance StoreResult GroundedEvent NotGroundedEvent SkinHeight'),
+    ('FaceDirection', 'gameObject spriteFacesRight'),
+    ('FaceObject', 'objectA objectB spriteFacesRight'),
+    ('FlipScale', 'gameObject flipHorizontally flipVertically'),
+    ('RandomlyFlipScale', 'gameObject'),
+    ('GetScale', 'gameObject xScale yScale'),
+    ('SendEventByScale', 'gameObject eventTarget positiveEvent negativeEvent'),
+    ('CheckFacingTarget', 'facingObject target spriteFacesRight facingEvent notFacingEvent facingBool notFacingBool'),
+    ('GetXDistance', 'gameObject target storeResult'),
+    ('GetYDistance', 'gameObject target storeResult allowNegatives'),
+    ('GetAngleToTarget2D', 'gameObject target offsetX offsetY storeAngle'),
+    ('SetVelocityAsAngle', 'gameObject angle speed'),
+    ('DistanceFly', 'gameObject target distance speedMax acceleration minAboveHero'),
+    ('IdleBuzz', 'gameObject waitMin waitMax speedMax accelerationMax roamingRange roamingRange'),
+    ('IdleBuzzV3', 'gameObject waitMin waitMax speedMax accelerationMax roamingRangeX roamingRangeY'),
+    ('ChaseObject', 'gameObject target speedMax acceleration offsetX offsetY'),
+    ('ChaseObjectV2', 'gameObject target speedMax accelerationForce offsetX offsetY'),
+    ('ChaseObjectGround', 'gameObject target xOffset speedMax acceleration'),
+    ('AccelerateToY', 'gameObject accelerationFactor targetSpeed'),
+    ('SetPositionToObject', 'gameObject targetObject xOffset yOffset'),
+    ('SetPositionToObject2D', 'gameObject targetObject xOffset yOffset'),
+    ('FloatTestToBool', 'float1 float2 tolerance equalBool lessThanBool greaterThanBool'),
+    ('FloatInRange', 'floatVariable lowerValue upperValue boolVariable trueEvent falseEvent'),
+    ('Tk2dPlayFrame', 'gameObject frame'),
+    ('SetIsKinematic2d', 'gameObject isKinematic'),
+    ('SetInvincible', 'target Invincible'),
+    ('SetRecoilSpeed', 'target newRecoilSpeed'),
+    ('DoCameraShake', 'VisibleRenderer'),
+    ('SetDamageHeroAmount', 'target damageDealt'),
+    ('StartWalker', 'target walkRight'),
+    ('StartWalkerV2', 'Target'),
+    ('StopWalker', 'target'),
+    ('FireAtTarget', 'gameObject target speed'),
+    ('GetPosition2d', 'gameObject vector_2d x y'),
+    ('StartCrawler', 'Target'),
+    ('StopCrawler', 'Target'),
 ]
 OP_ID = {n: i for i, (n, _) in enumerate(OPS)}
 
@@ -224,7 +270,9 @@ def compile_room(romfs, scene, out_path):
             t = v.get('type')
             value = v.get('value')
             kind = 'float' if t == 'float' else None
-            if t == 'gameobject' and isinstance(value, dict) and 'go' in value:
+            if t == 'gameobject' and n in ('Hero', 'hero', 'Hero Obj', 'Hornet'):
+                tv = struct.pack('<Bh', T_NODE, N_HERO)
+            elif t == 'gameobject' and isinstance(value, dict) and 'go' in value:
                 gid = value['go']
                 tv = struct.pack('<Bh', T_NODE, node(gid) if not value.get('guid') else N_NONE)
             elif t in ('vector2', 'vector3') and isinstance(value, dict):
@@ -272,22 +320,71 @@ def compile_room(romfs, scene, out_path):
                     kind = 'float' if k in ('time', 'timeMin', 'timeMax', 'delay', 'x', 'y', 'X', 'Y', 'add',
                                             'float1', 'float2', 'floatValue', 'tolerance', 'min', 'max',
                                             'multiplyBy', 'minValue', 'maxValue', 'speed', 'deceleration',
-                                            'Time', 'falseValue', 'trueValue', 'gravityScale') and t not in (
+                                            'Time', 'falseValue', 'trueValue', 'gravityScale', 'distance', 'speedMax',
+                                            'acceleration', 'accelerationForce', 'accelerationMax', 'accelerationFactor',
+                                            'targetSpeed', 'offsetX', 'offsetY', 'xOffset', 'yOffset', 'waitMin', 'waitMax',
+                                            'roamingRange', 'roamingRangeX', 'roamingRangeY', 'minAboveHero', 'angle',
+                                            'lowerValue', 'upperValue', 'newRecoilSpeed', 'GroundDistance',
+                                            'SkinHeight', 'float1', 'float2') and t not in (
                                                 'RandomInt', 'IntCompare', 'IntAdd') else None
                     b += val(v, vars_ix, kind)
                 stats['kept'] += 1
         b_fsm += b
 
     b_nodes = bytearray(struct.pack('<H', len(tree)))
-    for gid, name, father, x, y, active in tree:
+    for g in tree:
+        gid, name, father, x, y, active = g[:6]
+        rect = g[6] if len(g) > 6 and g[6] else [0, 0, 0, 0]
+        body = g[7] if len(g) > 7 and g[7] else [-1, 0]
+        sx = g[8] if len(g) > 8 else 1.0
         parent = node_of.get(father, -1)
-        b_nodes += struct.pack('<HhhffB3x', S(name), parent, obj_of.get(gid, -1), x, y, active)
+        # u16 name, s16 parent, s16 object, f32 x, y, u8 active, s8 body type (-1 none, 0 dynamic, 1 kinematic,
+        # 2 static), 2 pad, f32 rect x, y, w, h, f32 gravity scale, f32 scale x
+        b_nodes += struct.pack('<HhhffBb2x6f', S(name), parent, obj_of.get(gid, -1), x, y, active, int(body[0]),
+                               *[float(v) for v in rect], float(body[1]), float(sx))
     dyn_path = os.path.join(WORK, 'rooms', scene + '.dyn.json')
     dyn = json.load(open(dyn_path)) if os.path.exists(dyn_path) else []
     b_dyn = bytearray(struct.pack('<H', len(dyn)))
     for gid, x0, y0, x1, y1 in dyn:
         b_dyn += struct.pack('<h4f', node_of.get(gid, -1), x0, y0, x1, y1)
-    out = b'SSFM' + struct.pack('<H', 2) + S.blob() + bytes(b_nodes) + struct.pack('<H', nf) + bytes(b_fsm) + bytes(b_dyn)
+    # what a hit and a kill do, per enemy (objects.py: its hit / death effects, corpse, recoil)
+    from objects import safe as lib_safe
+    ens = [(i, o['enemy']) for i, o in enumerate(objs) if o.get('enemy')]
+    b_en = bytearray(struct.pack('<H', len(ens)))
+    for i, e in ens:
+        fl = (1 if e.get('low_arc') else 0) | (2 if e.get('faces_right') else 0) | (4 if e.get('no_corpse') else 0) | \
+             (8 if e.get('freeze') else 0) | (16 if 'recoil' in e else 0)
+        rv, rd = e.get('recoil', [15.0, 0.15])
+        snd = e.get('death_sounds', [])[:4]
+        b_en += struct.pack('<hHHHfBffB', i, S(e.get('hit', '')), S(e.get('death', '')),
+                            S(lib_safe(e['corpse_library']) if e.get('corpse_library') else ''), float(e.get('fling', 0)),
+                            fl, float(rv), float(rd), len(snd))
+        for g in snd:
+            b_en += struct.pack('<H', S(g))
+        w = e.get('walker')
+        b_en += struct.pack('<B', 1 if w else 0)
+        if w:
+            b_en += struct.pack('<7f2Bff', float(w[0]), float(w[1]), float(w[2]), float(w[3]), float(w[4]), float(w[5]),
+                                float(w[6]), int(w[7]), int(w[8]), float(w[9]), float(w[10]))
+        c = e.get('crawler')
+        b_en += struct.pack('<B', 1 if c else 0)
+        if c:
+            b_en += struct.pack('<fBHB', float(c[0]), int(c[1]), S(c[2]), int(c[3]))
+        w2 = e.get('walker2')
+        b_en += struct.pack('<B', 1 if w2 else 0)
+        if w2:
+            b_en += struct.pack('<fHHHffB', float(w2[0]), S(w2[1]), S(w2[2]), S(w2[3]), float(w2[4]), float(w2[5]), int(w2[6]))
+    # what objects remember and what PlayerData switches off (PersistentBoolItem, DeactivateIfPlayerdata*)
+    sts = [(i, o['state']) for i, o in enumerate(objs) if o.get('state')]
+    b_st = bytearray(struct.pack('<H', len(sts)))
+    for i, st in sts:
+        pe = st.get('persist')
+        po = st.get('pd_off')
+        b_st += struct.pack('<hBBH', i, 1 if pe else 0, int(pe[1]) if pe else 0,
+                            S(pe[0] or str(objs[i].get('name'))) if pe else 0)
+        b_st += struct.pack('<BBH', 1 if po else 0, int(po[1]) if po else 0, S(po[0]) if po else 0)
+    out = b'SSFM' + struct.pack('<H', 6) + S.blob() + bytes(b_nodes) + struct.pack('<H', nf) + bytes(b_fsm) + bytes(b_dyn) + \
+        bytes(b_en) + bytes(b_st)
     open(out_path, 'wb').write(out)
     return stats, nf
 

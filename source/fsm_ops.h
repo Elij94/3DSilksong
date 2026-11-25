@@ -104,4 +104,49 @@
 #define OP_AudioPlaySimple                100   // oneShotClip volume gameObject
 #define OP_AudioPlayRandom                101   // audioClips weights gameObject
 #define OP_AudioPlayerOneShot             102   // audioClips weights spawnPoint volume
-#define OP_COUNT 103
+#define OP_FindGameObject                 103   // objectName withTag store
+#define OP_GetHero                        104   // storeResult
+#define OP_CheckAlertRangeByName          105   // eventTarget alertRangeName storeResult sendEvent outOfRangeEvent
+#define OP_CheckAlertRange                106   // alertRange storeResult InRangeEvent OutOfRangeEvent
+#define OP_FindAlertRange                 107   // target storeResult childName
+#define OP_RayCast2d                      108   // fromGameObject fromPosition direction space distance hitEvent noHitEvent storeDidHit storeHitPoint storeDistance
+#define OP_RayCast2dV2                    109   // fromGameObject fromPosition direction space distance hitEvent noHitEvent storeDidHit storeHitPoint storeDistance
+#define OP_CheckCollisionSide             110   // collidingObject topHit rightHit bottomHit leftHit topHitEvent rightHitEvent bottomHitEvent leftHitEvent
+#define OP_CheckCollisionSideEnter        111   // collidingObject topHit rightHit bottomHit leftHit topHitEvent rightHitEvent bottomHitEvent leftHitEvent
+#define OP_CheckIsCharacterGrounded       112   // Target GroundDistance StoreResult GroundedEvent NotGroundedEvent SkinHeight
+#define OP_FaceDirection                  113   // gameObject spriteFacesRight
+#define OP_FaceObject                     114   // objectA objectB spriteFacesRight
+#define OP_FlipScale                      115   // gameObject flipHorizontally flipVertically
+#define OP_RandomlyFlipScale              116   // gameObject
+#define OP_GetScale                       117   // gameObject xScale yScale
+#define OP_SendEventByScale               118   // gameObject eventTarget positiveEvent negativeEvent
+#define OP_CheckFacingTarget              119   // facingObject target spriteFacesRight facingEvent notFacingEvent facingBool notFacingBool
+#define OP_GetXDistance                   120   // gameObject target storeResult
+#define OP_GetYDistance                   121   // gameObject target storeResult allowNegatives
+#define OP_GetAngleToTarget2D             122   // gameObject target offsetX offsetY storeAngle
+#define OP_SetVelocityAsAngle             123   // gameObject angle speed
+#define OP_DistanceFly                    124   // gameObject target distance speedMax acceleration minAboveHero
+#define OP_IdleBuzz                       125   // gameObject waitMin waitMax speedMax accelerationMax roamingRange roamingRange
+#define OP_IdleBuzzV3                     126   // gameObject waitMin waitMax speedMax accelerationMax roamingRangeX roamingRangeY
+#define OP_ChaseObject                    127   // gameObject target speedMax acceleration offsetX offsetY
+#define OP_ChaseObjectV2                  128   // gameObject target speedMax accelerationForce offsetX offsetY
+#define OP_ChaseObjectGround              129   // gameObject target xOffset speedMax acceleration
+#define OP_AccelerateToY                  130   // gameObject accelerationFactor targetSpeed
+#define OP_SetPositionToObject            131   // gameObject targetObject xOffset yOffset
+#define OP_SetPositionToObject2D          132   // gameObject targetObject xOffset yOffset
+#define OP_FloatTestToBool                133   // float1 float2 tolerance equalBool lessThanBool greaterThanBool
+#define OP_FloatInRange                   134   // floatVariable lowerValue upperValue boolVariable trueEvent falseEvent
+#define OP_Tk2dPlayFrame                  135   // gameObject frame
+#define OP_SetIsKinematic2d               136   // gameObject isKinematic
+#define OP_SetInvincible                  137   // target Invincible
+#define OP_SetRecoilSpeed                 138   // target newRecoilSpeed
+#define OP_DoCameraShake                  139   // VisibleRenderer
+#define OP_SetDamageHeroAmount            140   // target damageDealt
+#define OP_StartWalker                    141   // target walkRight
+#define OP_StartWalkerV2                  142   // Target
+#define OP_StopWalker                     143   // target
+#define OP_FireAtTarget                   144   // gameObject target speed
+#define OP_GetPosition2d                  145   // gameObject vector_2d x y
+#define OP_StartCrawler                   146   // Target
+#define OP_StopCrawler                    147   // Target
+#define OP_COUNT 148

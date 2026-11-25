@@ -579,8 +579,15 @@ def build(name, out, a, scripts, sorting):
             t = sc.tr.get(gid)
             father = sc.tr_id.get(((t or {}).get('m_Father') or {}).get('fileID')) if t else None
             m = sc.world(gid)
+            comps = sc.comps.get(gid, [])
+            shapes = [s for t, v in comps if t.endswith('Collider2D') for s in collider_shapes(sc, gid, t, v)]
+            rect = [round(x, 3) for x in rect_of(shapes)] if shapes else []
+            rb = next((v for t, v in comps if t == 'Rigidbody2D'), None)
+            body = [int(f(rb.get('m_BodyType'))), round(float(f(rb.get('m_GravityScale', 1))), 3)] if rb else []
+            sx = float(np.sign(m[0, 0]) * np.hypot(m[0, 0], m[1, 0]))
             tree.append([gid, str(sc.name(gid)), father['m_GameObject']['fileID'] if father else 0,
-                         round(float(m[0, 3]), 3), round(float(m[1, 3]), 3), int(bool(sc.go[gid].get('m_IsActive', 1)))])
+                         round(float(m[0, 3]), 3), round(float(m[1, 3]), 3), int(bool(sc.go[gid].get('m_IsActive', 1))),
+                         rect, body, round(sx, 3)])
         json.dump(tree, open(info_base + '.tree.json', 'w'), separators=(',', ':'))
         json.dump(getattr(sc, 'dyn_solids', []), open(info_base + '.dyn.json', 'w'), separators=(',', ':'))
     parts = [] if a.no_objects else particles.gather_particles(sc, material_blend)

@@ -13,7 +13,11 @@
 #define AGGRO_X      9.0f
 #define AGGRO_Y      3.5f
 #define FLY_AGGRO    10.0f
-#define GRAVITY      40.0f
+#define GRAVITY      60.0f   // Physics2D: -60
+#include <stdlib.h>
+#include "fx.h"
+#include "audio.h"
+#include "fsm.h"
 
 static int clip_of(const SpriteSet *s, const char *const *names) {
     for (int i = 0; names[i]; i++) {
@@ -53,6 +57,7 @@ void enemies_init(Objects *os, const Room *r) {
         o->c_idle = o->anim.clip;
         o->home_x = o->x;
         o->home_y = o->y;
+        if (o->node >= 0 && fsm_node_fsms(o->node) > 0) { o->ai = AI_FSM; continue; }   // its own FSMs drive it
         bool flies = strstr(o->clip, "Fly") || strstr(o->clip, "Rise") || (o->c_fly >= 0 && o->c_move < 0);
         if (flies && o->c_fly >= 0) o->ai = AI_FLY;
         else if (o->c_move >= 0 && floor_under(r, o, 0.6f)) o->ai = AI_WALK;   // not those on walls or ceilings
@@ -104,16 +109,118 @@ static void fall(Objects *os, int i, const Room *r, float dt) {
     if (o->ry < r->gy - 10) o->alive = false;   // out of the room
 }
 
-void enemy_kill(Objects *os, int i, float from_x) {
+// Walker, the game's walking component: along at its speed, turning at walls and at the edge of its floor, with
+// pauses if it has them ("Walk", "Turn", "Idle")
+static void walker(Objects *os, int i, const Room *r, float dt) {
     Obj *o = &os->o[i];
-    if (o->ai == AI_NONE || (o->c_dair < 0 && o->c_dland < 0)) {
+    float vx, vy;
+    fsm_node_velocity(o->node, &vx, &vy, false);
+    bool right = o->scx < 0;                   // the art faces left
+    if (o->w_t > 0) {                          // pausing
+        o->w_t -= dt;
+        vx = 0;
+        fsm_node_velocity(o->node, &vx, &vy, true);
+        if (o->w_t <= 0) {
+            o->w_t = -(o->w_wait[0] + (o->w_wait[1] - o->w_wait[0]) * (rand() / (float)RAND_MAX));
+            int c = sprite_clip(o->anim.set, "Walk");
+            if (c >= 0) anim_play(&o->anim, c, true);
+        }
+        return;
+    }
+    if (o->w_pauses) {
+        o->w_t += dt;                          // counts up from minus the walking time
+        if (o->w_t >= 0) {
+            o->w_t = o->w_pause[0] + (o->w_pause[1] - o->w_pause[0]) * (rand() / (float)RAND_MAX) + 0.01f;
+            int c = sprite_clip(o->anim.set, "Idle");
+            if (c >= 0) anim_play(&o->anim, c, true);
+            return;
+        }
+    }
+    float x0 = o->rx, x1 = o->rx + o->rw, f = right ? 1.0f : -1.0f;
+    bool wall = room_box_solid(r, right ? x1 : x0 - 0.3f, o->ry + 0.2f, right ? x1 + 0.3f : x0, o->ry + o->rh - 0.1f);
+    float ex = (right ? x1 : x0) + f * (0.5f + o->w_edge);
+    bool hole = !o->w_ignore_holes && !room_box_solid(r, ex - 0.05f, o->ry - 0.6f, ex + 0.05f, o->ry - 0.02f);
+    if (wall || hole) {
+        o->scx = -o->scx;
+        right = !right;
+        int c = sprite_clip(o->anim.set, "Turn");
+        if (c >= 0) anim_play(&o->anim, c, true);
+    } else if (o->anim.done || o->anim.clip < 0) {
+        int c = sprite_clip(o->anim.set, "Walk");
+        if (c >= 0) anim_play(&o->anim, c, true);
+    }
+    vx = right ? o->w_speed[1] : o->w_speed[0];
+    fsm_node_velocity(o->node, &vx, &vy, true);
+}
+
+// Crawler / WalkerV2: along the floor the way it faces, turning at walls and at edges
+static void crawler(Objects *os, int i, const Room *r) {
+    Obj *o = &os->o[i];
+    float vx, vy;
+    fsm_node_velocity(o->node, &vx, &vy, false);
+    float num = (o->scx >= 0 ? 1.0f : -1.0f) * (o->crawl_sfr ? 1.0f : -1.0f);   // +1: going right
+    bool right = num > 0;
+    float x0 = o->rx, x1 = o->rx + o->rw;
+    bool wall = room_box_solid(r, right ? x1 : x0 - 0.2f, o->ry + 0.2f, right ? x1 + 0.2f : x0, o->ry + o->rh - 0.1f);
+    float ex = right ? x1 + 0.2f : x0 - 0.2f;
+    bool floor_here = room_box_solid(r, o->rx + 0.1f, o->ry - 0.3f, o->rx + o->rw - 0.1f, o->ry);
+    bool hole = floor_here && !room_box_solid(r, ex - 0.05f, o->ry - 1.0f, ex + 0.05f, o->ry - 0.02f);
+    if (wall || hole) {
+        o->scx = -o->scx;
+        right = !right;
+        int c = o->turn_anim ? sprite_clip(o->anim.set, o->turn_anim) : -1;
+        if (c >= 0) anim_play(&o->anim, c, true);
+    } else if (o->anim.done || o->anim.clip < 0 ||
+               (o->crawl_anim && strcmp(o->anim.set->clips[o->anim.clip].name, o->crawl_anim) &&
+                !(o->turn_anim && !strcmp(o->anim.set->clips[o->anim.clip].name, o->turn_anim)))) {
+        int c = o->crawl_anim ? sprite_clip(o->anim.set, o->crawl_anim) : -1;
+        if (c >= 0) anim_play(&o->anim, c, false);
+    }
+    vx = right ? o->crawl_speed : -o->crawl_speed;
+    fsm_node_velocity(o->node, &vx, &vy, true);
+}
+
+// as HealthManager.Die and EnemyDeathEffects: the freeze, the death sounds and effects, then the corpse flung off
+void enemy_kill(Objects *os, int i, float from_x, int dir) {
+    Obj *o = &os->o[i];
+    float cx = o->rx + o->rw * 0.5f, cy = o->ry + o->rh * 0.5f;
+    if (objects_freeze) objects_freeze(0.04f, 0.024f, 0.04f);          // FreezeMomentTypes.EnemyDeath
+    float pan = clampf((cx - g_view.cx) / 14, -0.8f, 0.8f);
+    for (int k = 0; k < o->ndsnd; k++) sfx_play(o->dsnd[k], 1, pan);
+    fx_death(o->deathp, cx, cy - 0.5f, -0.5f, dir * 90.0f, o->ndsnd == 0);
+    fsm_node_send(o->node, "DEATH");
+    fsm_node_stop(o->node);
+    if (o->persist[0]) pd_set_bool(o->persist, true);
+    o->walking = false;
+    o->recoil_t = 0;
+    // the corpse: the corpse prefab's animations ("Death Air" in the air, "Death Land" on the ground)
+    if (o->corpse_set && o->corpse_set != o->anim.set) {
+        int a = sprite_clip(o->corpse_set, "Death Air"), l = sprite_clip(o->corpse_set, "Death Land");
+        if (a >= 0 || l >= 0) {
+            o->anim.set = o->corpse_set;
+            o->c_dair = a;
+            o->c_dland = l;
+        }
+    }
+    if ((o->eflags & EF_NO_CORPSE) || (o->c_dair < 0 && o->c_dland < 0)) {
         o->alive = false;
         return;
     }
     o->dead = true;
-    o->vy = 7.0f;
-    o->vx = (o->rx + o->rw * 0.5f < from_x ? -1 : 1) * 4.0f;
-    o->kb = 0.3f;
+    // flung away from the hit: 60 / 120 degrees sideways (10 / 170 on a low arc), straight down, or up 75-105
+    // degrees a third faster; facing where the hit came from
+    float sp = o->fling > 0 ? o->fling : 8, ang;
+    switch (dir & 3) {
+    case 0: ang = (o->eflags & EF_LOW_ARC) ? 10 : 60; break;
+    case 2: ang = (o->eflags & EF_LOW_ARC) ? 170 : 120; break;
+    case 3: ang = 270; break;
+    default: ang = 75 + 30 * (rand() / (float)RAND_MAX); sp *= 1.3f; break;
+    }
+    o->vx = cosf(ang * (float)M_PI / 180) * sp;
+    o->vy = sinf(ang * (float)M_PI / 180) * sp;
+    o->kb = 10;            // keeps moving sideways until it lands
+    o->grounded = false;
+    if (!(dir & 1)) face(o, cx < from_x ? 1 : -1);
     anim_play(&o->anim, o->c_dair >= 0 ? o->c_dair : o->c_dland, true);
 }
 
@@ -121,19 +228,32 @@ void enemies_update(Objects *os, const Room *r, float hx, float hy, float dt) {
     for (int i = 0; i < os->n; i++) {
         Obj *o = &os->o[i];
         if (o->ai == AI_NONE || !o->alive) continue;
+        if (o->ai == AI_FSM && !o->dead && o->recoil_t <= 0 && !o->walking) continue;
         o->t += dt;
         if (o->turn_t > 0) o->turn_t -= dt;
         float cx = o->rx + o->rw * 0.5f, cy = o->ry + o->rh * 0.5f;
 
-        // knocked back by a hit (and the corpse's flight)
-        if (o->kb > 0) {
-            o->kb -= dt;
-            if (!try_x(os, i, r, o->vx * dt)) o->vx = 0;
-            if (o->ai == AI_FLY && !o->dead) continue;
+        // the recoil of a hit (Recoil: its speed, falling off over its duration, along the hit)
+        if (o->recoil_t > 0 && !o->dead) {
+            float k = o->recoil_t / o->recoil_dur;
+            o->recoil_t -= dt;
+            float v = o->recoil_v * k;
+            if (o->rdx != 0 && !try_x(os, i, r, o->rdx * v * dt)) o->recoil_t = 0;
+            if (o->rdy != 0 && !try_y(os, i, r, o->rdy * v * dt)) o->recoil_t = 0;
+            if (o->recoil_t <= 0) fsm_node_send(o->node, "RECOIL END");
+            continue;      // the recoil takes over the movement
         }
-        if (o->dead) {
+        if (o->ai == AI_FSM && !o->dead) {
+            if (o->walking) { if (o->crawler) crawler(os, i, r); else walker(os, i, r, dt); }
+            continue;
+        }
+        if (o->dead) {     // the corpse's flight, then it lies there
+            if (!o->grounded && o->vx != 0 && !try_x(os, i, r, o->vx * dt)) o->vx = 0;
             fall(os, i, r, dt);
-            if (o->grounded && o->c_dland >= 0 && o->anim.clip != o->c_dland) anim_play(&o->anim, o->c_dland, true);
+            if (o->grounded) {
+                o->vx = 0;
+                if (o->c_dland >= 0 && o->anim.clip != o->c_dland) anim_play(&o->anim, o->c_dland, true);
+            }
             continue;
         }
 
