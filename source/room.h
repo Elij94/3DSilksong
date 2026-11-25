@@ -24,6 +24,7 @@ typedef struct {
     u16 tx, ty;
     u32 off, size;
     s16 slot;              // texture cache slot, -1 if not loaded
+    u8 pending;            // queued for the loader thread
 } RTile;
 
 typedef struct {
@@ -66,4 +67,5 @@ void room_preload_view(Room *r);
 void room_frame_begin(void);
 bool room_evict_tile(void);
 void room_cache_init(void);
+void room_cache_exit(void);   // stops the loader thread
 int room_cache_used(void);

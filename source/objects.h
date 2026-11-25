@@ -43,6 +43,7 @@ void objects_update(Objects *os, float dt);
 void obj_move(Objects *os, int i, float dx, float dy);
 // draws the objects with z in (zmin, zmax]
 void objects_draw(Objects *os, float zmin, float zmax);
+void objects_preload(Objects *os);   // inflates the pages their animations show
 bool obj_alive(const Objects *os, int i);
 // strikes the objects in the box; returns how many were hit (enemies take dmg, pushed away from from_x)
 int objects_strike(Objects *os, float x0, float y0, float x1, float y1, int dmg, float from_x);

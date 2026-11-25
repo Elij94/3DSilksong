@@ -11,6 +11,15 @@ static int cmp_far_to_near(const void *a, const void *b) {
     return *(const s16 *)a - *(const s16 *)b;
 }
 
+// the sprite pages of every object's current animation, inflated now (while the screen is black) rather than when
+// the camera first reaches it
+void objects_preload(Objects *os) {
+    for (int i = 0; i < os->n; i++) {
+        Anim *a = &os->o[i].anim;
+        if (a->set && a->clip >= 0 && a->clip < a->set->nclips) sprite_preload_clip(a->set, a->set->clips[a->clip].name);
+    }
+}
+
 void objects_load(Objects *os, const char *scene) {
     memset(os, 0, sizeof *os);
     size_t size;

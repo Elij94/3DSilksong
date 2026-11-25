@@ -91,7 +91,7 @@ static const u16 DBASE[30] = {1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 1
                               1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577};
 static const u8 DEXT[30] = {0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13};
 
-static Huff s_lit, s_dist;   // ~3 KB each: static, not on the (small) stack
+static __thread Huff s_lit, s_dist;   // ~3 KB each, not on the (small) stack; one pair per thread (the loader thread)
 
 static int codes(Bits *s, u8 *out, size_t outlen, size_t *pos) {
     size_t p = *pos;

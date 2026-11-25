@@ -143,6 +143,7 @@ int main(void) {
     game_save();
     autotest_end();
     game_end();                      // closes the room's files before the data goes away
+    room_cache_exit();
     audio_exit();
     romfsUnmount("romfs");
     C2D_Fini();

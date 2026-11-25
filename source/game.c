@@ -189,6 +189,7 @@ static void go(const char *scene, const char *entry) {
     camera_snap();
     // every tile the first frame shows, at once (the screen is black meanwhile)
     room_preload_view(&s_room);
+    objects_preload(&s_objs);
     game_save();
 }
 

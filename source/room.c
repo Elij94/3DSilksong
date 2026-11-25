@@ -24,9 +24,12 @@ static int s_load_limit = 3;
 static u8 *s_scratch;
 static size_t s_scratch_size;
 
+static void loader_start(void);
+
 void room_cache_init(void) {
     // ~45% of the linear memory for scenery, the rest for sprites
     s_budget = (size_t)(linearSpaceFree() * 0.45f);
+    loader_start();
 }
 
 int room_cache_used(void) {
@@ -35,7 +38,12 @@ int room_cache_used(void) {
     return n;
 }
 
-void room_frame_begin(void) { s_loads = 0; }
+static void loader_collect(void);
+
+void room_frame_begin(void) {
+    s_loads = 0;
+    loader_collect();
+}
 
 static void slot_release(int i) {
     Slot *s = &s_slots[i];
@@ -106,20 +114,159 @@ static int slot_get(int size, int fmt, bool prefetch) {
     return slot_create(lru, size, fmt) ? lru : -1;
 }
 
+static bool tile_load(Room *r, Layer *L, RTile *t, bool prefetch);
+
+// ---------------------------------------------------------------- the loader thread
+// Tiles the camera reaches are read and inflated on the New 3DS's spare core (or, on one core, while the game waits
+// for the screen), so walking through a room never stalls a frame on zlib. The game thread only copies a finished
+// tile into its texture, a memcpy.
+
+#define NJOBS 24
+enum { JOB_FREE, JOB_QUEUED, JOB_WORKING, JOB_DONE, JOB_FAILED };
+typedef struct {
+    RTile *t;
+    u32 off, size;
+    u16 tile;
+    u8 fmt, down;
+    u32 gen;
+    u8 *buf;
+    size_t cap;
+    volatile u8 state;
+} Job;
+
+static Job s_jobs[NJOBS];
+static Thread s_thread;
+static LightEvent s_wake;
+static LightLock s_flock;      // the room's .ssl file: one reader at a time
+static FILE *s_file;
+static volatile u32 s_gen;     // which room the jobs are for
+static volatile bool s_quit;
+static u8 *s_wbuf;             // the loader's read buffer
+static size_t s_wbuf_size;
+
+static bool read_tile(FILE *f, u32 off, u32 size, u8 **buf, size_t *bsize) {
+    if (size > *bsize) {
+        free(*buf);
+        *bsize = size + 4096;
+        *buf = malloc(*bsize);
+        if (!*buf) { *bsize = 0; return false; }
+    }
+    LightLock_Lock(&s_flock);
+    bool ok = f && !fseek(f, off, SEEK_SET) && fread(*buf, 1, size, f) == size;
+    LightLock_Unlock(&s_flock);
+    return ok;
+}
+
+static void loader_main(void *arg) {
+    (void)arg;
+    while (!s_quit) {
+        LightEvent_Wait(&s_wake);
+        for (bool any = true; any && !s_quit;) {
+            any = false;
+            for (int i = 0; i < NJOBS; i++) {
+                Job *j = &s_jobs[i];
+                if (j->state != JOB_QUEUED) continue;
+                j->state = JOB_WORKING;
+                any = true;
+                bool ok = j->gen == s_gen && read_tile(s_file, j->off, j->size, &s_wbuf, &s_wbuf_size) &&
+                          tex_inflate_scaled(s_wbuf, j->size, j->tile, j->tile, j->fmt, j->down, j->buf);
+                j->state = ok ? JOB_DONE : JOB_FAILED;
+            }
+        }
+    }
+}
+
+static void loader_start(void) {
+    LightEvent_Init(&s_wake, RESET_ONESHOT);
+    LightLock_Init(&s_flock);
+    s32 prio = 0x30;
+    svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+    if (prio < 0x3F) prio++;
+    // the New 3DS's fourth core (2) is the game's to use; else the game's own core, below the game thread
+    s_thread = threadCreate(loader_main, NULL, 16 * 1024, prio, 2, false);
+    if (!s_thread) s_thread = threadCreate(loader_main, NULL, 16 * 1024, prio, -2, false);
+}
+
+void room_cache_exit(void) {
+    if (!s_thread) return;
+    s_quit = true;
+    LightEvent_Signal(&s_wake);
+    threadJoin(s_thread, U64_MAX);
+    threadFree(s_thread);
+    s_thread = NULL;
+}
+
+// waits for the job being worked on, then forgets them all (the room is going away)
+static void loader_drain(void) {
+    s_gen++;
+    for (int i = 0; i < NJOBS; i++) {
+        while (s_jobs[i].state == JOB_WORKING) svcSleepThread(200000);
+        if (s_jobs[i].state != JOB_FREE && s_jobs[i].t) s_jobs[i].t->pending = 0;
+        s_jobs[i].state = JOB_FREE;
+    }
+}
+
+// asks the loader for a tile; false when every job is taken
+static bool tile_request(Room *r, Layer *L, RTile *t) {
+    if (t->slot >= 0 || t->pending || t->size == 0 || !r->ssl) return true;
+    if (!s_thread) return tile_load(r, L, t, false);
+    for (int i = 0; i < NJOBS; i++) {
+        Job *j = &s_jobs[i];
+        if (j->state != JOB_FREE) continue;
+        int size = L->tile / L->down;
+        size_t need = tex_bytes(size, size, L->fmt);
+        if (need > j->cap) {
+            free(j->buf);
+            j->buf = malloc(need);
+            j->cap = j->buf ? need : 0;
+            if (!j->buf) return false;
+        }
+        j->t = t; j->off = t->off; j->size = t->size;
+        j->tile = L->tile; j->fmt = L->fmt; j->down = L->down;
+        j->gen = s_gen;
+        t->pending = 1;
+        j->state = JOB_QUEUED;
+        LightEvent_Signal(&s_wake);
+        return true;
+    }
+    return false;
+}
+
+// the tiles the loader finished: into textures
+static void loader_collect(void) {
+    for (int i = 0; i < NJOBS; i++) {
+        Job *j = &s_jobs[i];
+        u8 st = j->state;
+        if (st != JOB_DONE && st != JOB_FAILED) continue;
+        RTile *t = j->t;
+        if (j->gen == s_gen && t) {
+            t->pending = 0;
+            if (st == JOB_FAILED) t->size = 0;
+            else if (t->slot < 0) {
+                int size = j->tile / j->down;
+                int si = slot_get(size, j->fmt, false);
+                if (si >= 0) {
+                    Slot *s = &s_slots[si];
+                    memcpy(s->tex.data, j->buf, tex_bytes(size, size, j->fmt));
+                    C3D_TexFlush(&s->tex);
+                    s->owner = t;
+                    s->last_used = g_view.frame;
+                    t->slot = si;
+                }
+            }
+        }
+        j->state = JOB_FREE;
+    }
+}
+
 static bool tile_load(Room *r, Layer *L, RTile *t, bool prefetch) {
     if (t->slot >= 0) return true;
     if (!r->ssl || t->size == 0) return false;
     int size = L->tile / L->down;
     int si = slot_get(size, L->fmt, prefetch);
     if (si < 0) return false;
-    if (t->size > s_scratch_size) {
-        free(s_scratch);
-        s_scratch_size = t->size + 4096;
-        s_scratch = malloc(s_scratch_size);
-        if (!s_scratch) { s_scratch_size = 0; return false; }
-    }
     Slot *s = &s_slots[si];
-    if (fseek(r->ssl, t->off, SEEK_SET) || fread(s_scratch, 1, t->size, r->ssl) != t->size ||
+    if (!read_tile(r->ssl, t->off, t->size, &s_scratch, &s_scratch_size) ||
         !tex_inflate_scaled(s_scratch, t->size, L->tile, L->tile, L->fmt, L->down, s->tex.data)) {
         t->size = 0;   // broken: don't try again
         return false;
@@ -135,6 +282,10 @@ static bool tile_load(Room *r, Layer *L, RTile *t, bool prefetch) {
 // ---------------------------------------------------------------- loading
 
 void room_free(Room *r) {
+    loader_drain();
+    LightLock_Lock(&s_flock);
+    s_file = NULL;
+    LightLock_Unlock(&s_flock);
     for (int i = 0; i < MAX_SLOTS; i++)
         if (s_slots[i].owner) slot_release(i);
     for (int i = 0; i < r->nlayers; i++) { free(r->layers[i].tiles); free(r->layers[i].lut); }
@@ -220,6 +371,9 @@ bool room_load(Room *r, const char *scene) {
     }
     free(d);
     r->ssl = fopen(data_path("rooms/%s.ssl", scene), "rb");
+    LightLock_Lock(&s_flock);
+    s_file = r->ssl;          // the loader thread reads tiles from it
+    LightLock_Unlock(&s_flock);
 
     // the room's extent: the gates sit on its edges; else the collision grid (which has a view's margin)
     float gx1 = r->gx + (float)r->gw / r->cpu, gy1 = r->gy + (float)r->gh / r->cpu;
@@ -299,7 +453,7 @@ void room_draw_layer(Room *r, int li, bool all) {
             int ki = L->lut[ty * L->ntx + tx];
             if (ki < 0) continue;
             RTile *t = &L->tiles[ki];
-            if (t->slot < 0 && (all || s_loads < s_load_limit)) tile_load(r, L, t, false);
+            if (t->slot < 0) { if (all) tile_load(r, L, t, false); else tile_request(r, L, t); }
             if (t->slot < 0) continue;
             Slot *s = &s_slots[t->slot];
             s->last_used = g_view.frame;
@@ -311,30 +465,29 @@ void room_draw_layer(Room *r, int li, bool all) {
 }
 
 void room_prefetch(Room *r) {
-    for (int li = 0; li < r->nlayers && s_loads < s_load_limit; li++) {
-        Layer *L = &r->layers[li];
-        int tx0, tx1, ty0, ty1;
-        layer_range(L, 1, &tx0, &tx1, &ty0, &ty1);
-        for (int ty = ty0; ty <= ty1 && s_loads < s_load_limit; ty++)
-            for (int tx = tx0; tx <= tx1 && s_loads < s_load_limit; tx++) {
-                int k = L->lut[ty * L->ntx + tx];
-                if (k >= 0 && L->tiles[k].slot < 0) {
-                    // only into free slots or ones not drawn recently, so prefetching never fights the view
-                    tile_load(r, L, &L->tiles[k], true);
+    // what the view shows first (it may be missing a tile), then a ring of 2 tiles around it, nearest layers first
+    for (int ring = 0; ring <= 2; ring += 2)
+        for (int li = r->nlayers - 1; li >= 0; li--) {
+            Layer *L = &r->layers[li];
+            int tx0, tx1, ty0, ty1;
+            layer_range(L, ring, &tx0, &tx1, &ty0, &ty1);
+            for (int ty = ty0; ty <= ty1; ty++)
+                for (int tx = tx0; tx <= tx1; tx++) {
+                    int k = L->lut[ty * L->ntx + tx];
+                    if (k >= 0 && L->tiles[k].slot < 0 && !tile_request(r, L, &L->tiles[k])) return;
                 }
-            }
-    }
+        }
 }
 
 void room_preload_view(Room *r) {
     for (int li = 0; li < r->nlayers; li++) {
         Layer *L = &r->layers[li];
         int tx0, tx1, ty0, ty1;
-        layer_range(L, 0, &tx0, &tx1, &ty0, &ty1);
+        layer_range(L, 1, &tx0, &tx1, &ty0, &ty1);   // and a tile around it: the first steps load nothing
         for (int ty = ty0; ty <= ty1; ty++)
             for (int tx = tx0; tx <= tx1; tx++) {
                 int k = L->lut[ty * L->ntx + tx];
-                if (k >= 0) tile_load(r, L, &L->tiles[k], false);
+                if (k >= 0) tile_load(r, L, &L->tiles[k], true);
             }
     }
 }

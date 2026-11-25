@@ -23,8 +23,8 @@ static inline u32 tex_index(u32 x, u32 y, u32 w) {
     return ((y >> 3) * (w >> 3) + (x >> 3)) * 64 + m;
 }
 
-static u8 *s_big;
-static size_t s_big_size;
+static __thread u8 *s_big;      // per thread: the tile loader thread has its own
+static __thread size_t s_big_size;
 
 bool tex_inflate_scaled(const void *z, size_t zlen, int w, int h, int fmt, int f, void *dst) {
     size_t full = tex_bytes(w, h, fmt);
