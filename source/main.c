@@ -82,13 +82,12 @@ int main(void) {
     if (n3ds) osSetSpeedupEnable(true);           // 804 MHz, the extra L2 cache
 
     gfxInitDefault();
-    // the top screen in 800x240 (twice the pixels across, half as wide each: a sharper picture, no 3D) on the
-    // New 3DS (as devkitPro's wide_mode_3d example sets it up; emulators show it stretched, so test there with
-    // SD:/3ds/3dsilksong/nowide, which keeps 400x240). citro2d's screen target is 400 wide whatever the
-    // mode (that showed only the left half, stretched): the target is made here at the framebuffer's real size.
-    FILE *nw = fopen("sdmc:/3ds/3dsilksong/nowide", "r");
-    bool wide = n3ds && !nw;
-    if (nw) fclose(nw);
+    // the 800x240 mode stays off: on a New 3DS XL (and in Azahar) the screen kept showing 400 columns of the 800,
+    // the left half zoomed in, even set up as devkitPro's wide_mode_3d example does. SD:/3ds/3dsilksong/wide
+    // turns it on, for trying it again.
+    FILE *ww = fopen("sdmc:/3ds/3dsilksong/wide", "r");
+    bool wide = n3ds && ww;
+    if (ww) fclose(ww);
     gfxSetWide(wide);
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 2);
     C2D_Init(8192);

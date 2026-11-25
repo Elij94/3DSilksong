@@ -491,6 +491,13 @@ def bake_layer(items, z_l, ppu, stats, clip=None):
         if col != [1, 1, 1, 1]:
             a = img.astype(np.float32) * np.array(col, np.float32)
             src = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+        # shrunk a lot (several sprite pixels to a canvas pixel): first a proper Lanczos shrink, which the affine
+        # transform's bilinear sampling isn't (it would skip pixels and leave the picture grainy)
+        k = math.sqrt(abs(np.linalg.det(T[:, :2])))
+        if k > 1.25:
+            nw, nh = max(1, int(round(iw / k))), max(1, int(round(ih / k)))
+            src = src.resize((nw, nh), Image.LANCZOS)
+            T = np.diag([nw / iw, nh / ih]) @ T
         part = src.transform((bx1 - bx0, by1 - by0), Image.AFFINE, data=tuple(T.reshape(-1)), resample=Image.BILINEAR)
         canvas.alpha_composite(part, (bx0, by0))
         stats['drawn'] += 1
@@ -560,7 +567,8 @@ def build(name, out, a, scripts, sorting):
             rx0, ry0 = gx, gy
             rx1, ry1 = gx + gw / a.cpu, gy + gh / a.cpu
             clip = (rx0 - VIEW[0] / par, ry0 - VIEW[1] / par, rx1 + VIEW[0] / par, ry1 + VIEW[1] / par) if solids else None
-            got = bake_layer(items, z_l, a.ppu, stats, clip)
+            # as many pixels a unit as the screen shows of this layer (its parallax scales it on screen)
+            got = bake_layer(items, z_l, max(4.0, a.ppu * min(par, 1.6)), stats, clip)
             if not got:
                 continue
             arr, ox, oy, lppu = got
