@@ -59,21 +59,28 @@ What it does (0.6.0):
   and charge, flyers hover and chase; knockback, death animation and corpse.
 - **Objects** (`objects.c`), **particles** (`particles.c`): drawn at their depth between the scenery layers; the
   ambient emitters that loop.
-- **Music** (`audio.c`): each room's music and ambience (`music/rooms.txt`), streamed as PCM, with fades.
+- **State machines** (`fsm.c`): the rooms' PlayMaker FSMs, compiled by `tools/build_fsm.py`, run with about a
+  hundred of the game's actions: breakable walls, gates and scene events follow the game's own logic, walls that
+  open leave the collision grid, PlayerData flags are saved. Enemies keep the engine's behaviour for now.
+- **Dialogues** (`dialogue.c`): the NPCs' lines in the game's text (French on a French console), page by page;
+  Up near an NPC or anything waiting for it starts it.
+- **Music and sounds** (`audio.c`): each room's music and ambience (`music/rooms.txt`), streamed as PCM, with fades;
+  the FSMs' sound effects on 8 more channels, by distance.
 - **Game** (`game.c`): title screen, pause menu, camera, gates between rooms, the game's HUD (spool, masks, silk),
   benches as respawn points, the room menu (SELECT), saves in `SD:/3ds/3dsilksong/save.txt`.
 
 Controls: pad or Circle Pad to move (and look up/down), B jump (in the air: double jump, then held: float), Y needle
-(up+Y, down+Y in the air), R/ZR dash (held on: sprint), L/ZL Clawline (down+L held: Silk Soar), A bind, Up for doors and benches, SELECT room menu, START pause.
+(up+Y, down+Y in the air), R/ZR dash (held on: sprint), L/ZL Clawline (down+L held: Silk Soar), A bind, Up for doors, benches and NPCs (A/B/Y: next line), SELECT room menu, START pause.
 
-Not there yet: the game's scripts (the PlayMaker FSMs: NPCs, dialogues, bosses, items, abilities, hidden areas),
-sound effects, the map and inventory, text.
+Not there yet: enemies and bosses on their own FSMs, Hornet's own sounds (not in the export), items and the
+inventory, the map, hidden areas (shown from the start).
 
 ### Testing in an emulator
 
 `tools/emu_run.ps1` runs the engine in [Azahar](https://github.com/azahar-emu/azahar) (portable, in `../Azahar`)
 without taking the focus and saves a screenshot of its window. With `SD:/3ds/3dsilksong/autotest.txt` the engine
-reads its input from a script and writes Hornet's state to `log.txt` (see `source/autotest.c`). `tools/render_ref.py` draws a room from the converted files with the
+reads its input from a script and writes Hornet's state and the FSMs' transitions to `log.txt` (see
+`source/autotest.c`); files under `SD:/3ds/3dsilksong/override/` replace the data file's (a room's `.ssf`, say). `tools/render_ref.py` draws a room from the converted files with the
 engine's math, to tell an engine bug from a data one.
 
 ## Requirements
