@@ -103,9 +103,27 @@ point into the `.ssl` at the data of one `tile`×`tile` tile, zlib-compressed.
   colliders on objects with an FSM or a `Breakable`, or on their children, or inactive at load) are left out of the
   room's collision grid; the engine tests them while their node is active and its collider on.
 
+Version 4 nodes are 42 bytes: after `active`, `s8 body` (Rigidbody2D: -1 none, 0 dynamic, 1 kinematic, 2 static),
+2 bytes pad, `f32 x, y, w, h` (the union of its colliders, world), `f32 gravity scale`, `f32 scale x`.
+Version 3 adds, after the walls, the enemies: `u16 n` × (`s16 object`, `u16 hit profile`, `u16 death profile`,
+`u16 corpse sprite set`, `f32 corpse fling speed`, `u8 flags` (1 low arc, 2 corpse faces right, 4 no corpse, 8 freeze
+instead of recoil, 16 has a Recoil), `f32 recoil speed`, `f32 recoil time`, `u8 n` × `u16` death sound guids), then
+(version 5) `u8` + Walker (`f32` speed left, right, pauses, pause min, max, wait min, max, `u8` ignore holes, start
+inactive, `f32` right scale, edge adjust), (version 6) `u8` + Crawler (`f32` speed, `u8` sprite faces right, `u16` clip,
+`u8` start inactive), `u8` + WalkerV2 (`f32` speed, `u16` walk, turn, idle clips, `f32` wall distance, ground ahead,
+`u8` start active). Version 6 ends with the objects' states: `u16 n` × (`s16 object`, `u8` persistent, `u8`
+semi-persistent, `u16` id, `u8` PlayerData switch, `u8` off when true, `u16` PlayerData bool).
+
 A value is `u8 tag` then: 0 none; 1 `f32`; 2 `s32`; 3 `u8` bool; 4 `u16` string; 5 `u16` variable; 6 `s16` node
 (-2 the owner, -3 Hornet, -1 none); 7 `u16` event; 8 `f32 x, y, z`; 9 `u8 n` + n values; 10 event target: `u8 kind`
 (0 self, 1 the object's FSMs, 2 one of its FSMs, 4 all), `s16 node`, `u16 fsm name`.
+
+## Hit and death effects: `fx/` (`tools/build_fx.py`)
+
+`fx/profiles.txt`: one profile per line, tab-separated: `H` (hit) or `D` (death), its name, `1` if a hit flashes the
+enemy white, its effect prefabs (comma-separated), its sound guids (comma-separated), blood (min count, max count,
+min speed, max speed). `fx/<prefab>.spt`: the prefab's particle systems in the `.spt` format, positions relative to the
+prefab; the engine plays them once where a hit or a kill happens, turned to its direction.
 
 ## Objects: `.sso` (`tools/objects.py`, written by `build_room.py`)
 

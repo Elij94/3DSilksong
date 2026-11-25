@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.0 — enemies on their own scripts, hits and kills as in the game
+
+- Enemies run their own FSMs: alert ranges, raycasts, collisions, facing, chasing, flying, and the game's walking
+  components (Walker, WalkerV2, Crawler); bodies have gravity and collide with the room.
+- A hit does what HealthManager does: the FSM events (HIT, TOOK DAMAGE, RECOIL...), the white flash, the enemy's own
+  recoil, its hit effects (particles turned to the hit, damage sound). A kill: the death freeze, the camera shake, the
+  enemy's death sounds and effects, its corpse flung at the game's angles and speed, Death Air then Death Land.
+- Hornet hurt: the game's damage freeze.
+- Killed enemies that the game remembers stay dead (the semi-persistent ones come back after a bench rest); objects
+  switched off by PlayerData are.
+- Multiply layers premultiplied: no more red-saturated rooms.
+- `tools/build_fx.py`: the 58 hit and death profiles, their particles and sounds.
+
 ## 0.9.0 — the game's scripts run
 
 - A PlayMaker runtime (`fsm.c`): `tools/build_fsm.py` compiles each room's state machines and the scene's

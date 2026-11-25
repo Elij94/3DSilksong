@@ -61,7 +61,10 @@ What it does (0.6.0):
   ambient emitters that loop.
 - **State machines** (`fsm.c`): the rooms' PlayMaker FSMs, compiled by `tools/build_fsm.py`, run with about a
   hundred of the game's actions: breakable walls, gates and scene events follow the game's own logic, walls that
-  open leave the collision grid, PlayerData flags are saved. Enemies keep the engine's behaviour for now.
+  open leave the collision grid, PlayerData flags are saved. Enemies run theirs too, with bodies that fall and collide
+  and the game's walking components (Walker, WalkerV2, Crawler).
+- **Hits and kills** (`objects.c`, `enemy.c`, `fx.c`): as HealthManager does them: flash, the enemy's recoil, its hit
+  and death effects and sounds (`fx/`, `tools/build_fx.py`), freeze moments, the corpse flung and landing.
 - **Dialogues** (`dialogue.c`): the NPCs' lines in the game's text (French on a French console), page by page;
   Up near an NPC or anything waiting for it starts it.
 - **Music and sounds** (`audio.c`): each room's music and ambience (`music/rooms.txt`), streamed as PCM, with fades;
@@ -72,8 +75,8 @@ What it does (0.6.0):
 Controls: pad or Circle Pad to move (and look up/down), B jump (in the air: double jump, then held: float), Y needle
 (up+Y, down+Y in the air), R/ZR dash (held on: sprint), L/ZL Clawline (down+L held: Silk Soar), A bind, Up for doors, benches and NPCs (A/B/Y: next line), SELECT room menu, START pause.
 
-Not there yet: enemies and bosses on their own FSMs, Hornet's own sounds (not in the export), items and the
-inventory, the map, hidden areas (shown from the start).
+Not there yet: projectiles and summons (SpawnObjectFromGlobalPool), bosses' special parts, items and the inventory,
+the map, hidden areas (shown from the start).
 
 ### Testing in an emulator
 
