@@ -349,7 +349,7 @@ static void play(const Input *in, float dt) {
             h->atk_hit = true;
             if (h->silk < SILK_MAX) h->silk++;   // hits spin silk
             if (h->attack == ATK_DOWN) hero_pogo(h);
-            else if (h->attack == ATK_SIDE) h->vx -= h->face * 3.0f;
+            else if (h->attack == ATK_SIDE) hero_recoil(h);
         }
     }
     float x0 = h->x - HERO_HW, y0 = h->y + HERO_FOOT, x1 = h->x + HERO_HW, y1 = h->y + HERO_HEAD;

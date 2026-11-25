@@ -112,7 +112,10 @@ int main(void) {
         float dt = (now - last) / 1000.0f;
         last = now;
         if (dt > 0) fps += (1.0f / dt - fps) * 0.05f;
-        dt = clampf(dt, 1.0f / 120, 1.0f / 30);    // slow frames slow the game down rather than tunnel through walls
+        // the game moves by whole screen refreshes: the millisecond clock jitters by 1 ms around 16.7, and that
+        // uneven step showed as a stutter even at 60 fps. A late frame counts as 2 refreshes, at most 3.
+        int vb = (int)(dt * 60.0f + 0.5f);
+        dt = (vb < 1 ? 1 : vb > 3 ? 3 : vb) / 60.0f;
         if (autotest_on()) {
             char sc[48];
             float wx, wy;

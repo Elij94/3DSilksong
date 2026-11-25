@@ -51,10 +51,11 @@ What it does (0.6.0):
   screen shows of their layer, into a texture cache as the camera reaches them.
 - **Sprites** (`sprite.c`): `.sss` sets with tk2d clips; a page is inflated into the GPU when a frame on it is first
   drawn, the least recently drawn pages go when linear memory runs out.
-- **Hornet** (`hero.c`, animations from `sprites/knight.sss`): run, a Hollow Knight style jump (full speed while B is
-  held: tap ~1.2 units, full ~5.1), coyote time and jump buffer, ground and air dash, sprint, side / up / down needle
-  attacks with their slash effects, pogo, silk and bind (a full spool gives back 3 masks), benches, damage,
-  knockback, hazard respawn, death.
+- **Hornet** (`hero.c`, animations from `sprites/knight.sss`): moves with her own values from the game (her
+  HeroController and the Hunter crest): run 8.25 u/s, jump at 18.6 u/s held up to 0.18 s with a moment of floating at
+  the top while B is held, letting go halving the rise; dash 28 u/s into a sprint at 17.5 (R held) with a skid when let
+  go; the ledge grab (hang, vault, or a full jump out of it); the down spike (a stop, a dive forward and down, a bounce
+  on a hit); side and up needle attacks with their recoil, silk and bind, benches, damage, hazard respawn, death.
 - **Enemies** (`enemy.c`): a behaviour picked from each one's animations while the FSMs don't run: walkers patrol
   and charge, flyers hover and chase; knockback, death animation and corpse.
 - **Objects** (`objects.c`), **particles** (`particles.c`): drawn at their depth between the scenery layers; the

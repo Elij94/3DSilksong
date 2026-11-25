@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 — Hornet moves as in the game
+
+- Her values read from the game's own files: run speed, jump speed and timing, the slower gravity at the top of a
+  jump while B is held, gravity 60, fall speed, dash and sprint speeds, attack timing.
+- Ledge grab: against a wall whose top is within reach, Hornet hangs on, then vaults onto it; B jumps out of it.
+- The down attack is the Hunter crest's down spike: a short stop, a dive forward and down, a bounce when it hits.
+- Sprint eases from the dash speed down to sprint speed and skids to a stop; air dash glides on.
+- Smoother motion: the game moves by whole screen refreshes instead of the jittery millisecond clock.
+
 ## 0.6.1
 
 - The top screen in 400x240: in the 800x240 mode only the left half of the picture reached the screen, twice as
