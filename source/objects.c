@@ -13,6 +13,20 @@ static int cmp_far_to_near(const void *a, const void *b) {
 
 // the sprite pages of every object's current animation, inflated now (while the screen is black) rather than when
 // the camera first reaches it
+bool objects_enemy_in(const Objects *os, float x0, float y0, float x1, float y1, float from_x, float *ex) {
+    float best = 1e9f;
+    for (int i = 0; i < os->n; i++) {
+        const Obj *o = &os->o[i];
+        if (!(o->flags & OF_ENEMY) || o->dead || !obj_alive(os, i)) continue;
+        if (!rects_overlap(x0, y0, x1 - x0, y1 - y0, o->rx, o->ry, o->rw, o->rh)) continue;
+        float cx = o->rx + o->rw * 0.5f;
+        if (fabsf(cx - from_x) < fabsf(best - from_x)) best = cx;
+    }
+    if (best > 1e8f) return false;
+    *ex = best;
+    return true;
+}
+
 void objects_preload(Objects *os) {
     for (int i = 0; i < os->n; i++) {
         Anim *a = &os->o[i].anim;

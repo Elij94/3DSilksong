@@ -338,9 +338,15 @@ static void hazard_respawn(void) {
     camera_snap();
 }
 
+static bool probe_enemy(float x0, float y0, float x1, float y1, int face, float *ex) {
+    (void)face;
+    return objects_enemy_in(&s_objs, x0, y0, x1, y1, s_hero.x, ex);
+}
+
 static void play(const Input *in, float dt) {
     Hero *h = &s_hero;
     float box[4];
+    hero_probe = probe_enemy;
     bool hitting = hero_update(h, &s_room, in, dt, box);
     objects_update(&s_objs, dt);
     enemies_update(&s_objs, &s_room, h->x, h->y - 0.6f, dt);
@@ -349,7 +355,7 @@ static void play(const Input *in, float dt) {
         if (objects_strike(&s_objs, box[0], box[1], box[2], box[3], NEEDLE_DMG, h->x)) {
             h->atk_hit = true;
             if (h->silk < SILK_MAX) h->silk++;   // hits spin silk
-            if (h->attack == ATK_DOWN) hero_pogo(h);
+            if (h->attack == ATK_DOWN || h->attack == ATK_HARPOON) hero_pogo(h);
             else if (h->attack == ATK_SIDE) hero_recoil(h);
         }
     }
@@ -403,6 +409,7 @@ static void play(const Input *in, float dt) {
             s_bench_prompt = true;
             if (in->down & KEY_UP) {
                 hero_sit(h, o->rx + o->rw * 0.5f);
+                h->silk = SILK_MAX;   // a rest fills the spool
                 h->hp = h->maxhp;
                 snprintf(s_bench_scene, sizeof s_bench_scene, "%s", s_room.scene);
                 s_bench_x = h->x;
@@ -685,11 +692,13 @@ void game_status(float fps, float ms) {
     printf("\x1b[K\n%s\x1b[K\n\x1b[K\n", s_msg_t > 0 ? s_msg : "");
     printf("Controls\x1b[K\n");
     printf(" Pad / Circle Pad  move, look up/down\x1b[K\n");
-    printf(" B      jump (hold: higher)\x1b[K\n");
+    printf(" B      jump (hold: higher); in the air:\x1b[K\n");
+    printf("        double jump, then hold: float\x1b[K\n");
     printf(" Y      needle (up+Y, down+Y in air)\x1b[K\n");
     printf(" R/ZR   dash (hold on: sprint)\x1b[K\n");
-    printf(" A      bind: a full spool of silk\x1b[K\n");
-    printf("        gives back 3 masks\x1b[K\n");
+    printf(" L/ZL   Clawline; down+L held: Silk Soar\x1b[K\n");
+    printf(" A      bind: 9 silk give back 3 masks\x1b[K\n");
+    printf(" Wall   hold towards it: cling, B: jump\x1b[K\n");
     printf(" Up     door, bench (rest, respawn)\x1b[K\n");
     printf(" SELECT room menu\x1b[K\n");
     printf(" START  pause (save and quit)\x1b[K\n");

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0 — all of Hornet's moves, smooth streaming
+
+- Scenery tiles are read and inflated on a loader thread (the New 3DS's spare core): walking through a room no
+  longer stalls frames. Entering a room loads one more tile around the view and the objects' sprite pages.
+- The abilities found later in the game, all unlocked: Cling Grip (cling to walls, slide, wall jump), Faydown
+  Cloak (double jump), Drifter's Cloak (float while B is held), Clawline (L: pulled to a wall or an enemy ahead),
+  Silk Soar (down + L held on the ground: a flight straight up).
+- The air dash glides on ("Sprint Air"), longer while R is held; a sprint turns round with its skid; landing with
+  R held goes on sprinting.
+- Ledge grab: the hang and the vault play in full before a jump out of it.
+- A: a bind with too little silk plays its failed version; binding works at full health; benches fill the spool.
+
 ## 0.7.0 — Hornet moves as in the game
 
 - Her values read from the game's own files: run speed, jump speed and timing, the slower gravity at the top of a

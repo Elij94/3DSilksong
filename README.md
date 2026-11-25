@@ -52,10 +52,9 @@ What it does (0.6.0):
 - **Sprites** (`sprite.c`): `.sss` sets with tk2d clips; a page is inflated into the GPU when a frame on it is first
   drawn, the least recently drawn pages go when linear memory runs out.
 - **Hornet** (`hero.c`, animations from `sprites/knight.sss`): moves with her own values from the game (her
-  HeroController and the Hunter crest): run 8.25 u/s, jump at 18.6 u/s held up to 0.18 s with a moment of floating at
-  the top while B is held, letting go halving the rise; dash 28 u/s into a sprint at 17.5 (R held) with a skid when let
-  go; the ledge grab (hang, vault, or a full jump out of it); the down spike (a stop, a dive forward and down, a bounce
-  on a hit); side and up needle attacks with their recoil, silk and bind, benches, damage, hazard respawn, death.
+  HeroController, the Hunter crest, her FSMs): run, jump (held rise, float at the top, release halves the rise), dash
+  into sprint with skids and turns, air dash glide, ledge grab, down spike, side and up needle attacks, silk and bind,
+  and the abilities found later, all unlocked: wall cling and wall jump, double jump, float, Clawline, Silk Soar.
 - **Enemies** (`enemy.c`): a behaviour picked from each one's animations while the FSMs don't run: walkers patrol
   and charge, flyers hover and chase; knockback, death animation and corpse.
 - **Objects** (`objects.c`), **particles** (`particles.c`): drawn at their depth between the scenery layers; the
@@ -64,8 +63,8 @@ What it does (0.6.0):
 - **Game** (`game.c`): title screen, pause menu, camera, gates between rooms, the game's HUD (spool, masks, silk),
   benches as respawn points, the room menu (SELECT), saves in `SD:/3ds/3dsilksong/save.txt`.
 
-Controls: pad or Circle Pad to move (and look up/down), B jump, Y needle (up+Y, down+Y in the air), R/ZR dash (held
-on: sprint), A bind, Up for doors and benches, SELECT room menu, START pause.
+Controls: pad or Circle Pad to move (and look up/down), B jump (in the air: double jump, then held: float), Y needle
+(up+Y, down+Y in the air), R/ZR dash (held on: sprint), L/ZL Clawline (down+L held: Silk Soar), A bind, Up for doors and benches, SELECT room menu, START pause.
 
 Not there yet: the game's scripts (the PlayMaker FSMs: NPCs, dialogues, bosses, items, abilities, hidden areas),
 sound effects, the map and inventory, text.

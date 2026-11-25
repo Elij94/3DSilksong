@@ -9,10 +9,11 @@
 #define HERO_FOOT (-1.53f)
 #define HERO_HEAD 0.30f
 
-enum { HS_NORMAL, HS_DASH, HS_HURT, HS_RESPAWN, HS_DEAD, HS_SIT, HS_BIND, HS_MANTLE, HS_SPIKE };
+enum { HS_NORMAL, HS_DASH, HS_HURT, HS_RESPAWN, HS_DEAD, HS_SIT, HS_BIND, HS_MANTLE, HS_SPIKE, HS_WALL, HS_HARPOON,
+       HS_SOAR };
 #define SILK_MAX  9       // the spool, and what a bind costs
 #define BIND_HEAL 3
-enum { ATK_NONE, ATK_SIDE, ATK_UP, ATK_DOWN };
+enum { ATK_NONE, ATK_SIDE, ATK_UP, ATK_DOWN, ATK_HARPOON };
 
 typedef struct {
     float x, y, vx, vy;
@@ -44,6 +45,18 @@ typedef struct {
     float spike_rec;        // after a down spike: no attack yet
     int phase;              // HS_MANTLE / HS_SPIKE steps
     bool queued_jump;
+    // the abilities found later in the game, all unlocked here
+    bool djump_used;        // Faydown Cloak: the double jump, once per jump
+    float djump_t;          // its timing, -1 when not double jumping
+    bool floating;          // Drifter's Cloak: floating down while B is held
+    int wall_dir;           // Cling Grip: the wall's side
+    float wall_t;
+    float wj_t;             // time since a wall jump, -1 when none
+    int wj_dir;
+    float harpoon_d;        // Clawline: distance left to travel
+    float claw_cd;
+    float air_sprint_t;     // the glide after an air dash, -1 when none
+    float turn_t;           // a sprint turning round
     bool bind_done;
     Anim body, fx;
     bool fx_on;
@@ -59,6 +72,8 @@ void hero_place(Hero *h, float x, float y, int face);
 // one frame of play; returns the attack's hit box through *box (x0,y0,x1,y1) when it can hit this frame
 bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]);
 void hero_pogo(Hero *h);          // a down attack connected: the bounce
+// set by the game: is there an enemy in this box? the nearest one's x (along 'face') in *ex
+extern bool (*hero_probe)(float x0, float y0, float x1, float y1, int face, float *ex);
 void hero_recoil(Hero *h);        // a side attack connected: a short push back
 void hero_hurt(Hero *h, int dmg, float from_x);
 void hero_respawn(Hero *h, float x, float y);
