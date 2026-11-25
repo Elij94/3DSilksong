@@ -43,7 +43,9 @@ static void loader_collect(void);
 
 void room_frame_begin(void) {
     s_loads = 0;
+    g_where = "loader_collect";
     loader_collect();
+    g_where = "draw";
 }
 
 static void slot_release(int i) {
@@ -132,7 +134,7 @@ typedef struct {
     u32 gen;
     u8 *buf;
     size_t cap;
-    volatile u8 state;
+    u8 state;              // atomic: JOB_*
 } Job;
 
 static Job s_jobs[NJOBS];
@@ -166,12 +168,14 @@ static void loader_main(void *arg) {
             any = false;
             for (int i = 0; i < NJOBS; i++) {
                 Job *j = &s_jobs[i];
-                if (j->state != JOB_QUEUED) continue;
-                j->state = JOB_WORKING;
+                // claim it (the game thread may take it back at the same time, when a room goes away)
+                u8 q = JOB_QUEUED;
+                if (!__atomic_compare_exchange_n(&j->state, &q, JOB_WORKING, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                    continue;
                 any = true;
                 bool ok = j->gen == s_gen && read_tile(s_file, j->off, j->size, &s_wbuf, &s_wbuf_size) &&
                           tex_inflate_scaled(s_wbuf, j->size, j->tile, j->tile, j->fmt, j->down, j->buf);
-                j->state = ok ? JOB_DONE : JOB_FAILED;
+                __atomic_store_n(&j->state, ok ? JOB_DONE : JOB_FAILED, __ATOMIC_RELEASE);
             }
         }
     }
@@ -180,6 +184,8 @@ static void loader_main(void *arg) {
 static void loader_start(void) {
     LightEvent_Init(&s_wake, RESET_ONESHOT);
     LightLock_Init(&s_flock);
+    FILE *t = fopen("sdmc:/3ds/3dsilksong/noloader", "r");   // testing: tiles on the game thread
+    if (t) { fclose(t); return; }
     s32 prio = 0x30;
     svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
     if (prio < 0x3F) prio++;
@@ -201,9 +207,16 @@ void room_cache_exit(void) {
 static void loader_drain(void) {
     s_gen++;
     for (int i = 0; i < NJOBS; i++) {
-        while (s_jobs[i].state == JOB_WORKING) svcSleepThread(200000);
-        if (s_jobs[i].state != JOB_FREE && s_jobs[i].t) s_jobs[i].t->pending = 0;
-        s_jobs[i].state = JOB_FREE;
+        Job *j = &s_jobs[i];
+        for (;;) {
+            u8 q = JOB_QUEUED;
+            if (__atomic_compare_exchange_n(&j->state, &q, JOB_FREE, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) break;
+            if (q == JOB_WORKING) { svcSleepThread(200000); continue; }
+            break;   // free, done or failed: the loader is not on it
+        }
+        if (j->t) j->t->pending = 0;
+        j->t = NULL;
+        __atomic_store_n(&j->state, JOB_FREE, __ATOMIC_RELEASE);
     }
 }
 
@@ -226,7 +239,7 @@ static bool tile_request(Room *r, Layer *L, RTile *t) {
         j->tile = L->tile; j->fmt = L->fmt; j->down = L->down;
         j->gen = s_gen;
         t->pending = 1;
-        j->state = JOB_QUEUED;
+        __atomic_store_n(&j->state, JOB_QUEUED, __ATOMIC_RELEASE);   // after the fields above
         LightEvent_Signal(&s_wake);
         return true;
     }
@@ -237,7 +250,7 @@ static bool tile_request(Room *r, Layer *L, RTile *t) {
 static void loader_collect(void) {
     for (int i = 0; i < NJOBS; i++) {
         Job *j = &s_jobs[i];
-        u8 st = j->state;
+        u8 st = __atomic_load_n(&j->state, __ATOMIC_ACQUIRE);   // the tile's bytes are there before the state
         if (st != JOB_DONE && st != JOB_FAILED) continue;
         RTile *t = j->t;
         if (j->gen == s_gen && t) {
@@ -256,7 +269,7 @@ static void loader_collect(void) {
                 }
             }
         }
-        j->state = JOB_FREE;
+        __atomic_store_n(&j->state, JOB_FREE, __ATOMIC_RELEASE);
     }
 }
 

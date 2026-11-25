@@ -7,6 +7,7 @@
 #include "version.h"
 
 View g_view;
+volatile const char *g_where = "start";
 
 void *file_load(const char *path, size_t *size) {
     FILE *f = fopen(path, "rb");

@@ -241,6 +241,9 @@ void sfx_play_name(const char *name, float vol, float pan) {
 }
 
 static void sfx_start(const char *name, float vol, float pan) {
+    static int nosfx = -1;   // testing: SD:/3ds/3dsilksong/nosfx turns the sound effects off
+    if (nosfx < 0) { FILE *t = fopen("sdmc:/3ds/3dsilksong/nosfx", "r"); nosfx = t != NULL; if (t) fclose(t); }
+    if (nosfx) return;
     SfxBuf *b = sfx_get(name);
     if (!b) return;
     int v = -1;

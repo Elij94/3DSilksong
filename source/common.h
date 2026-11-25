@@ -25,6 +25,9 @@ const char *data_path(const char *fmt, ...);
 
 // The camera: (cx, cy) is the centre of the view in world units, y up. sx, sy: screen pixels per unit (equal on the
 // 400x240 screen). hw, hh: half the view in units.
+// the step of the frame the game is in (the watchdog writes it to the autotest log when the game stops)
+extern volatile const char *g_where;
+
 typedef struct {
     float cx, cy;
     float sx, sy;

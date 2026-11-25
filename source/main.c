@@ -34,6 +34,39 @@ static const char *data_mount(void) {
     return NULL;
 }
 
+// a thread that notices when the game loop stops advancing (testing: with autotest on) and logs where it is
+static volatile u32 s_beat;
+static volatile bool s_wd_quit;
+static void watchdog(void *arg) {
+    (void)arg;
+    u32 last = 0, same = 0;
+    while (!s_wd_quit) {
+        svcSleepThread(250000000LL);
+        if (s_beat == last) {
+            if (++same == 8) {
+                char msg[96];
+                snprintf(msg, sizeof msg, "WATCHDOG: no frame for 2 s, in %s", (const char *)g_where);
+                autotest_note(msg);
+            }
+        } else same = 0;
+        last = s_beat;
+    }
+}
+
+// testing: a CPU exception writes where it happened (pc, lr, address) to SD:/3ds/3dsilksong/crash.txt
+static u8 s_exc_stack[0x1000] __attribute__((aligned(8)));
+static void on_exception(ERRF_ExceptionInfo *e, CpuRegisters *r) {
+    FILE *f = fopen("sdmc:/3ds/3dsilksong/crash.txt", "w");
+    if (f) {
+        fprintf(f, "type %d pc %08lx lr %08lx sp %08lx far %08lx fsr %08lx where %s\n", (int)e->type,
+                (unsigned long)r->pc, (unsigned long)r->lr, (unsigned long)r->sp, (unsigned long)e->far,
+                (unsigned long)e->fsr, (const char *)g_where);
+        for (int i = 0; i < 13; i++) fprintf(f, "r%d %08lx\n", i, (unsigned long)r->r[i]);
+        fclose(f);
+    }
+    for (;;) svcSleepThread(1000000000LL);
+}
+
 static void wait_start(void) {
     printf("\nSTART: quit\n");
     while (aptMainLoop()) {
@@ -98,6 +131,9 @@ int main(void) {
     }
     consoleClear();
 
+    Thread wd = autotest_on() ? threadCreate(watchdog, NULL, 8 * 1024, 0x18, 1, false) : NULL;
+    if (!wd && autotest_on()) wd = threadCreate(watchdog, NULL, 8 * 1024, 0x18, -2, false);
+    if (autotest_on()) threadOnException(on_exception, s_exc_stack + sizeof s_exc_stack, WRITE_DATA_TO_HANDLER_STACK);
     u64 last = osGetTime();
     float fps = 60, ms = 0;
     u32 clear = C2D_Color32(0x08, 0x06, 0x08, 0xff);
@@ -124,22 +160,30 @@ int main(void) {
             if (r == 1) game_warp(sc, wx, wy);
         }
 
+        s_beat++;
+        g_where = "FrameBegin";
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
         u64 t0 = svcGetSystemTick();
         g_view.frame++;
         game_update(&in, dt);
         if (game_quit()) { C3D_FrameEnd(0); break; }
+        g_where = "audio_update";
         audio_update(dt);
+        g_where = "draw";
         C2D_TargetClear(top, clear);
         C2D_SceneBegin(top);
         C2D_Prepare();
         gfx_blend_reset();
         game_draw();
         ms += ((svcGetSystemTick() - t0) / (float)(SYSCLOCK_ARM11 / 1000) - ms) * 0.1f;
+        g_where = "FrameEnd";
         C3D_FrameEnd(0);
+        g_where = "status";
         if ((g_view.frame & 15) == 0) game_status(fps, ms);
     }
 
+    s_wd_quit = true;
+    if (wd) { threadJoin(wd, U64_MAX); threadFree(wd); }
     game_save();
     autotest_end();
     game_end();                      // closes the room's files before the data goes away

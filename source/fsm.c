@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <sys/stat.h>
 #include "fsm.h"
 #include "fsm_ops.h"
 #include "autotest.h"
@@ -202,6 +203,9 @@ void fsm_load(const char *scene, Objects *os) {
     fsm_free();
     s_os = os;
     for (int i = 0; i < os->n; i++) os->o[i].node = -1;
+    static int nofsm = -1;   // testing: SD:/3ds/3dsilksong/nofsm turns the FSMs off
+    if (nofsm < 0) { struct stat st; nofsm = stat("sdmc:/3ds/3dsilksong/nofsm", &st) == 0; }
+    if (nofsm) return;
     size_t size;
     s_data = file_load(data_path("rooms/%s.ssf", scene), &size);
     if (!s_data || size < 8 || memcmp(s_data, "SSFM", 4)) { free(s_data); s_data = NULL; return; }
@@ -494,9 +498,18 @@ static void convo_end(void *ctx) {
 }
 
 // runs action a of the current state; enter: its first frame. Returns true when it is over (no more updates).
+static int s_trace = -1;   // SD:/3ds/3dsilksong/fsmtrace: every action in the autotest log (finding a hang)
+
 static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
     Val *A = ac->a;
     int n = ac->nargs;
+    if (s_trace < 0) { struct stat st; s_trace = stat("sdmc:/3ds/3dsilksong/fsmtrace", &st) == 0; }
+    if (s_trace) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "act %s/%s op %d %s", str_at(s_nodes[f->owner].name), str_at(f->name), ac->op,
+                 enter ? "enter" : "");
+        autotest_note(msg);
+    }
 #define ARG(i) ((i) < n ? &A[(i)] : &A[n])
     switch (ac->op) {
     case OP_Wait: case OP_WaitRandom: {

@@ -361,9 +361,13 @@ static void play(const Input *in_raw, float dt) {
              fsm_interact(h->x - HERO_HW, h->y + HERO_FOOT, h->x + HERO_HW, h->y + HERO_HEAD)) in = &none;
     float box[4];
     hero_probe = probe_enemy;
+    g_where = "hero_update";
     bool hitting = hero_update(h, &s_room, in, dt, box);
+    g_where = "objects/enemies";
     objects_update(&s_objs, dt);
+    g_where = "fsm_update";
     fsm_update(dt, h, &s_objs);
+    g_where = "play";
     enemies_update(&s_objs, &s_room, h->x, h->y - 0.6f, dt);
     particles_update(dt);
     if (hitting && !h->atk_hit && fsm_strike(box[0], box[1], box[2], box[3])) h->atk_hit = true;
@@ -482,6 +486,7 @@ static void menu_update(const Input *in) {
 
 void game_warp(const char *scene, float x, float y) {
     if (strcmp(scene, s_room.scene)) go(scene, NULL);
+    if (x == 0 && y == 0) { s_fade = 0; return; }   // 0 0: the room's own entry point
     hero_place(&s_hero, x, y, 1);
     hero_settle(&s_hero, &s_room, 3);
     camera_snap();
@@ -553,7 +558,9 @@ void game_update(const Input *in, float dt) {
     if (s_fade > 0) s_fade = fmaxf(0, s_fade - dt / 0.25f);
     play(in, dt);
     camera_update(dt);
+    g_where = "room_prefetch";
     room_prefetch(&s_room);
+    g_where = "update";
 }
 
 // ------------------------------------------------------------------ drawing
