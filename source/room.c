@@ -11,7 +11,7 @@ typedef struct {
     C3D_Tex tex;
     bool init;
     u8 fmt;
-    u16 size;
+    u16 w, h;
     u32 last_used;
     RTile *owner;
 } Slot;
@@ -60,14 +60,14 @@ static void slot_delete(int i) {
     if (!s->init) return;
     C3D_TexDelete(&s->tex);
     s->init = false;
-    s_used -= tex_bytes(s->size, s->size, s->fmt);
+    s_used -= tex_bytes(s->w, s->h, s->fmt);
 }
 
-static bool slot_create(int i, int size, int fmt) {
+static bool slot_create(int i, int w, int h, int fmt) {
     Slot *s = &s_slots[i];
-    if (!tex_alloc(&s->tex, size, size, fmt)) return false;
-    s->init = true; s->fmt = fmt; s->size = size; s->owner = NULL;
-    s_used += tex_bytes(size, size, fmt);
+    if (!tex_alloc(&s->tex, w, h, fmt)) return false;
+    s->init = true; s->fmt = fmt; s->w = w; s->h = h; s->owner = NULL;
+    s_used += tex_bytes(w, h, fmt);
     C3D_TexSetFilter(&s->tex, GPU_LINEAR, GPU_LINEAR);
     C3D_TexSetWrap(&s->tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
     return true;
@@ -90,20 +90,20 @@ bool room_evict_tile(void) {
 }
 
 // a slot for a tile of this size and format: a free one, a new one under the budget, else the least recently drawn
-static int slot_get(int size, int fmt, bool prefetch) {
+static int slot_get(int w, int h, int fmt, bool prefetch) {
     int freei = -1, empty = -1, lru = -1;
     for (int i = 0; i < MAX_SLOTS; i++) {
         Slot *s = &s_slots[i];
         if (!s->init) { if (empty < 0) empty = i; continue; }
-        if (!s->owner && s->fmt == fmt && s->size == size) { if (freei < 0) freei = i; }
+        if (!s->owner && s->fmt == fmt && s->w == w && s->h == h) { if (freei < 0) freei = i; }
         else if (s->last_used != g_view.frame && (!prefetch || g_view.frame - s->last_used > 90) &&
                  (lru < 0 || s->last_used < s_slots[lru].last_used)) lru = i;
     }
     if (freei >= 0) return freei;
-    size_t need = tex_bytes(size, size, fmt);
-    if (empty >= 0 && s_used + need <= s_budget && slot_create(empty, size, fmt)) return empty;
+    size_t need = tex_bytes(w, h, fmt);
+    if (empty >= 0 && s_used + need <= s_budget && slot_create(empty, w, h, fmt)) return empty;
     if (lru < 0) return -1;
-    if (s_slots[lru].fmt == fmt && s_slots[lru].size == size) {
+    if (s_slots[lru].fmt == fmt && s_slots[lru].w == w && s_slots[lru].h == h) {
         slot_release(lru);
         return lru;
     }
@@ -114,7 +114,7 @@ static int slot_get(int size, int fmt, bool prefetch) {
         if (k < 0) break;
         slot_delete(k);
     }
-    return slot_create(lru, size, fmt) ? lru : -1;
+    return slot_create(lru, w, h, fmt) ? lru : -1;
 }
 
 static bool tile_load(Room *r, Layer *L, RTile *t, bool prefetch);
@@ -130,7 +130,7 @@ typedef struct {
     RTile *t;
     u32 off, size;
     u16 tile;
-    u8 fmt, down, blend;
+    u8 fmt, dx, dy, blend;
     u32 gen;
     u8 *buf;
     size_t cap;
@@ -174,8 +174,8 @@ static void loader_main(void *arg) {
                     continue;
                 any = true;
                 bool ok = j->gen == s_gen && read_tile(s_file, j->off, j->size, &s_wbuf, &s_wbuf_size) &&
-                          tex_inflate_scaled(s_wbuf, j->size, j->tile, j->tile, j->fmt, j->down, j->buf);
-                if (ok && j->blend == BLEND_MULTIPLY) tex_premultiply(j->buf, j->tile / j->down, j->tile / j->down, j->fmt);
+                          tex_inflate_scaled2(s_wbuf, j->size, j->tile, j->tile, j->fmt, j->dx, j->dy, j->buf);
+                if (ok && j->blend == BLEND_MULTIPLY) tex_premultiply(j->buf, j->tile / j->dx, j->tile / j->dy, j->fmt);
                 __atomic_store_n(&j->state, ok ? JOB_DONE : JOB_FAILED, __ATOMIC_RELEASE);
             }
         }
@@ -228,8 +228,7 @@ static bool tile_request(Room *r, Layer *L, RTile *t) {
     for (int i = 0; i < NJOBS; i++) {
         Job *j = &s_jobs[i];
         if (j->state != JOB_FREE) continue;
-        int size = L->tile / L->down;
-        size_t need = tex_bytes(size, size, L->fmt);
+        size_t need = tex_bytes(L->tile / L->dx, L->tile / L->dy, L->fmt);
         if (need > j->cap) {
             free(j->buf);
             j->buf = malloc(need);
@@ -237,7 +236,7 @@ static bool tile_request(Room *r, Layer *L, RTile *t) {
             if (!j->buf) return false;
         }
         j->t = t; j->off = t->off; j->size = t->size;
-        j->tile = L->tile; j->fmt = L->fmt; j->down = L->down; j->blend = L->blend;
+        j->tile = L->tile; j->fmt = L->fmt; j->dx = L->dx; j->dy = L->dy; j->blend = L->blend;
         j->gen = s_gen;
         t->pending = 1;
         __atomic_store_n(&j->state, JOB_QUEUED, __ATOMIC_RELEASE);   // after the fields above
@@ -258,11 +257,11 @@ static void loader_collect(void) {
             t->pending = 0;
             if (st == JOB_FAILED) t->size = 0;
             else if (t->slot < 0) {
-                int size = j->tile / j->down;
-                int si = slot_get(size, j->fmt, false);
+                int w = j->tile / j->dx, h = j->tile / j->dy;
+                int si = slot_get(w, h, j->fmt, false);
                 if (si >= 0) {
                     Slot *s = &s_slots[si];
-                    memcpy(s->tex.data, j->buf, tex_bytes(size, size, j->fmt));
+                    memcpy(s->tex.data, j->buf, tex_bytes(w, h, j->fmt));
                     C3D_TexFlush(&s->tex);
                     s->owner = t;
                     s->last_used = g_view.frame;
@@ -277,16 +276,16 @@ static void loader_collect(void) {
 static bool tile_load(Room *r, Layer *L, RTile *t, bool prefetch) {
     if (t->slot >= 0) return true;
     if (!r->ssl || t->size == 0) return false;
-    int size = L->tile / L->down;
-    int si = slot_get(size, L->fmt, prefetch);
+    int w = L->tile / L->dx, h = L->tile / L->dy;
+    int si = slot_get(w, h, L->fmt, prefetch);
     if (si < 0) return false;
     Slot *s = &s_slots[si];
     if (!read_tile(r->ssl, t->off, t->size, &s_scratch, &s_scratch_size) ||
-        !tex_inflate_scaled(s_scratch, t->size, L->tile, L->tile, L->fmt, L->down, s->tex.data)) {
+        !tex_inflate_scaled2(s_scratch, t->size, L->tile, L->tile, L->fmt, L->dx, L->dy, s->tex.data)) {
         t->size = 0;   // broken: don't try again
         return false;
     }
-    if (L->blend == BLEND_MULTIPLY) tex_premultiply(s->tex.data, size, size, L->fmt);
+    if (L->blend == BLEND_MULTIPLY) tex_premultiply(s->tex.data, w, h, L->fmt);
     C3D_TexFlush(&s->tex);
     s->owner = t;
     s->last_used = g_view.frame;
@@ -370,10 +369,13 @@ bool room_load(Room *r, const char *scene) {
         if (L->par <= 0) L->par = 1;
         if (L->ppu <= 0) L->ppu = 64;
         L->tsize = L->tile / L->ppu;
-        // the screen shows g_view.sy * par pixels per unit of this layer: keep about that much of its ppu
-        L->down = 1;
-        while (L->down < 4 && L->tile / (L->down * 2) >= 32 && L->ppu / (L->down * 2) >= 0.75f * g_view.sy * L->par)
-            L->down *= 2;
+        // the screen shows g_view.sx * par pixels per unit of this layer across and g_view.sy * par down (twice as
+        // many across in the 800 wide mode): keep about that much of its ppu each way
+        L->dx = L->dy = 1;
+        while (L->dx < 4 && L->tile / (L->dx * 2) >= 32 && L->ppu / (L->dx * 2) >= 0.75f * g_view.sx * L->par)
+            L->dx *= 2;
+        while (L->dy < 4 && L->tile / (L->dy * 2) >= 32 && L->ppu / (L->dy * 2) >= 0.75f * g_view.sy * L->par)
+            L->dy *= 2;
         p += 40;
         if (p + 12 * L->ntiles > end) goto bad;
         L->tiles = calloc(L->ntiles + 1, sizeof(RTile));

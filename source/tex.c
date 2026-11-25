@@ -47,9 +47,9 @@ void tex_premultiply(void *data, int w, int h, int fmt) {
 static __thread u8 *s_big;      // per thread: the tile loader thread has its own
 static __thread size_t s_big_size;
 
-bool tex_inflate_scaled(const void *z, size_t zlen, int w, int h, int fmt, int f, void *dst) {
+bool tex_inflate_scaled2(const void *z, size_t zlen, int w, int h, int fmt, int fx, int fy, void *dst) {
     size_t full = tex_bytes(w, h, fmt);
-    if (f <= 1) return zinflate(z, zlen, dst, full) == (long)full;
+    if (fx <= 1 && fy <= 1) return zinflate(z, zlen, dst, full) == (long)full;
     if (full > s_big_size) {
         free(s_big);
         s_big = malloc(full);
@@ -57,7 +57,9 @@ bool tex_inflate_scaled(const void *z, size_t zlen, int w, int h, int fmt, int f
         if (!s_big) return false;
     }
     if (zinflate(z, zlen, s_big, full) != (long)full) return false;
-    int ow = w / f, oh = h / f, n = f * f;
+    if (fx < 1) fx = 1;
+    if (fy < 1) fy = 1;
+    int ow = w / fx, oh = h / fy, n = fx * fy;
     // y runs in memory order here, the same in both textures, so the image keeps its orientation
     if (fmt == GPU_RGBA4) {
         const u16 *in = (const u16 *)s_big;
@@ -65,9 +67,9 @@ bool tex_inflate_scaled(const void *z, size_t zlen, int w, int h, int fmt, int f
         for (int y = 0; y < oh; y++)
             for (int x = 0; x < ow; x++) {
                 u32 c0 = 0, c1 = 0, c2 = 0, c3 = 0;
-                for (int j = 0; j < f; j++)
-                    for (int i = 0; i < f; i++) {
-                        u16 t = in[tex_index(x * f + i, y * f + j, w)];
+                for (int j = 0; j < fy; j++)
+                    for (int i = 0; i < fx; i++) {
+                        u16 t = in[tex_index(x * fx + i, y * fy + j, w)];
                         c0 += t >> 12; c1 += (t >> 8) & 15; c2 += (t >> 4) & 15; c3 += t & 15;
                     }
                 c0 = (c0 + n / 2) / n; c1 = (c1 + n / 2) / n; c2 = (c2 + n / 2) / n; c3 = (c3 + n / 2) / n;
@@ -82,13 +84,17 @@ bool tex_inflate_scaled(const void *z, size_t zlen, int w, int h, int fmt, int f
     for (int y = 0; y < oh; y++)
         for (int x = 0; x < ow; x++) {
             u32 acc[4] = {0, 0, 0, 0};
-            for (int j = 0; j < f; j++)
-                for (int i = 0; i < f; i++) {
-                    const u8 *t = in + tex_index(x * f + i, y * f + j, w) * bpp;
+            for (int j = 0; j < fy; j++)
+                for (int i = 0; i < fx; i++) {
+                    const u8 *t = in + tex_index(x * fx + i, y * fy + j, w) * bpp;
                     for (int k = 0; k < bpp; k++) acc[k] += t[k];
                 }
             u8 *o = out + tex_index(x, y, ow) * bpp;
             for (int k = 0; k < bpp; k++) o[k] = (u8)((acc[k] + n / 2) / n);
         }
     return true;
+}
+
+bool tex_inflate_scaled(const void *z, size_t zlen, int w, int h, int fmt, int f, void *dst) {
+    return tex_inflate_scaled2(z, zlen, w, h, fmt, f, f, dst);
 }
