@@ -82,12 +82,11 @@ int main(void) {
     if (n3ds) osSetSpeedupEnable(true);           // 804 MHz, the extra L2 cache
 
     gfxInitDefault();
-    // the 800x240 mode stays off: on a New 3DS XL (and in Azahar) the screen kept showing 400 columns of the 800,
-    // the left half zoomed in, even set up as devkitPro's wide_mode_3d example does. SD:/3ds/3dsilksong/wide
-    // turns it on, for trying it again.
-    FILE *ww = fopen("sdmc:/3ds/3dsilksong/wide", "r");
-    bool wide = n3ds && ww;
-    if (ww) fclose(ww);
+    // the top screen in 800x240 on the New 3DS (twice the pixels across, half as wide each: a sharper picture, no
+    // 3D), set up as devkitPro's wide_mode_3d example does; SD:/3ds/3dsilksong/nowide keeps 400x240
+    FILE *nw = fopen("sdmc:/3ds/3dsilksong/nowide", "r");
+    bool wide = n3ds && !nw;
+    if (nw) fclose(nw);
     gfxSetWide(wide);
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 2);
     C2D_Init(8192);
@@ -180,6 +179,9 @@ int main(void) {
         g_where = "draw";
         C2D_TargetClear(top, clear);
         C2D_SceneBegin(top);
+        // citro2d sets the top screen's projection from one matrix made for 400 columns, 800 as well (the picture
+        // came out twice as wide, its left half filling the screen): any other size gets a real projection
+        if (wide) C2D_SceneSize(240, 799, true);
         C2D_Prepare();
         gfx_blend_reset();
         game_draw();
