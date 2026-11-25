@@ -303,7 +303,7 @@ def under_unmasker(sc, scripts, gid):
         if any(t == 'MonoBehaviour' and scripts.get((v.get('m_Script') or {}).get('guid')) in MASK_SCRIPTS
                for t, v in sc.comps.get(gid, [])):
             return True
-        n = sc.name(gid).lower()
+        n = str(sc.name(gid)).lower()
         if n in ('masks', 'mask') or n.startswith(('msk_', 'mask ', 'remasker')):
             return True
         t = sc.tr.get(gid)
