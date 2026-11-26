@@ -15,7 +15,7 @@
 # again carries on from the step that failed. The converted data goes to romfs/, then 3dsilksong.romfs.
 set -o pipefail
 TOP=$(cd "$(dirname "$0")/.." && pwd); T=$TOP/tools; W=$TOP/work; R=$TOP/romfs
-STEPS="check inventory export index rooms prefabs fsm sprites items map shops particles ui fonts music sfx text zones data compile"
+STEPS="check inventory export index rooms prefabs fsm sprites items map shops invpane particles ui fonts music sfx text zones data compile"
 ONLY=""; FROM=""; ROOMS=$T/data/all_rooms.txt
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -66,6 +66,7 @@ step_sprites() {
   (cd "$T" && $PY build_sprites.py --objects "$R" --jobs "${JOBS:-6}")
 }
 step_map()       { (cd "$T" && $PY build_map.py "$R"); }      # the game's map (ui/map_<zone>.sss, text/map.txt)
+step_invpane()   { (cd "$T" && $PY build_inventory.py "$R"); }   # the inventory pane (text/inventory.txt, ui/inv_pane.sss)
 step_shops()     { (cd "$T" && $PY build_shops.py "$R"); }    # the merchants' stock (text/shops.txt, ui/shop_items.sss)
 step_items()     { (cd "$T" && $PY build_items.py "$R"); }   # rosaries, HUD spool pieces, their sounds
 step_particles() { (cd "$T" && $PY build_particles.py "$R"); }

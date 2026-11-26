@@ -17,3 +17,5 @@ bool shop_active(void);
 void shop_update(u32 down, u32 held, float dt);
 void shop_draw(void);                 // over the top screen
 bool shop_was_purchased(void);        // ShopWasItemPurchased: something bought the last time it was open
+// a PlayerDataTest as tools/build_shops.py writes it (groups split by '|', tests by ','): true when a group passes
+bool pd_conditions(const char *tests);

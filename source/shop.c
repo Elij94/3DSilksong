@@ -115,7 +115,7 @@ static bool test_one(const char *t) {   // a PlayerDataTest test: "b:<field>:<0|
     return false;
 }
 
-static bool conditions(const char *appear) {   // any group whose tests all pass (none: passes)
+bool pd_conditions(const char *appear) {   // any group whose tests all pass (none: passes)
     if (!appear[0]) return true;
     char buf[160];
     snprintf(buf, sizeof buf, "%s", appear);
@@ -136,7 +136,7 @@ static bool conditions(const char *appear) {   // any group whose tests all pass
 }
 
 static bool available(const Item *it) {   // IsAvailable (items needing what we can't give yet aren't shown)
-    return !it->flags && !purchased(it) && conditions(it->appear);
+    return !it->flags && !purchased(it) && pd_conditions(it->appear);
 }
 
 static bool not_infinite(const Item *it) { return it->pd[0] || it->saved[0] == 'T'; }

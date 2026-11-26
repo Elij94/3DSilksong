@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.16.0 — the inventory on the bottom screen
+
+- SELECT opens the inventory's Inv pane on the bottom screen while the game waits (tools/build_inventory.py,
+  source/inventory.c): the needle at its level, the silk spool, the heart and spool pieces, the skills Hornet has,
+  the rosaries and shell shards, the collectables she holds (the game's 87, their states and counts), and the
+  selection's name and description, in the game's text. The pad moves the selection; SELECT or B closes it. The room
+  list (debug) is in the pause menu only.
+
 ## 0.15.0 — the game's map on the bottom screen, shops
 
 - The map (tools/build_map.py, from the game's Game_Map_Hornet prefab): once an area's map is bought, the bottom

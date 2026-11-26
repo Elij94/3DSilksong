@@ -77,15 +77,16 @@ What it does (0.15.0):
 - **Map** (`map.c`, `tools/build_map.py`): on the bottom screen once the area's map is bought, rooms mapped at a
   bench with the quill, as the game's GameMap does; before that the area's name.
 - **Shops** (`shop.c`, `tools/build_shops.py`): the merchants' stocks, bought with rosaries or shards.
+- **Inventory** (`inventory.c`, `tools/build_inventory.py`): the Inv pane on the bottom screen (SELECT).
 
 Controls (the Switch version's): pad or Circle Pad to move (and look up/down), B jump, Y needle (up+Y, down+Y in
 the air), ZR dash (held on: sprint), ZL Clawline, X Needolin, A bind, Up for doors, benches, NPCs and shops (A: next
-line, buy; B: leave), START pause. Abilities come as the game gives them.
+line, buy; B: leave), SELECT inventory (on the bottom screen), START pause. Abilities come as the game gives them.
 
 Testing switches on the SD card, in `SD:/3ds/3dsilksong/`: `allabilities`, `allmaps`, `nowide`, `nofsm`,
 `autotest.txt` (scripted input, see `source/autotest.c`).
 
-Not there yet: the inventory, tools and crests, map pins and markers, bosses' special parts, cutscenes.
+Not there yet: tools and crests, picking up items in the rooms, map pins and markers, bosses' special parts, cutscenes.
 
 ### Testing in an emulator
 

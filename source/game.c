@@ -19,6 +19,7 @@
 #include "map.h"
 #include "font.h"
 #include "shop.h"
+#include "inventory.h"
 
 #define FIRST_ROOM "Tut_01"
 #define OLD_SAVE   "sdmc:" SS_DATADIR "save.txt"   // before the 4 slots: becomes slot 1
@@ -655,7 +656,10 @@ void game_update(const Input *in, float dt) {
     }
     if ((in->down & KEY_START) && !s_menu && !shop_active()) { s_mode = GS_PAUSE; menu_open_pause(); return; }
     if (s_msg_t > 0) s_msg_t -= dt;
-    if ((in->down & KEY_SELECT) && (menu_debug() || s_menu) && !shop_active()) s_menu = !s_menu;
+    // SELECT: the inventory on the bottom screen (the game waits); the room list is in the pause menu
+    if (inv_active()) { inv_update(in->down); return; }
+    if ((in->down & KEY_SELECT) && s_menu) s_menu = false;
+    else if ((in->down & KEY_SELECT) && !shop_active() && !dlg_active() && !s_trans.active) { inv_open(); return; }
     if (s_menu) { rooms_update(in); return; }
     if (s_trans.active) {
         s_trans.t += dt;
@@ -933,7 +937,9 @@ void game_draw_bottom(void) {
     View save = g_view;
     g_view.sw = 320; g_view.sh = 240; g_view.sx = g_view.sy;   // square pixels down there
     C2D_DrawRectSolid(0, 0, 0.5f, 320, 240, C2D_Color32(8, 7, 10, 255));
-    if (menu_debug() || s_menu) {
+    if (inv_active()) {
+        inv_draw();
+    } else if (menu_debug() || s_menu) {
         if (s_tbuf) {
             C2D_Text t;
             C2D_TextBufClear(s_tbuf);
