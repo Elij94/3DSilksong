@@ -140,6 +140,34 @@ def collider_shapes(sc, gid, t, v):
     return []
 
 
+def hazard_rects(shapes, cell=0.5):
+    """a hurting collider -> rectangles that follow its shape: a long spike strip along slanted ground isn't the box
+    around it (that box covered the floor beside the spikes). Small shapes stay one box."""
+    out = []
+    for kind, pts in shapes:
+        x0, y0 = pts.min(0)
+        x1, y1 = pts.max(0)
+        if (x1 - x0) * (y1 - y0) <= 24 or kind != 'poly':
+            out.append([float(x0), float(y0), float(x1 - x0), float(y1 - y0)])
+            continue
+        w, h = int(math.ceil((x1 - x0) / cell)), int(math.ceil((y1 - y0) / cell))
+        img = Image.new('L', (w, h), 0)
+        ImageDraw.Draw(img).polygon([((x - x0) / cell, (y1 - y) / cell) for x, y in pts], fill=1)
+        a = np.asarray(img)
+        for r in range(h):
+            row = a[r]
+            c = 0
+            while c < w:
+                if not row[c]:
+                    c += 1
+                    continue
+                c0 = c
+                while c < w and row[c]:
+                    c += 1
+                out.append([float(x0 + c0 * cell), float(y1 - (r + 1) * cell), float((c - c0) * cell), float(cell)])
+    return out
+
+
 def rect_of(shapes):
     pts = np.concatenate([p for _, p in shapes]) if shapes else np.zeros((1, 2))
     (x0, y0), (x1, y1) = pts.min(0), pts.max(0)
@@ -201,8 +229,9 @@ def gather(sc, scripts):
             triggers.append(dict(kind='respawn', name=sc.name(gid), rect=[float(p[0]), float(p[1]), 0, 0]))
         if 'DamageHero' in monos and trig:
             mv = monos['DamageHero']
-            triggers.append(dict(kind='hazard', name=sc.name(gid), rect=rect_of(trig),
-                                 damage=int(mv.get('damageDealt') or 1), hazard=int(mv.get('hazardType') or 0)))
+            for r in hazard_rects(trig):
+                triggers.append(dict(kind='hazard', name=sc.name(gid), rect=r,
+                                     damage=int(mv.get('damageDealt') or 1), hazard=int(mv.get('hazardType') or 0)))
         if 'CameraLockArea' in monos and trig:
             mv = monos['CameraLockArea']
             triggers.append(dict(kind='camlock', name=sc.name(gid), rect=rect_of(trig),
@@ -550,8 +579,10 @@ def find_scene(name):
     return hits[0] if hits else None
 
 
-def build(name, out, a, scripts, sorting):
-    path = find_scene(name)
+def build(name, out, a, scripts, sorting, path=None, prefab=False):
+    """a scene -> rooms/<name>.*; prefab=True: a prefab the scripts spawn (tools/build_prefabs.py): its objects,
+    hierarchy, FSMs and particles only (fx/<name>.spt, relative to its root), no scenery and no .ssr"""
+    path = path or find_scene(name)
     if not path:
         print(f'{name}: no scene in the export')
         return False
@@ -572,7 +603,7 @@ def build(name, out, a, scripts, sorting):
         (gates[0]['rect'][:2] if gates else [gx + gw / a.cpu / 2, gy + gh / a.cpu / 2])
 
     layers, stats = [], collections.Counter()
-    if not a.no_art:
+    if not a.no_art and not prefab:
         rs = renderables(sc, scripts, sorting)
         for (base_name, z0, z1), blend in ((L, bl) for L in LAYERS for bl in (BLEND_NORMAL, BLEND_ADD, BLEND_MUL)):
             # each depth gives up to three layers: normal sprites, then additive ('+'), then multiply ('*')
@@ -624,7 +655,16 @@ def build(name, out, a, scripts, sorting):
         json.dump(tree, open(info_base + '.tree.json', 'w'), separators=(',', ':'))
         json.dump(getattr(sc, 'dyn_solids', []), open(info_base + '.dyn.json', 'w'), separators=(',', ':'))
     parts = [] if a.no_objects else particles.gather_particles(sc, material_blend)
-    if parts:
+    if parts and prefab:
+        # played where it spawns, once (the engine's effect emitters), relative to the prefab's root
+        root = next((g for g in sc.go if not (sc.tr.get(g) or {}).get('m_Father', {}).get('fileID')), None)
+        rx, ry = (float(sc.world(root)[0, 3]), float(sc.world(root)[1, 3])) if root else (0.0, 0.0)
+        for e in parts:
+            e['flags'] = (e['flags'] | particles.PLAY_ON_AWAKE) & ~(particles.LOOP | particles.INACTIVE | particles.PREWARM)
+            e['pos'] = [e['pos'][0] - rx, e['pos'][1] - ry] + list(e['pos'][2:])
+        os.makedirs(os.path.join(out, 'fx'), exist_ok=True)
+        particles.write(os.path.join(out, 'fx', name + '.spt'), parts)
+    elif parts:
         particles.write(base + '.spt', parts)
         json.dump(parts, open(info_base + '.parts.json', 'w'), indent=1)
     nfsm = 0
@@ -634,7 +674,7 @@ def build(name, out, a, scripts, sorting):
         except Exception as ex:
             fsms = []
             print(f'{name}: FSMs not read ({ex})')
-        if fsms:
+        if fsms or prefab:   # a prefab always gets one (empty): build_fsm.py then writes its hierarchy
             os.makedirs(os.path.join(out, 'fsm', 'templates'), exist_ok=True)
             with open(os.path.join(out, 'fsm', name + '.json'), 'w', encoding='utf-8') as fh:
                 json.dump(fsms, fh, separators=(',', ':'), default=str)
@@ -656,6 +696,9 @@ def build(name, out, a, scripts, sorting):
                     with open(tmp, 'w', encoding='utf-8') as fh:
                         json.dump(d, fh, separators=(',', ':'), default=str)
                     os.replace(tmp, tpath)
+    if prefab:
+        print(f'{name}: {len(objs)} objects, {len(parts)} particle emitters, {nfsm} FSMs')
+        return True
     rowb = (gw + 7) // 8
     bits = np.packbits(np.pad(grid, ((0, 0), (0, rowb * 8 - gw))), axis=1, bitorder='little')
     b = bytearray()

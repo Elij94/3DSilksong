@@ -39,54 +39,78 @@ void objects_preload(Objects *os) {
     }
 }
 
+#define SPAWN_OBJS 256   // kept past the room's objects for what the scripts spawn (fsm.c)
+
+// one object record of a .sso (244 bytes): at index i, moved by (dx, dy), parent indices from base
+static void obj_parse(Obj *o, const u8 *p, int i, int base, float dx, float dy) {
+    if (o->anim.set) sprites_put(o->anim.set);
+    memset(o, 0, sizeof *o);
+    o->flags = rd16(p);
+    o->parent = rds16(p + 2);
+    if (o->parent >= 0) o->parent += base;
+    o->x = rdf(p + 4) + dx; o->y = rdf(p + 8) + dy; o->z = rdf(p + 12);
+    o->scx = rdf(p + 16); o->scy = rdf(p + 20);
+    o->rx = rdf(p + 24) + dx; o->ry = rdf(p + 28) + dy; o->rw = rdf(p + 32); o->rh = rdf(p + 36);
+    o->hp = (int)rd32(p + 40); o->damage = (int)rd32(p + 44);
+    rdstr(o->name, p + 52, 32);
+    rdstr(o->sprite_set, p + 84, 32);
+    rdstr(o->clip, p + 116, 32);
+    o->alive = !(o->flags & OF_INACTIVE);
+    o->node = -1;
+    o->hitp = o->deathp = -1;
+    o->flash_t = -1;
+    o->recoil_v = 15; o->recoil_dur = 0.15f;
+    o->par = PAR_D / (PAR_D + o->z);
+    if (o->par <= 0.05f || o->par > 20) o->par = 1;
+    o->anim.clip = -1;
+    o->dir = o->scx < 0 ? 1 : -1;   // the art faces left
+    if (o->sprite_set[0]) {   // also when switched off: a script may switch it on
+        char rel[64];
+        snprintf(rel, sizeof rel, "sprites/%s.sss", o->sprite_set);
+        o->anim.set = sprites_get(rel);
+        if (o->anim.set) {
+            int c = sprite_clip(o->anim.set, o->clip);
+            anim_play(&o->anim, c >= 0 ? c : 0, true);
+            // don't let every copy of an animation move in step
+            o->anim.t = (float)(i * 37 % 100) / 100.0f;
+        }
+    }
+}
+
+void objects_sorted(Objects *os) {
+    for (int i = 0; i < os->n; i++) os->order[i] = i;
+    s_sort_os = os;
+    qsort(os->order, os->n, sizeof(s16), cmp_far_to_near);
+}
+
 void objects_load(Objects *os, const char *scene) {
     memset(os, 0, sizeof *os);
     size_t size;
     u8 *d = file_load(data_path("rooms/%s.sso", scene), &size);
-    if (!d) return;
-    if (size < 8 || memcmp(d, "SSOB", 4)) { free(d); return; }
-    int n = rd16(d + 6);
-    if (8 + (size_t)n * 244 > size) n = (size - 8) / 244;
-    os->o = calloc(n + 1, sizeof(Obj));
-    os->order = calloc(n + 1, sizeof(s16));
-    os->n = n;
-    for (int i = 0; i < n; i++) {
-        const u8 *p = d + 8 + i * 244;
-        Obj *o = &os->o[i];
-        o->flags = rd16(p);
-        o->parent = rds16(p + 2);
-        o->x = rdf(p + 4); o->y = rdf(p + 8); o->z = rdf(p + 12);
-        o->scx = rdf(p + 16); o->scy = rdf(p + 20);
-        o->rx = rdf(p + 24); o->ry = rdf(p + 28); o->rw = rdf(p + 32); o->rh = rdf(p + 36);
-        o->hp = (int)rd32(p + 40); o->damage = (int)rd32(p + 44);
-        rdstr(o->name, p + 52, 32);
-        rdstr(o->sprite_set, p + 84, 32);
-        rdstr(o->clip, p + 116, 32);
-        o->alive = !(o->flags & OF_INACTIVE);
-        o->node = -1;
-        o->hitp = o->deathp = -1;
-        o->flash_t = -1;
-        o->recoil_v = 15; o->recoil_dur = 0.15f;
-        o->par = PAR_D / (PAR_D + o->z);
-        if (o->par <= 0.05f || o->par > 20) o->par = 1;
-        o->anim.clip = -1;
-        o->dir = o->scx < 0 ? 1 : -1;   // the art faces left
-        if (o->alive && o->sprite_set[0]) {
-            char rel[64];
-            snprintf(rel, sizeof rel, "sprites/%s.sss", o->sprite_set);
-            o->anim.set = sprites_get(rel);
-            if (o->anim.set) {
-                int c = sprite_clip(o->anim.set, o->clip);
-                anim_play(&o->anim, c >= 0 ? c : 0, true);
-                // don't let every copy of an animation move in step
-                o->anim.t = (float)(i * 37 % 100) / 100.0f;
-            }
-        }
-        os->order[i] = i;
+    int n = 0;
+    if (d && (size < 8 || memcmp(d, "SSOB", 4))) { free(d); d = NULL; }
+    if (d) {
+        n = rd16(d + 6);
+        if (8 + (size_t)n * 244 > size) n = (size - 8) / 244;
     }
+    os->cap = n + SPAWN_OBJS;
+    os->o = calloc(os->cap + 1, sizeof(Obj));
+    os->order = calloc(os->cap + 1, sizeof(s16));
+    os->n = n;
+    for (int i = 0; i < n; i++) obj_parse(&os->o[i], d + 8 + i * 244, i, 0, 0, 0);
     free(d);
-    s_sort_os = os;
-    qsort(os->order, n, sizeof(s16), cmp_far_to_near);
+    objects_sorted(os);
+}
+
+bool objects_room(const Objects *os, int n) { return n <= os->cap; }
+
+void objects_put(Objects *os, const u8 *sso, size_t size, int at, float dx, float dy) {
+    if (!sso || size < 8 || memcmp(sso, "SSOB", 4)) return;
+    int n = rd16(sso + 6);
+    if (8 + (size_t)n * 244 > size) n = (size - 8) / 244;
+    if (at + n > os->cap) return;
+    for (int i = 0; i < n; i++) obj_parse(&os->o[at + i], sso + 8 + i * 244, at + i, at, dx, dy);
+    if (at + n > os->n) os->n = at + n;
 }
 
 void objects_free(Objects *os) {

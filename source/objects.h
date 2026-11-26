@@ -59,10 +59,15 @@ typedef struct {
 } Obj;
 
 typedef struct {
-    int n;
+    int n, cap;            // cap: room kept for spawned prefabs (fsm.c)
     Obj *o;
     s16 *order;            // drawing order: far to near
 } Objects;
+
+// spawned prefabs (fsm.c): is there room for n objects, a pack's objects put from index at, the drawing order again
+bool objects_room(const Objects *os, int n);
+void objects_put(Objects *os, const u8 *sso, size_t size, int at, float dx, float dy);
+void objects_sorted(Objects *os);
 
 void objects_load(Objects *os, const char *scene);
 void objects_free(Objects *os);

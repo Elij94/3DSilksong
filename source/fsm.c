@@ -9,6 +9,8 @@
 #include "audio.h"
 #include "fx.h"
 #include "room.h"
+#include "particles.h"
+#include "currency.h"
 
 enum { T_NONE, T_FLOAT, T_INT, T_BOOL, T_STR, T_VAR, T_NODE, T_EVENT, T_VEC, T_LIST, T_TARGET };
 #define N_OWNER (-2)
@@ -152,7 +154,24 @@ void pd_load_line(const char *line) {
 // ------------------------------------------------------------------ loading
 
 static void node_pos(int node, float *x, float *y);
-static const char *str_at_load(int i) { return i >= 0 && i < s_nstr ? s_str[i] : ""; }
+
+
+
+
+
+// While a file is read: its strings (a pack's are its own, mapped into the room's table), and where its nodes,
+// objects and FSMs go (0 for the room's own file; past the room's for a spawned pack)
+static char **s_lstr;          // the file's strings (NULL: the room's, s_str)
+static int s_nlstr;
+static u16 *s_map;             // a pack's string -> the room's
+static int s_nbase, s_obase;
+static int s_node_cap, s_fsm_cap;   // nodes and FSMs allocated (the room's, plus room kept for spawns)
+static const char *str_at_load(int i) {
+    if (s_lstr) return i >= 0 && i < s_nlstr ? s_lstr[i] : "";
+    return i >= 0 && i < s_nstr ? s_str[i] : "";
+}
+static u16 map_s(int i) { return s_map ? (i >= 0 && i < s_nlstr ? s_map[i] : 0) : (u16)i; }
+static s16 map_node(int n) { return n >= 0 ? (s16)(n + s_nbase) : (s16)n; }
 
 static const u8 *rd_val(const u8 *p, Val *v) {
     memset(v, 0, sizeof *v);
@@ -161,15 +180,16 @@ static const u8 *rd_val(const u8 *p, Val *v) {
     case T_FLOAT: v->f[0] = rdf(p); v->i = (s32)v->f[0]; p += 4; break;
     case T_INT: v->i = (s32)rd32(p); v->f[0] = (float)v->i; p += 4; break;
     case T_BOOL: v->i = *p++; v->f[0] = (float)v->i; break;
-    case T_STR: case T_VAR: case T_EVENT: v->s = rd16(p); p += 2; break;
-    case T_NODE: v->node = rds16(p); p += 2; break;
+    case T_STR: case T_EVENT: v->s = map_s(rd16(p)); p += 2; break;
+    case T_VAR: v->s = rd16(p); p += 2; break;
+    case T_NODE: v->node = map_node(rds16(p)); p += 2; break;
     case T_VEC: v->f[0] = rdf(p); v->f[1] = rdf(p + 4); v->f[2] = rdf(p + 8); p += 12; break;
     case T_LIST:
         v->n = *p++;
         v->list = calloc(v->n + 1, sizeof(Val));
         for (int i = 0; i < v->n; i++) p = rd_val(p, &v->list[i]);
         break;
-    case T_TARGET: v->n = *p++; v->node = rds16(p); v->s = rd16(p + 2); p += 4; break;
+    case T_TARGET: v->n = *p++; v->node = map_node(rds16(p)); v->s = map_s(rd16(p + 2)); p += 4; break;
     }
     return p;
 }
@@ -181,32 +201,39 @@ static void free_val(Val *v) {
     }
 }
 
-void fsm_free(void) {
-    for (int k = 0; k < s_nfsm; k++) {
-        Fsm *f = &s_fsm[k];
-        for (int s = 0; s < f->nstates; s++) {
-            State *st = &f->states[s];
-            for (int a = 0; a < st->nact; a++) {
-                for (int j = 0; j < st->act[a].nargs; j++) free_val(&st->act[a].a[j]);
-                free(st->act[a].a);
-            }
-            free(st->act);
-            free(st->tr);
+static void free_fsm(Fsm *f) {
+    for (int s = 0; s < f->nstates; s++) {
+        State *st = &f->states[s];
+        for (int a = 0; a < st->nact; a++) {
+            for (int j = 0; j < st->act[a].nargs; j++) free_val(&st->act[a].a[j]);
+            free(st->act[a].a);
         }
-        free(f->states);
-        free(f->vars);
-        free(f->var_names);
-        free(f->glob);
-        free(f->rt);
+        free(st->act);
+        free(st->tr);
     }
+    free(f->states);
+    for (int i = 0; i < f->nvars; i++) free_val(&f->vars[i]);
+    free(f->vars);
+    free(f->var_names);
+    free(f->glob);
+    free(f->rt);
+    memset(f, 0, sizeof *f);
+}
+
+static void spawn_reset(void);
+
+void fsm_free(void) {
+    for (int k = 0; k < s_nfsm; k++) free_fsm(&s_fsm[k]);
     free(s_fsm); s_fsm = NULL; s_nfsm = 0;
     free(s_solids); s_solids = NULL; s_nsolids = 0;
     free(s_nodes); s_nodes = NULL; s_nnodes = 0;
+    s_node_cap = s_fsm_cap = 0;
     if (s_str) for (int i = 0; i < s_nstr; i++) free(s_str[i]);
     free(s_str); s_str = NULL; s_nstr = 0;
     free(s_data); s_data = NULL;
     s_ndelayed = 0;
     s_os = NULL;
+    spawn_reset();
 }
 
 static int str_find(const char *s) {
@@ -214,75 +241,110 @@ static int str_find(const char *s) {
     return -1;
 }
 
-void fsm_load(const char *scene, Objects *os) {
-    fsm_free();
-    s_os = os;
-    for (int i = 0; i < os->n; i++) os->o[i].node = -1;
-    static int nofsm = -1;   // testing: SD:/3ds/3dsilksong/nofsm turns the FSMs off
-    if (nofsm < 0) { struct stat st; nofsm = stat("sdmc:/3ds/3dsilksong/nofsm", &st) == 0; }
-    if (nofsm) return;
-    size_t size;
-    s_data = file_load(data_path("rooms/%s.ssf", scene), &size);
-    if (!s_data || size < 8 || memcmp(s_data, "SSFM", 4)) { free(s_data); s_data = NULL; return; }
-    const u8 *p = s_data + 6;
-    s_nstr = rd16(p); p += 2;
-    s_str = calloc(s_nstr + 1, sizeof(char *));
-    for (int i = 0; i < s_nstr; i++) {
+// room for what the scripts spawn, kept past the room's own so nothing moves while a script runs
+#define SPAWN_NODES 1536
+#define SPAWN_FSMS  256
+
+// Reads a .ssf: the room's own (pack false), or a spawned pack's, into the nodes and FSMs from nbase / fbase, its
+// objects from obase, moved by (dx, dy). Returns false if it doesn't fit.
+static bool load_ssf(const u8 *data, size_t size, const char *scene, Objects *os, bool pack, int nbase, int obase,
+                     int fbase, float dx, float dy, int *nn_out, int *nf_out) {
+    if (!data || size < 8 || memcmp(data, "SSFM", 4)) return false;
+    int ver = rd16(data + 4);
+    const u8 *p = data + 6;
+    // strings
+    int nstr = rd16(p); p += 2;
+    char **str = calloc(nstr + 1, sizeof(char *));
+    for (int i = 0; i < nstr; i++) {
         int n = *p++;
-        s_str[i] = malloc(n + 1);
-        memcpy(s_str[i], p, n);
-        s_str[i][n] = 0;
+        str[i] = malloc(n + 1);
+        memcpy(str[i], p, n);
+        str[i][n] = 0;
         p += n;
     }
-    int ver = rd16(s_data + 4);
-    s_nnodes = rd16(p); p += 2;
-    s_nodes = calloc(s_nnodes + 1, sizeof(Node));
+    if (!pack) {
+        s_str = str; s_nstr = nstr;
+        s_lstr = NULL; s_map = NULL;
+    } else {   // into the room's table: the ones it has, the others added
+        s_lstr = str; s_nlstr = nstr;
+        s_map = malloc(sizeof(u16) * (nstr + 1));
+        for (int i = 0; i < nstr; i++) {
+            int k = str_find(str[i]);
+            if (k < 0) {
+                char **ns = realloc(s_str, sizeof(char *) * (s_nstr + 1));
+                if (!ns) { s_map[i] = 0; continue; }
+                s_str = ns;
+                s_str[s_nstr] = strdup(str[i]);
+                k = s_nstr++;
+            }
+            s_map[i] = (u16)k;
+        }
+    }
+    s_nbase = nbase;
+    s_obase = obase;
+    bool ok = true;
+    // nodes
+    int nn = rd16(p); p += 2;
+    if (!pack) {
+        s_node_cap = nn + SPAWN_NODES;
+        s_nodes = calloc(s_node_cap + 1, sizeof(Node));
+        s_nnodes = nn;
+    } else if (nbase + nn > s_node_cap) { ok = false; goto done; }
     int nsize = ver >= 4 ? 42 : 18;
-    for (int i = 0; i < s_nnodes; i++, p += nsize) {
-        Node *n = &s_nodes[i];
-        n->name = rd16(p); n->parent = rds16(p + 2); n->obj = rds16(p + 4);
-        n->x = rdf(p + 6); n->y = rdf(p + 10); n->active = p[14];
+    for (int i = 0; i < nn; i++, p += nsize) {
+        Node *n = &s_nodes[nbase + i];
+        memset(n, 0, sizeof *n);
+        n->name = map_s(rd16(p)); n->parent = map_node(rds16(p + 2)); n->obj = rds16(p + 4);
+        n->x = rdf(p + 6) + dx; n->y = rdf(p + 10) + dy; n->active = p[14];
         n->body = -1;
         n->sx = 1;
         if (ver >= 4) {
             n->body = (s8)p[15];
-            float rx = rdf(p + 18), ry = rdf(p + 22);
+            float rx = rdf(p + 18) + dx, ry = rdf(p + 22) + dy;
             n->rw = rdf(p + 26); n->rh = rdf(p + 30);
             n->rx = rx - n->x; n->ry = ry - n->y;
             n->grav = rdf(p + 34);
             n->sx = rdf(p + 38);
         }
+        if (n->obj >= 0) n->obj += obase;
         if (n->obj >= os->n) n->obj = -1;
         if (n->obj >= 0) {
-            os->o[n->obj].node = i;
+            os->o[n->obj].node = nbase + i;
             // an inactive object (flag) is the inactive node itself or one of its parents: the nodes say which
             os->o[n->obj].alive = true;
         }
     }
-    s_nfsm = rd16(p); p += 2;
-    s_fsm = calloc(s_nfsm + 1, sizeof(Fsm));
-    for (int k = 0; k < s_nfsm; k++) {
-        Fsm *f = &s_fsm[k];
-        f->owner = rds16(p); f->name = rd16(p + 2); f->start = rd16(p + 4); p += 6;
+    if (pack && nbase + nn > s_nnodes) s_nnodes = nbase + nn;
+    // FSMs
+    int nf = rd16(p); p += 2;
+    if (!pack) {
+        s_fsm_cap = nf + SPAWN_FSMS;
+        s_fsm = calloc(s_fsm_cap + 1, sizeof(Fsm));
+        s_nfsm = nf;
+    } else if (fbase + nf > s_fsm_cap) { ok = false; goto done; }
+    for (int k = 0; k < nf; k++) {
+        Fsm *f = &s_fsm[fbase + k];
+        if (pack) free_fsm(f);
+        f->owner = map_node(rds16(p)); f->name = map_s(rd16(p + 2)); f->start = rd16(p + 4); p += 6;
         f->nvars = rd16(p); p += 2;
         f->vars = calloc(f->nvars + 1, sizeof(Val));
         f->var_names = calloc(f->nvars + 1, sizeof(u16));
         for (int i = 0; i < f->nvars; i++) {
-            f->var_names[i] = rd16(p); p += 2;
+            f->var_names[i] = map_s(rd16(p)); p += 2;
             p = rd_val(p, &f->vars[i]);
             if (f->vars[i].t == T_NODE && f->vars[i].node == N_OWNER) f->vars[i].node = f->owner;
         }
         f->nglob = rd16(p); p += 2;
         f->glob = malloc(4 * f->nglob + 4);
-        for (int i = 0; i < f->nglob * 2; i++, p += 2) f->glob[i] = rd16(p);
+        for (int i = 0; i < f->nglob * 2; i++, p += 2) f->glob[i] = (i & 1) ? rd16(p) : map_s(rd16(p));
         f->nstates = rd16(p); p += 2;
         f->states = calloc(f->nstates + 1, sizeof(State));
         for (int s = 0; s < f->nstates; s++) {
             State *st = &f->states[s];
-            st->name = rd16(p); p += 2;
+            st->name = map_s(rd16(p)); p += 2;
             st->ntr = rd16(p); p += 2;
             st->tr = malloc(4 * st->ntr + 4);
-            for (int i = 0; i < st->ntr * 2; i++, p += 2) st->tr[i] = rd16(p);
+            for (int i = 0; i < st->ntr * 2; i++, p += 2) st->tr[i] = (i & 1) ? rd16(p) : map_s(rd16(p));
             st->nact = rd16(p); p += 2;
             st->act = calloc(st->nact + 1, sizeof(Action));
             if (st->nact > f->maxact) f->maxact = st->nact;
@@ -296,12 +358,20 @@ void fsm_load(const char *scene, Objects *os) {
         f->rt = calloc(f->maxact + 1, sizeof(ActRt));
         f->cur = -1;
         f->next = -1;
+        // the "Hero" variables (set in the game by GetHero / FindGameObject at start)
+        for (int i = 0; i < f->nvars; i++)
+            if (!strcmp(s_str[f->var_names[i]], "Hero")) { f->vars[i].t = T_NODE; f->vars[i].node = N_HERO; }
     }
-    // the walls they control (version 2)
-    if (rd16(s_data + 4) >= 2 && p + 2 <= s_data + size) {
-        s_nsolids = rd16(p); p += 2;
-        s_solids = calloc(s_nsolids + 1, sizeof(Solid));
-        for (int i = 0; i < s_nsolids; i++, p += 18) {
+    if (pack && fbase + nf > s_nfsm) s_nfsm = fbase + nf;
+    // the walls they control (version 2): the room's only
+    if (ver >= 2 && p + 2 <= data + size) {
+        int n = rd16(p); p += 2;
+        if (!pack) {
+            s_nsolids = n;
+            s_solids = calloc(s_nsolids + 1, sizeof(Solid));
+        }
+        for (int i = 0; i < n; i++, p += 18) {
+            if (pack) continue;
             Solid *so = &s_solids[i];
             so->node = rds16(p);
             float nx = 0, ny = 0;
@@ -310,10 +380,11 @@ void fsm_load(const char *scene, Objects *os) {
         }
     }
     // what a hit and a kill do, per enemy (version 3)
-    if (rd16(s_data + 4) >= 3 && p + 2 <= s_data + size) {
+    if (ver >= 3 && p + 2 <= data + size) {
         int n = rd16(p); p += 2;
-        for (int i = 0; i < n && p + 22 <= s_data + size; i++) {
+        for (int i = 0; i < n && p + 22 <= data + size; i++) {
             int oi = rds16(p);
+            if (oi >= 0) oi += obase;
             int hit = rd16(p + 2), death = rd16(p + 4), corpse = rd16(p + 6);
             float fling = rdf(p + 8);
             u8 fl = p[12];
@@ -335,8 +406,8 @@ void fsm_load(const char *scene, Objects *os) {
                 o->ndsnd = 0;
             }
             for (int k = 0; k < ns; k++, p += 2)
-                if (o && o->ndsnd < 4) o->dsnd[o->ndsnd++] = str_at_load(rd16(p));
-            if (rd16(s_data + 4) >= 5) {
+                if (o && o->ndsnd < 4) o->dsnd[o->ndsnd++] = s_str[map_s(rd16(p))];
+            if (ver >= 5) {
                 int w = *p++;
                 if (w) {
                     if (o) {
@@ -352,13 +423,13 @@ void fsm_load(const char *scene, Objects *os) {
                     p += 38;
                 }
             }
-            if (rd16(s_data + 4) >= 6) {
+            if (ver >= 6) {
                 if (*p++) {        // Crawler
                     if (o) {
                         o->crawler = true;
                         o->crawl_speed = rdf(p);
                         o->crawl_sfr = p[4];
-                        o->crawl_anim = str_at_load(rd16(p + 5));
+                        o->crawl_anim = s_str[map_s(rd16(p + 5))];
                         o->turn_anim = "Turn";
                         o->idle_anim = "Idle";
                         o->walking = !p[7];
@@ -370,15 +441,15 @@ void fsm_load(const char *scene, Objects *os) {
                         o->crawler = true;
                         o->crawl_speed = fabsf(rdf(p));
                         o->crawl_sfr = false;
-                        o->crawl_anim = str_at_load(rd16(p + 4));
-                        o->turn_anim = str_at_load(rd16(p + 6));
-                        o->idle_anim = str_at_load(rd16(p + 8));
+                        o->crawl_anim = s_str[map_s(rd16(p + 4))];
+                        o->turn_anim = s_str[map_s(rd16(p + 6))];
+                        o->idle_anim = s_str[map_s(rd16(p + 8))];
                         o->walking = p[18];
                     }
                     p += 19;
                 }
             }
-            if (rd16(s_data + 4) >= 7) {   // what a kill flings out: rosaries (small, medium, large, smooth), shards
+            if (ver >= 7) {   // what a kill flings out: rosaries (small, medium, large, smooth), shards
                 if (o) {
                     for (int k = 0; k < 5; k++) o->geo[k] = rd16(p + k * 2);
                     o->mega_fling = p[10];
@@ -388,15 +459,15 @@ void fsm_load(const char *scene, Objects *os) {
         }
     }
     // remembered kills, what PlayerData switches off (version 6), objects switched by a PlayerData test (version 7)
-    if (rd16(s_data + 4) >= 6 && p + 2 <= s_data + size) {
-        int ver = rd16(s_data + 4);
+    if (ver >= 6 && p + 2 <= data + size) {
         int n = rd16(p); p += 2;
-        for (int i = 0; i < n && p + 10 <= s_data + size; i++) {
+        for (int i = 0; i < n && p + 10 <= data + size; i++) {
             const u8 *q = p;
             p += 10;
             int oi = rds16(q);
+            if (oi >= 0) oi += obase;
             Obj *o = oi >= 0 && oi < os->n ? &os->o[oi] : NULL;
-            if (o && q[2] && (o->flags & OF_ENEMY)) {
+            if (o && !pack && q[2] && (o->flags & OF_ENEMY)) {
                 snprintf(o->persist, sizeof o->persist, "%s%s:%s:%d", q[3] ? "semi:" : "", scene, str_at_load(rd16(q + 4)), oi);
                 if (pd_bool(o->persist)) o->alive = false;      // killed before: not there
             }
@@ -405,7 +476,7 @@ void fsm_load(const char *scene, Objects *os) {
                 if (v == (q[7] != 0) && o->node >= 0) s_nodes[o->node].active = 0;
             }
             if (ver >= 7 && *p++) {   // TestGameObjectActivator: any group whose tests all pass
-                int an = rds16(p), dn = rds16(p + 2), ng = p[4];
+                int an = map_node(rds16(p)), dn = map_node(rds16(p + 2)), ng = p[4];
                 p += 5;
                 bool pass = ng == 0;
                 for (int g = 0; g < ng; g++) {
@@ -416,14 +487,14 @@ void fsm_load(const char *scene, Objects *os) {
                         const char *field = str_at_load(rd16(p + 1));
                         s32 iv = (s32)rd32(p + 5);
                         float fv = rdf(p + 9);
-                        bool ok;
-                        if (type == 0) ok = pd_bool(field) == (bv != 0);
-                        else if (type == 4) ok = false;
+                        bool okt;
+                        if (type == 0) okt = pd_bool(field) == (bv != 0);
+                        else if (type == 4) okt = false;
                         else {
                             float x = (float)pd_int(field), y = type == 2 ? fv : (float)iv;
-                            ok = nty == 0 ? x == y : nty == 1 ? x != y : nty == 2 ? x < y : x > y;
+                            okt = nty == 0 ? x == y : nty == 1 ? x != y : nty == 2 ? x < y : x > y;
                         }
-                        if (!ok) all = false;
+                        if (!okt) all = false;
                     }
                     if (all) pass = true;
                 }
@@ -432,12 +503,173 @@ void fsm_load(const char *scene, Objects *os) {
             }
         }
     }
+done:
+    if (pack) {
+        for (int i = 0; i < nstr; i++) free(str[i]);
+        free(str);
+        free(s_map);
+    }
+    s_lstr = NULL; s_map = NULL; s_nlstr = 0; s_nbase = s_obase = 0;
     int fin = str_find("FINISHED");
     s_ev_finished = fin >= 0 ? fin : 0xFFFF;
-    // the "Hero" variables (set in the game by GetHero / FindGameObject at start)
-    for (int k = 0; k < s_nfsm; k++)
-        for (int i = 0; i < s_fsm[k].nvars; i++)
-            if (!strcmp(str_at_load(s_fsm[k].var_names[i]), "Hero")) { s_fsm[k].vars[i].t = T_NODE; s_fsm[k].vars[i].node = N_HERO; }
+    if (nn_out) *nn_out = nn;
+    if (nf_out) *nf_out = nf;
+    return ok;
+}
+
+void fsm_load(const char *scene, Objects *os) {
+    fsm_free();
+    s_os = os;
+    for (int i = 0; i < os->n; i++) os->o[i].node = -1;
+    static int nofsm = -1;   // testing: SD:/3ds/3dsilksong/nofsm turns the FSMs off
+    if (nofsm < 0) { struct stat st; nofsm = stat("sdmc:/3ds/3dsilksong/nofsm", &st) == 0; }
+    if (nofsm) return;
+    size_t size;
+    s_data = file_load(data_path("rooms/%s.ssf", scene), &size);
+    if (!load_ssf(s_data, size, scene, os, false, 0, 0, 0, 0, 0, NULL, NULL)) {
+        free(s_data); s_data = NULL;
+        // no FSMs: an empty table still takes what the scripts would spawn... none without scripts
+    }
+}
+
+// ------------------------------------------------------------------ spawned prefabs (the game's global pool)
+// A pack (rooms/pf_<name>.sso / .ssf, fx/pf_<name>.spt, tools/build_prefabs.py) is put in the room where a script
+// spawns it: its objects past the room's, its nodes and FSMs in the space kept for them. An instance that is done
+// (its root switched off: RecycleSelf, a script, the game's own recycling) gives its space to the next spawn of the
+// same prefab, as the game's pool does.
+
+typedef struct {
+    char name[48];
+    u8 *ssf, *sso;
+    size_t ssf_size, sso_size;
+    int nn, nf, no;          // its nodes, FSMs, objects (-1: not read yet)
+    float rx, ry;            // its root's position in the pack
+    bool missing;
+} Pack;
+
+typedef struct {
+    s16 pack;                // -1: free
+    int nbase, fbase, obase;
+    bool live;
+    float t;
+} Inst;
+
+#define MAX_PACKS 48
+#define MAX_INST 192
+static Pack s_packs[MAX_PACKS];
+static int s_npacks;
+static Inst s_inst[MAX_INST];
+static int s_ninst;
+static int s_node_top, s_fsm_top, s_obj_top;   // the first free node, FSM, object past what is placed
+
+static void spawn_reset(void) {
+    for (int i = 0; i < s_npacks; i++) { free(s_packs[i].ssf); free(s_packs[i].sso); }
+    memset(s_packs, 0, sizeof s_packs);
+    s_npacks = 0;
+    memset(s_inst, 0, sizeof s_inst);
+    s_ninst = 0;
+    s_node_top = s_fsm_top = s_obj_top = -1;
+}
+
+static int pack_get(const char *name) {
+    for (int i = 0; i < s_npacks; i++) if (!strcmp(s_packs[i].name, name)) return s_packs[i].missing ? -1 : i;
+    if (s_npacks == MAX_PACKS) return -1;
+    Pack *pk = &s_packs[s_npacks];
+    memset(pk, 0, sizeof *pk);
+    snprintf(pk->name, sizeof pk->name, "%s", name);
+    pk->ssf = file_load(data_path("rooms/%s.ssf", name), &pk->ssf_size);
+    pk->sso = file_load(data_path("rooms/%s.sso", name), &pk->sso_size);
+    pk->no = pk->sso && pk->sso_size >= 8 ? rd16(pk->sso + 6) : 0;
+    pk->nn = pk->nf = 0;
+    if (pk->ssf && pk->ssf_size > 8) {   // its node and FSM counts, and its root: read the header
+        const u8 *p = pk->ssf + 8;
+        int nstr = rd16(pk->ssf + 6);
+        for (int i = 0; i < nstr; i++) p += 1 + *p;
+        pk->nn = rd16(p);
+        int nsize = rd16(pk->ssf + 4) >= 4 ? 42 : 18;
+        for (int i = 0; i < pk->nn; i++)
+            if (rds16(p + 2 + i * nsize + 2) < 0) { pk->rx = rdf(p + 2 + i * nsize + 6); pk->ry = rdf(p + 2 + i * nsize + 10); break; }
+        p += 2 + pk->nn * nsize;
+        pk->nf = rd16(p);
+    }
+    pk->missing = !pk->ssf && !pk->sso;
+    s_npacks++;
+    return pk->missing ? -1 : s_npacks - 1;
+}
+
+static bool inst_done(const Inst *in) {
+    if (!in->live) return true;
+    if (in->nbase < s_nnodes && !s_nodes[in->nbase].active) return true;   // recycled (its root off)
+    return false;
+}
+
+// a pack spawned at (x, y): its root node, N_NONE if it can't be
+static int spawn_pack(const char *name, float x, float y) {
+    if (!s_os || !name || !name[0]) return N_NONE;
+    if (s_node_top < 0) { s_node_top = s_nnodes; s_fsm_top = s_nfsm; s_obj_top = s_os->n; }
+    int pi = pack_get(name);
+    if (pi < 0) return N_NONE;
+    Pack *pk = &s_packs[pi];
+    // an instance of the same prefab that is done, else new space
+    Inst *in = NULL;
+    for (int i = 0; i < s_ninst && !in; i++)
+        if (s_inst[i].pack == pi && inst_done(&s_inst[i])) in = &s_inst[i];
+    if (!in) {
+        if (s_ninst == MAX_INST || s_node_top + pk->nn > s_node_cap || s_fsm_top + pk->nf > s_fsm_cap ||
+            !objects_room(s_os, s_obj_top + pk->no))
+            return N_NONE;
+        in = &s_inst[s_ninst++];
+        in->pack = pi;
+        in->nbase = s_node_top; in->fbase = s_fsm_top; in->obase = s_obj_top;
+        s_node_top += pk->nn; s_fsm_top += pk->nf; s_obj_top += pk->no;
+    }
+    float dx = x - pk->rx, dy = y - pk->ry;
+    if (pk->no) objects_put(s_os, pk->sso, pk->sso_size, in->obase, dx, dy);
+    for (int i = 0; i < pk->no; i++) s_os->o[in->obase + i].node = -1;
+    // its FSMs from scratch (a reused instance's are freed and read again)
+    for (int k = 0; k < pk->nf; k++) {
+        s_fsm[in->fbase + k].stopped = true;
+    }
+    if (pk->ssf) load_ssf(pk->ssf, pk->ssf_size, pk->name, s_os, true, in->nbase, in->obase, in->fbase, dx, dy, NULL, NULL);
+    in->live = true;
+    in->t = 0;
+    particles_fx(pk->name, x, y, 0, 0);
+    objects_sorted(s_os);
+    return pk->nn ? in->nbase : N_NONE;
+}
+
+// the instance a node belongs to, -1 if it is the room's own
+static int inst_of(int node) {
+    for (int i = 0; i < s_ninst; i++)
+        if (node >= s_inst[i].nbase && node < s_inst[i].nbase + s_packs[s_inst[i].pack].nn) return i;
+    return -1;
+}
+
+// an instance put back in the pool: its root off, its FSMs stopped, its objects gone
+static void recycle(int node) {
+    int i = inst_of(node);
+    if (i < 0) { if (node >= 0 && node < s_nnodes) s_nodes[node].active = 0; return; }
+    Inst *in = &s_inst[i];
+    Pack *pk = &s_packs[in->pack];
+    s_nodes[in->nbase].active = 0;
+    for (int k = 0; k < pk->nf; k++) s_fsm[in->fbase + k].stopped = true;
+    for (int k = 0; k < pk->no; k++) s_os->o[in->obase + k].alive = false;
+    in->live = false;
+}
+
+// instances that ran out: far from the room, or switched off by a script
+static void spawn_update(float dt) {
+    for (int i = 0; i < s_ninst; i++) {
+        Inst *in = &s_inst[i];
+        if (!in->live) continue;
+        in->t += dt;
+        if (inst_done(in)) { recycle(in->nbase); continue; }
+        float x, y;
+        node_pos(in->nbase, &x, &y);
+        if (s_room && (x < s_room->bx0 - 40 || x > s_room->bx1 + 40 || y < s_room->by0 - 40 || y > s_room->by1 + 40))
+            recycle(in->nbase);
+        else if (s_packs[in->pack].nf == 0 && in->t > 4) recycle(in->nbase);   // a plain effect: gone in a while
+    }
 }
 
 int fsm_count(void) { return s_nfsm; }
@@ -1375,7 +1607,20 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         return false;
     }
     case OP_Trigger2dEvent: case OP_Trigger2dEventLayer: case OP_Collision2dEvent: {
-        // only Hornet is tracked: tags other than the player's, layers other than hers, never fire
+        // Hornet (her layers 9, 20 and the player's tags), or the terrain (layer 8: a projectile hitting a wall)
+        if (ac->op == OP_Trigger2dEventLayer && a_i(f, ARG(2)) == 8) {
+            int nd = a_node(f, ARG(0));
+            if (nd == N_NONE) nd = f->owner;
+            float x0, y0, x1, y1;
+            // touching counts (a moving body stops just short of the wall)
+            bool in = node_box(nd, &x0, &y0, &x1, &y1) && s_room &&
+                      room_box_solid(s_room, x0 - 0.15f, y0 - 0.15f, x1 + 0.15f, y1 + 0.15f);
+            int kind = a_i(f, ARG(1));
+            if (enter) { rt->inside = in; if (kind == 0 && in) send_self(f, ARG(3)); return false; }
+            if ((kind == 0 && in && !rt->inside) || (kind == 1 && in) || (kind == 2 && !in && rt->inside)) send_self(f, ARG(3));
+            rt->inside = in;
+            return false;
+        }
         if (ac->op == OP_Trigger2dEventLayer && a_i(f, ARG(2)) != 9 && a_i(f, ARG(2)) != 20) return false;
         if (ac->op != OP_Trigger2dEventLayer) {
             const char *tag = str_at(a_str(f, ARG(2)));
@@ -1534,6 +1779,46 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         }
         return !ac->every && rt->t < 0 && rt->done != 0xFF;
     }
+    case OP_SpawnObjectFromGlobalPool: case OP_CreateObject: case OP_SpawnObjectFromGlobalPoolDelay: {
+        if (ac->op == OP_SpawnObjectFromGlobalPoolDelay) {
+            if (enter) { rt->t = 0; rt->dur = frand(a_f(f, ARG(5)), a_f(f, ARG(6))); }
+            else rt->t += s_dt;
+            if (rt->t < rt->dur) return false;
+        }
+        float x = 0, y = 0;
+        int sp = a_node(f, ARG(1));
+        if (sp != N_NONE) node_pos(sp, &x, &y);
+        const Val *pv = deref(f, ARG(2));
+        if (pv->t == T_VEC) { x += pv->f[0]; y += pv->f[1]; }
+        int root = spawn_pack(str_at(a_str(f, ARG(0))), x, y);
+        set_node(f, ARG(4), root);
+        return true;
+    }
+    case OP_FlingObjectsFromGlobalPool: {
+        float x = 0, y = 0;
+        int sp = a_node(f, ARG(1));
+        if (sp != N_NONE) node_pos(sp, &x, &y);
+        const Val *pv = deref(f, ARG(2));
+        if (pv->t == T_VEC) { x += pv->f[0]; y += pv->f[1]; }
+        const char *name = str_at(a_str(f, ARG(0)));
+        int lo = a_i(f, ARG(3)), hi = a_i(f, ARG(4));
+        int count = lo + (hi > lo ? rand() % (hi - lo + 1) : 0);
+        // rosaries and shell shards: the engine's own (currency.c)
+        int cur = !strcmp(name, "pf_geo_small") ? CUR_SMALL : !strcmp(name, "pf_geo_med") ? CUR_MED :
+                  !strcmp(name, "pf_geo_large") ? CUR_LARGE : !strncmp(name, "pf_shell_shard", 14) ? CUR_SHARD : -1;
+        if (cur >= 0) { currency_fling(cur, count, x, y, false); return true; }
+        for (int k = 0; k < count && k < 24; k++) {
+            float ox = frand(-1, 1) * a_f(f, ARG(9)), oy = frand(-1, 1) * a_f(f, ARG(10));
+            int root = spawn_pack(name, x + ox, y + oy);
+            if (root < 0) break;
+            float sp2 = frand(a_f(f, ARG(5)), a_f(f, ARG(6))), ang = frand(a_f(f, ARG(7)), a_f(f, ARG(8))) * (float)M_PI / 180;
+            s_nodes[root].vx = cosf(ang) * sp2;
+            s_nodes[root].vy = sinf(ang) * sp2;
+        }
+        return true;
+    }
+    case OP_RecycleSelf: recycle(f->owner); return true;
+    case OP_RecycleObject: recycle(a_node(f, ARG(0))); return true;
     case OP_RandomFloatEither: set_f(f, ARG(2), (rand() & 1) ? a_f(f, ARG(0)) : a_f(f, ARG(1))); return true;
     case OP_GetPlayerDataVariable: {
         const char *nm = str_at(a_str(f, ARG(0)));
@@ -1662,6 +1947,7 @@ void fsm_update(float dt, Hero *h, Objects *os, const Room *r) {
         *d = s_delayed[--s_ndelayed];
     }
     physics(dt);
+    spawn_update(dt);
     for (int k = 0; k < s_nfsm; k++) {
         Fsm *f = &s_fsm[k];
         if (f->stopped || !fsm_node_active(f->owner)) continue;
@@ -1747,4 +2033,24 @@ bool fsm_strike(float x0, float y0, float x1, float y1) {
         settle(f);
     }
     return any;
+}
+
+int fsm_spawned(void) {   // instances live (the test log)
+    int n = 0;
+    for (int i = 0; i < s_ninst; i++) n += s_inst[i].live;
+    return n;
+}
+
+void fsm_spawn_debug(char *out, int cap) {
+    out[0] = 0;
+    for (int i = 0; i < s_ninst; i++)
+        if (s_inst[i].live) {
+            Node *n = &s_nodes[s_inst[i].nbase];
+            float x, y;
+            node_pos(s_inst[i].nbase, &x, &y);
+            Fsm *f = s_inst[i].fbase < s_nfsm ? &s_fsm[s_inst[i].fbase] : NULL;
+            snprintf(out, cap, " s0=%.1f,%.1f v%.1f,%.1f b%d k%d c%d o%d st%s", x, y, n->vx, n->vy, n->body, n->kin,
+                     n->coll_prev, n->obj, f && f->cur >= 0 ? str_at(f->states[f->cur].name) : "-");
+            return;
+        }
 }

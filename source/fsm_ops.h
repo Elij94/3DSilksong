@@ -171,6 +171,12 @@
 #define OP_RandomFloatEither              167   // value1 value2 storeResult
 #define OP_GetPlayerDataVariable          168   // VariableName StoreValue
 #define OP_SetPlayerDataVariable          169   // VariableName SetValue
-#define OP_CheckHeroPerformanceRegion     170   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_CheckHeroPerformanceRegionV2   171   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_COUNT 172
+#define OP_SpawnObjectFromGlobalPool      170   // prefab spawnPoint position rotation storeObject
+#define OP_CreateObject                   171   // prefab spawnPoint position rotation storeObject
+#define OP_SpawnObjectFromGlobalPoolDelay 172   // prefab spawnPoint position rotation storeObject delayMin delayMax
+#define OP_FlingObjectsFromGlobalPool     173   // prefab spawnPoint position spawnMin spawnMax speedMin speedMax angleMin angleMax originVariationX originVariationY
+#define OP_RecycleSelf                    174   // 
+#define OP_RecycleObject                  175   // gameObject
+#define OP_CheckHeroPerformanceRegion     176   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_CheckHeroPerformanceRegionV2   177   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_COUNT 178

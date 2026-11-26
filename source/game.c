@@ -556,10 +556,11 @@ static void log_state(void) {
     int dead = 0, live = 0;
     for (int i = 0; i < s_objs.n; i++)
         if (s_objs.o[i].ai != AI_NONE) { if (s_objs.o[i].dead || !s_objs.o[i].alive) dead++; else live++; }
-    snprintf(clip, sizeof clip, "%s hp=%d enemies=%d/%d parts=%d/%d cur=%d geo=%d sh=%d",
+    snprintf(clip, sizeof clip, "%s hp=%d enemies=%d/%d parts=%d/%d cur=%d geo=%d sh=%d sp=%d",
              h->body.set && h->body.clip >= 0 ? h->body.set->clips[h->body.clip].name : "-", h->hp, live, dead,
-             particles_count(), particles_emitters(), currency_count(), pd_int("geo"), pd_int("ShellShards"));
+             particles_count(), particles_emitters(), currency_count(), pd_int("geo"), pd_int("ShellShards"), fsm_spawned());
     { char cd[64]; currency_debug(cd, sizeof cd); strncat(clip, cd, sizeof clip - strlen(clip) - 1); }
+    { char sd[96]; fsm_spawn_debug(sd, sizeof sd); strncat(clip, sd, sizeof clip - strlen(clip) - 1); }
     // the nearest enemy: where, its hp, its clip
     int ne = -1;
     float bd = 1e9f;

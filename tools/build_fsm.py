@@ -184,6 +184,14 @@ OPS = [
     ('RandomFloatEither', 'value1 value2 storeResult'),
     ('GetPlayerDataVariable', 'VariableName StoreValue'),
     ('SetPlayerDataVariable', 'VariableName SetValue'),
+    # prefabs put in the room (tools/build_prefabs.py: rooms/pf_<name>.*), and taken back
+    ('SpawnObjectFromGlobalPool', 'prefab spawnPoint position rotation storeObject'),
+    ('CreateObject', 'prefab spawnPoint position rotation storeObject'),
+    ('SpawnObjectFromGlobalPoolDelay', 'prefab spawnPoint position rotation storeObject delayMin delayMax'),
+    ('FlingObjectsFromGlobalPool', 'prefab spawnPoint position spawnMin spawnMax speedMin speedMax angleMin angleMax '
+                                   'originVariationX originVariationY'),
+    ('RecycleSelf', ''),
+    ('RecycleObject', 'gameObject'),
     ('CheckHeroPerformanceRegion', 'Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange'),
     ('CheckHeroPerformanceRegionV2', 'Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter '
                                      'IgnoreNeedolinRange'),
@@ -191,9 +199,27 @@ OPS = [
 OP_ID = {n: i for i, (n, _) in enumerate(OPS)}
 
 
+_PREFABS = None
+
+
+def prefab_of(v):
+    """a prefab reference {guid} -> its pack's name (work/prefabs.txt, tools/build_prefabs.py), '' if none"""
+    global _PREFABS
+    if _PREFABS is None:
+        _PREFABS = {}
+        pth = os.path.join(WORK, 'prefabs.txt')
+        if os.path.exists(pth):
+            for line in open(pth, encoding='utf-8'):
+                g, _, n = line.strip().partition('	')
+                _PREFABS[g] = n
+    return _PREFABS.get(v.get('guid'), '') if isinstance(v, dict) else ''
+
+
 def flatten(t, p):
     """the parameters some actions nest: a method's first argument, a message's name, a fade's alphas"""
     p = dict(p)
+    if t in ('SpawnObjectFromGlobalPool', 'CreateObject', 'SpawnObjectFromGlobalPoolDelay', 'FlingObjectsFromGlobalPool'):
+        p['prefab'] = prefab_of(p.get('gameObject'))
     if t in ('CallMethodProper', 'HeroControllerMethods'):
         args = p.get('parameters') or []
         first = args[0] if args and isinstance(args[0], dict) else {}
@@ -384,7 +410,9 @@ def compile_room(romfs, scene, out_path):
                                             'roamingRange', 'roamingRangeX', 'roamingRangeY', 'minAboveHero', 'angle',
                                             'lowerValue', 'upperValue', 'newRecoilSpeed', 'GroundDistance',
                                             'SkinHeight', 'float1', 'float2', 'p_num', 'start_a', 'end_a',
-                                            'duration', 'value1', 'value2', 'MinReactDelay',
+                                            'duration', 'value1', 'value2', 'MinReactDelay', 'speedMin', 'speedMax',
+                                            'angleMin', 'angleMax', 'originVariationX', 'originVariationY',
+                                            'delayMin', 'delayMax',
                                             'MaxReactDelay', 'Radius') and t not in (
                                                 'RandomInt', 'IntCompare', 'IntAdd') else None
                     b += val(v, vars_ix, kind)
