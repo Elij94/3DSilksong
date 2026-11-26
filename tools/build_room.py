@@ -741,10 +741,14 @@ def build(name, out, a, scripts, sorting, path=None, prefab=False):
     layers, stats = [], collections.Counter()
     if not a.no_art and not prefab:
         rs = renderables(sc, scripts, sorting)
-        for (base_name, z0, z1), blend in ((L, bl) for L in LAYERS for bl in (BLEND_NORMAL, BLEND_ADD, BLEND_MUL)):
+        # the title's logo on a layer of its own ('logo'): the engine draws it over the title's colour grading
+        is_logo = lambda r: name.startswith('Menu_') and str(sc.name(r.get('gid'))).startswith('LogoTitle')
+        logo_layer = [(('logo', -1e9, 1e9), BLEND_NORMAL)] if any(is_logo(r) for r in rs) else []
+        for (base_name, z0, z1), blend in [(L, bl) for L in LAYERS for bl in (BLEND_NORMAL, BLEND_ADD, BLEND_MUL)] +                 logo_layer:
             # each depth gives up to three layers: normal sprites, then additive ('+'), then multiply ('*')
             lname = base_name + BLEND_SUFFIX[blend]
-            items = [r for r in rs if z0 <= r['z'] < z1 and r.get('blend', 0) == blend]
+            items = [r for r in rs if z0 <= r['z'] < z1 and r.get('blend', 0) == blend and
+                     is_logo(r) == (base_name == 'logo')]
             if not items:
                 continue
             z_l = 0.0 if base_name == 'main' else float(np.median([r['z'] for r in items]))
@@ -858,7 +862,8 @@ def build(name, out, a, scripts, sorting, path=None, prefab=False):
             b += struct.pack('<HHII', tx, ty, off, len(blob))
             data += blob
             off += len(blob)
-    open(base + '.ssr', 'wb').write(b)
+    if not a.no_art or prefab:   # --no-art: the objects again only, the room's scenery table kept
+        open(base + '.ssr', 'wb').write(b)
     if layers:
         open(base + '.ssl', 'wb').write(data)
     info = dict(scene=name, grid=dict(x=gx, y=gy, w=gw, h=gh, cells_per_unit=a.cpu, solid_cells=int(grid.sum())),

@@ -155,29 +155,56 @@ static void walker(Objects *os, int i, const Room *r, float dt) {
 }
 
 // Crawler / WalkerV2: along the floor the way it faces, turning at walls and at edges
-static void crawler(Objects *os, int i, const Room *r) {
+// a ray against the room's solids: true if it meets one within len
+static bool ray_hit(const Room *r, float x, float y, float dx, float dy, float len) {
+    for (float d = 0; d <= len + 1e-4f; d += 0.05f) {
+        float px = x + dx * d, py = y + dy * d;
+        if (room_box_solid(r, px - 0.01f, py - 0.01f, px + 0.01f, py + 0.01f)) return true;
+    }
+    return false;
+}
+
+// Crawler, the game's: along its surface (the floor, or the roof when upside down) at its speed; on ground under its
+// back edge, it turns at a wall in front or where the ground ahead ends, its turn clip played standing, then flipped
+static void crawler(Objects *os, int i, const Room *r, float dt) {
     Obj *o = &os->o[i];
     float vx, vy;
     fsm_node_velocity(o->node, &vx, &vy, false);
-    float num = (o->scx >= 0 ? 1.0f : -1.0f) * (o->crawl_sfr ? 1.0f : -1.0f);   // +1: going right
-    bool right = num > 0;
-    float x0 = o->rx, x1 = o->rx + o->rw;
-    bool wall = room_box_solid(r, right ? x1 : x0 - 0.2f, o->ry + 0.2f, right ? x1 + 0.2f : x0, o->ry + o->rh - 0.1f);
-    float ex = right ? x1 + 0.2f : x0 - 0.2f;
-    bool floor_here = room_box_solid(r, o->rx + 0.1f, o->ry - 0.3f, o->rx + o->rw - 0.1f, o->ry);
-    bool hole = floor_here && !room_box_solid(r, ex - 0.05f, o->ry - 1.0f, ex + 0.05f, o->ry - 0.02f);
-    if (wall || hole) {
-        o->scx = -o->scx;
-        right = !right;
-        int c = o->turn_anim ? sprite_clip(o->anim.set, o->turn_anim) : -1;
-        if (c >= 0) anim_play(&o->anim, c, true);
-    } else if (o->anim.done || o->anim.clip < 0 ||
-               (o->crawl_anim && strcmp(o->anim.set->clips[o->anim.clip].name, o->crawl_anim) &&
-                !(o->turn_anim && !strcmp(o->anim.set->clips[o->anim.clip].name, o->turn_anim)))) {
-        int c = o->crawl_anim ? sprite_clip(o->anim.set, o->crawl_anim) : -1;
-        if (c >= 0) anim_play(&o->anim, c, false);
+    float up = o->scy < 0 ? -1.0f : 1.0f;                                                   // its "up" in the world
+    int fwd = (o->scx >= 0 ? 1 : -1) * (o->crawl_sfr ? 1 : -1);                             // +1: going right
+    float x0 = o->rx, x1 = o->rx + o->rw, yb = up > 0 ? o->ry : o->ry + o->rh;
+    float front = fwd > 0 ? x1 : x0, back = fwd > 0 ? x0 : x1;
+    const char *crawl = o->crawl_anim ? o->crawl_anim : "Walk";
+    if (o->turn_t > 0) {
+        o->turn_t -= dt;
+        vx = 0;
+        if (o->turn_t <= 0) {
+            o->scx = -o->scx;
+            anim_play_name(&o->anim, crawl, true);
+        }
+        fsm_node_velocity(o->node, &vx, &vy, true);
+        return;
     }
-    vx = right ? o->crawl_speed : -o->crawl_speed;
+    bool turn = false;
+    if (ray_hit(r, back, yb + 0.6f * up, 0, -up, 1.1f)) {
+        float len = fmaxf(0.2f, fabsf(o->crawl_speed * dt)) + 0.1f;
+        if (ray_hit(r, front - 0.1f * fwd, yb + 0.06f * up, fwd, 0, len)) turn = true;
+        else if (!ray_hit(r, front + 0.2f * fwd, yb + 0.6f * up, 0, -up, 1.1f)) turn = true;
+    }
+    if (turn) {
+        int c = o->turn_anim ? sprite_clip(o->anim.set, o->turn_anim) : -1;
+        if (c >= 0) {
+            anim_play(&o->anim, c, true);
+            o->turn_t = o->anim.set->clips[c].n / fmaxf(1, o->anim.set->clips[c].fps);
+            vx = 0;
+            fsm_node_velocity(o->node, &vx, &vy, true);
+            return;
+        }
+        o->scx = -o->scx;
+        fwd = -fwd;
+    } else if (o->anim.clip < 0 || strcmp(o->anim.set->clips[o->anim.clip].name, crawl))
+        anim_play_name(&o->anim, crawl, false);
+    vx = fwd * o->crawl_speed;
     fsm_node_velocity(o->node, &vx, &vy, true);
 }
 
@@ -248,7 +275,7 @@ void enemies_update(Objects *os, const Room *r, float hx, float hy, float dt) {
             continue;      // the recoil takes over the movement
         }
         if (o->ai == AI_FSM && !o->dead) {
-            if (o->walking) { if (o->crawler) crawler(os, i, r); else walker(os, i, r, dt); }
+            if (o->walking) { if (o->crawler) crawler(os, i, r, dt); else walker(os, i, r, dt); }
             continue;
         }
         if (o->dead) {     // the corpse's flight, then it lies there

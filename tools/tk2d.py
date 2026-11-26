@@ -16,7 +16,9 @@ def load_collection(path):
     for t, v in yaml_file(path).values():
         if t == 'MonoBehaviour' and 'spriteDefinitions' in v:
             sprites = [dict(name=sd.get('name') or '', pos=_xy(sd.get('positions')), uvs=_xy(sd.get('uvs')),
-                            mat=int(sd.get('materialId') or 0), flipped=int(sd.get('flipped') or 0))
+                            mat=int(sd.get('materialId') or 0), flipped=int(sd.get('flipped') or 0),
+                            # the collider tk2d gives the sprite's object at run time (2: a box, centre + half size)
+                            col=(int(sd.get('colliderType') or 0), _xy(sd.get('colliderVertices'))))
                        for sd in (v.get('spriteDefinitions') or [])]
             texs = [guidmap().get((x or {}).get('guid')) for x in (v.get('textures') or [])]
             return dict(name=v.get('spriteCollectionName') or os.path.basename(path), sprites=sprites, textures=texs,

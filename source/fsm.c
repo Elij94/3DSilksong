@@ -1295,7 +1295,7 @@ static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) 
         if (v > sm && v > 0) { nn->vx *= sm / v; nn->vy *= sm / v; }
         return false;
     }
-    case OP_IdleBuzz: case OP_IdleBuzzV3: {
+    case OP_IdleBuzz: case OP_IdleBuzzV2: case OP_IdleBuzzV3: {
         // drifting around where it started: a random point within the range every so often
         int nd = a_node(f, ARG(0));
         if (nd < 0) return false;
@@ -1572,6 +1572,162 @@ static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) 
         }
         return true;
     }
+    case OP_GetPosition2dAs3d: {
+        float x, y;
+        node_pos(a_node(f, ARG(0)), &x, &y);
+        Val *v = var_of(f, ARG(2));
+        if (v) { v->t = T_VEC; v->f[0] = x; v->f[1] = y; v->f[2] = 0; }
+        return true;
+    }
+    case OP_GetColliderRange: {
+        float x0, y0, x1, y1;
+        if (node_box(a_node(f, ARG(0)), &x0, &y0, &x1, &y1)) {
+            set_f(f, ARG(1), x0); set_f(f, ARG(2), x1); set_f(f, ARG(3), y0); set_f(f, ARG(4), y1);
+        }
+        return !ac->every;
+    }
+    case OP_DistanceBetweenPoints: {
+        const Val *a = deref(f, ARG(1)), *b = deref(f, ARG(2));
+        if (a->t == T_VEC && b->t == T_VEC) {
+            float dx = a_i(f, ARG(3)) ? 0 : a->f[0] - b->f[0], dy = a_i(f, ARG(4)) ? 0 : a->f[1] - b->f[1];
+            set_f(f, ARG(0), hypotf(dx, dy));
+        }
+        return !ac->every;
+    }
+    case OP_FloatAddRandom: set_f(f, ARG(0), a_f(f, ARG(0)) + frand(a_f(f, ARG(1)), a_f(f, ARG(2)))); return true;
+    case OP_RandomBool: set_i(f, ARG(0), rand() & 1); return true;
+    case OP_FloatSign: set_f(f, ARG(1), a_f(f, ARG(0)) >= 0 ? 1.0f : -1.0f); return !ac->every;
+    case OP_FloatSignToBool: set_i(f, ARG(1), a_f(f, ARG(0)) >= 0); return !ac->every;
+    case OP_RandomlyFlipFloat: if (rand() & 1) set_f(f, ARG(0), -a_f(f, ARG(0))); return true;
+    case OP_BoolAnyTrue: {
+        const Val *l = ARG(0);
+        bool any = false;
+        if (l->t == T_LIST) for (int k = 0; k < l->n; k++) if (a_i(f, &l->list[k])) any = true;
+        set_i(f, ARG(2), any);
+        if (any) send_self(f, ARG(1));
+        return !ac->every;
+    }
+    case OP_Vector2Multiply: {
+        Val *v = var_of(f, ARG(0));
+        if (v && v->t == T_VEC) { float k = a_f(f, ARG(1)); v->f[0] *= k; v->f[1] *= k; }
+        return !ac->every;
+    }
+    case OP_Vector3Add: case OP_Vector3AddXYZ: {
+        Val *v = var_of(f, ARG(0));
+        if (v) {
+            if (v->t != T_VEC) { v->t = T_VEC; v->f[0] = v->f[1] = v->f[2] = 0; }
+            bool ps = a_i(f, ARG(ac->op == OP_Vector3Add ? 2 : 4)) != 0;
+            float k = ps ? s_dt : 1, ax = 0, ay = 0;
+            if (ac->op == OP_Vector3Add) {
+                const Val *a = deref(f, ARG(1));
+                if (a->t == T_VEC) { ax = a->f[0]; ay = a->f[1]; }
+            } else { ax = a_f(f, ARG(1)); ay = a_f(f, ARG(2)); }
+            v->f[0] += ax * k; v->f[1] += ay * k;
+        }
+        return !ac->every;
+    }
+    case OP_SetVector2Value: {
+        Val *v = var_of(f, ARG(0));
+        const Val *src = deref(f, ARG(1));
+        if (v && src->t == T_VEC) { v->t = T_VEC; v->f[0] = src->f[0]; v->f[1] = src->f[1]; }
+        return !ac->every;
+    }
+    case OP_RandomFloatV2: set_f(f, ARG(2), frand(a_f(f, ARG(0)), a_f(f, ARG(1)))); return !ac->every;
+    case OP_FloatAddV2:
+        if (a_none(f, ARG(3)) || a_i(f, ARG(3)))
+            set_f(f, ARG(0), a_f(f, ARG(0)) + a_f(f, ARG(1)) * (a_i(f, ARG(2)) ? s_dt : 1));
+        return !ac->every;
+    case OP_SetFloatValueV2:
+        if (a_none(f, ARG(2)) || a_i(f, ARG(2))) set_f(f, ARG(0), a_f(f, ARG(1)));
+        return !ac->every;
+    case OP_IntSwitch: case OP_FloatSwitch: {
+        const Val *l = ARG(1), *e = ARG(2);
+        if (l->t == T_LIST && e->t == T_LIST)
+            for (int k = 0; k < l->n && k < e->n; k++) {
+                bool hit = ac->op == OP_IntSwitch ? a_i(f, ARG(0)) == a_i(f, &l->list[k])
+                                                  : a_f(f, ARG(0)) < a_f(f, &l->list[k]);
+                if (hit) { send_self(f, &e->list[k]); break; }
+            }
+        return !ac->every;
+    }
+    case OP_IntCompareToBool: {
+        int x = a_i(f, ARG(0)), y = a_i(f, ARG(1));
+        set_i(f, ARG(2), x == y); set_i(f, ARG(3), x < y); set_i(f, ARG(4), x > y);
+        return !ac->every;
+    }
+    case OP_GetSpeed2d: {
+        int nd = a_node(f, ARG(0));
+        if (nd >= 0) set_f(f, ARG(1), hypotf(s_nodes[nd].vx, s_nodes[nd].vy));
+        return !ac->every;
+    }
+    case OP_ClampVelocity2D: {
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return true;
+        Node *nn = &s_nodes[nd];
+        if (!a_none(f, ARG(1))) nn->vx = fmaxf(nn->vx, a_f(f, ARG(1)));
+        if (!a_none(f, ARG(2))) nn->vx = fminf(nn->vx, a_f(f, ARG(2)));
+        if (!a_none(f, ARG(3))) nn->vy = fmaxf(nn->vy, a_f(f, ARG(3)));
+        if (!a_none(f, ARG(4))) nn->vy = fminf(nn->vy, a_f(f, ARG(4)));
+        return !ac->every;
+    }
+    case OP_ClampSpeed: {
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return true;
+        Node *nn = &s_nodes[nd];
+        float v = hypotf(nn->vx, nn->vy), lo = a_f(f, ARG(1)), hi = a_none(f, ARG(2)) ? 1e9f : a_f(f, ARG(2));
+        float w = clampf(v, lo, hi);
+        if (v > 1e-4f && w != v) { nn->vx *= w / v; nn->vy *= w / v; }
+        return !ac->every;
+    }
+    case OP_SetHP: { Obj *o = node_obj(a_node(f, ARG(0))); if (o && !o->dead) o->hp = a_i(f, ARG(1)); return true; }
+    case OP_GetHP: { Obj *o = node_obj(a_node(f, ARG(0))); if (o) set_i(f, ARG(1), o->hp); return true; }
+    case OP_MatchScaleSign: {
+        int a = a_node(f, ARG(0)), b = a_node(f, ARG(1));
+        if (a >= 0 && b != N_NONE) {
+            float sa = node_scale(a), sb = node_scale(b);
+            if ((sa < 0) != (sb < 0)) node_set_scale(a, -sa);
+        }
+        return !ac->every;
+    }
+    case OP_GetDistanceV2: {
+        float x0, y0, x1, y1;
+        node_pos(a_node(f, ARG(0)), &x0, &y0);
+        node_pos(a_node(f, ARG(1)), &x1, &y1);
+        set_f(f, ARG(4), hypotf(x1 + a_f(f, ARG(2)) - x0, y1 + a_f(f, ARG(3)) - y0));
+        return !ac->every;
+    }
+    case OP_ChaseObjectVertical: {
+        int nd = a_node(f, ARG(0)), tg = a_node(f, ARG(1));
+        if (nd < 0 || tg == N_NONE) return false;
+        float x, y, tx, ty;
+        node_pos(nd, &x, &y);
+        node_pos(tg, &tx, &ty);
+        float t = ty + a_f(f, ARG(2)), sm = a_f(f, ARG(3)), acc = a_f(f, ARG(4)) * s_dt * 50;
+        Node *nn = &s_nodes[nd];
+        if (y != t) nn->vy = clampf(nn->vy + (y < t ? acc : -acc), -sm, sm);
+        return false;
+    }
+    case OP_TranslateRandom: {
+        int nd = a_node(f, ARG(0));
+        const Val *lo = deref(f, ARG(1)), *hi = deref(f, ARG(2));
+        if (nd >= 0 && lo->t == T_VEC && hi->t == T_VEC) {
+            float x, y;
+            node_pos(nd, &x, &y);
+            node_set_pos(nd, x + frand(lo->f[0], hi->f[0]), y + frand(lo->f[1], hi->f[1]));
+        }
+        return true;
+    }
+    case OP_GetCurrentTk2dClipName: {
+        Obj *o = node_obj(a_node(f, ARG(0)));
+        Val *v = var_of(f, ARG(1));
+        if (o && v && o->anim.set && o->anim.clip >= 0) {
+            int s = str_find(o->anim.set->clips[o->anim.clip].name);
+            if (s >= 0) { v->t = T_STR; v->s = s; }
+        }
+        return true;
+    }
+    case OP_MultiplyGravity: { int nd = a_node(f, ARG(0)); if (nd >= 0) s_nodes[nd].grav *= a_f(f, ARG(1)); return true; }
+    case OP_EnableFsmSelf: if (!a_i(f, ARG(0))) f->stopped = true; return true;
     case OP_GetPosition2d: {
         float x, y;
         node_pos(a_node(f, ARG(0)), &x, &y);
@@ -1618,7 +1774,7 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
     case OP_SendEvent: case OP_SendEventByName:
         send_target(f, ARG(0), ev_of(f, ARG(1)), a_f(f, ARG(2)));
         return !ac->every;
-    case OP_SendRandomEvent: case OP_SendRandomEventV3: case OP_SendRandomEventV4: {
+    case OP_SendRandomEvent: case OP_SendRandomEventV2: case OP_SendRandomEventV3: case OP_SendRandomEventV4: {
         const Val *ev = ARG(0), *w = ARG(1);
         if (ev->t != T_LIST || !ev->n) return true;
         float tot = 0;
@@ -1743,8 +1899,9 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
             if (local && nd >= 0 && s_nodes[nd].parent >= 0) node_pos(s_nodes[nd].parent, &px, &py);
             nx = vec->t == T_VEC ? vec->f[0] + px : x;
             ny = vec->t == T_VEC ? vec->f[1] + py : y;
-            if (!a_none(f, ARG(2))) nx = a_f(f, ARG(2)) + px;
-            if (!a_none(f, ARG(3))) ny = a_f(f, ARG(3)) + py;
+            bool vec_only = ac->op == OP_SetPosition2D && vec->t == T_VEC;   // SetPosition2D: the vector, or X and Y
+            if (!vec_only && !a_none(f, ARG(2))) nx = a_f(f, ARG(2)) + px;
+            if (!vec_only && !a_none(f, ARG(3))) ny = a_f(f, ARG(3)) + py;
         }
         node_set_pos(nd, nx, ny);
         return !ac->every;
@@ -1820,7 +1977,7 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         set_f(f, ARG(2), hypotf(x1 - x0, y1 - y0));
         return !ac->every;
     }
-    case OP_FaceObjectV2: {
+    case OP_FaceObjectV2: case OP_FaceObjectV3: {
         Obj *o = node_obj(a_node(f, ARG(0)));
         float x0, y0, x1, y1;
         node_pos(a_node(f, ARG(0)), &x0, &y0);
@@ -2105,8 +2262,12 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
             }
             rt->t = 0;
             rt->done = 0;
+            // iTween's speed instead of a time: the time from the distance
+            float sp = a_none(f, by ? ARG(5) : ARG(6)) ? 0 : a_f(f, by ? ARG(5) : ARG(6));
+            rt->dur = (time <= 0 && sp > 0) ? hypotf(rt->dx, rt->dy) / sp : time;
         } else rt->t += s_dt;
         if (rt->done) return true;
+        time = rt->dur;
         float k = time > 0 ? (rt->t - delay) / time : 1;
         if (k < 0) return false;
         if (k > 1) k = 1;
@@ -2239,7 +2400,7 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         if (a_i(f, ARG(1))) particles_play(nd, 0); else particles_stop(nd);
         return true;
     }
-    case OP_RecycleSelf: recycle(f->owner); return true;
+    case OP_RecycleSelf: case OP_DestroySelf: recycle(f->owner); return true;
     case OP_RecycleObject: recycle(a_node(f, ARG(0))); return true;
     case OP_RandomFloatEither: set_f(f, ARG(2), (rand() & 1) ? a_f(f, ARG(0)) : a_f(f, ARG(1))); return true;
     case OP_GetPlayerDataVariable: {

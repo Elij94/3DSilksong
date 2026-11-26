@@ -59,6 +59,7 @@ def gather_objects(sc, scripts, collider_shapes, rect_of):
         monos = [(scripts.get((v.get('m_Script') or {}).get('guid'), ''), v) for t, v in comps if t == 'MonoBehaviour']
         names = {n for n, _ in monos}
         flags, hp, dmg, lib, clip, coll, sid, fsms = 0, 0, 0, '', '', '', -1, []
+        tk_col = None
         enemy = {}                 # what a hit and a kill do (engine: fsm.c, from the .ssf)
         state = {}                 # PersistentBoolItem, DeactivateIfPlayerdata*
         for n, v in monos:
@@ -135,6 +136,8 @@ def gather_objects(sc, scripts, collider_shapes, rect_of):
             elif n == 'TeamCherry.TK2D' and 'collection' in v and '_spriteId' in v and not coll:
                 c = tk2d.collection_by_guid((v.get('collection') or {}).get('guid'))
                 coll, sid = (c['name'] if c else ''), int(f(v.get('_spriteId')))
+                if c and 0 <= sid < len(c['sprites']):
+                    tk_col = c['sprites'][sid].get('col')
             if INTERACT_RE.search(n):
                 flags |= INTERACT
         if not flags & (ENEMY | BREAKABLE | INTERACT | ANIMATED | FSM | HAZARD) and not state:
@@ -143,6 +146,12 @@ def gather_objects(sc, scripts, collider_shapes, rect_of):
             flags |= INACTIVE
         m = sc.world(gid)
         shapes = [s for t, v in comps if t.endswith('Collider2D') for s in collider_shapes(sc, gid, t, v)]
+        if not shapes and tk_col and tk_col[0] == 2 and len(tk_col[1]) >= 2:
+            # no collider of its own: the box tk2d adds from its sprite's definition
+            (cx, cy), (ex, ey) = tk_col[1][0], tk_col[1][1]
+            pts = np.array([[cx - ex, cy - ey, 0, 1], [cx + ex, cy - ey, 0, 1], [cx + ex, cy + ey, 0, 1],
+                            [cx - ex, cy + ey, 0, 1]]) @ np.asarray(m).T
+            shapes = [('poly', pts[:, :2])]
         rect = rect_of(shapes) if shapes else [float(m[0, 3]), float(m[1, 3]), 0.0, 0.0]
         index[gid] = len(out)
         out.append(dict(gid=gid, name=sc.name(gid), flags=flags, pos=[float(m[0, 3]), float(m[1, 3]), float(m[2, 3])],

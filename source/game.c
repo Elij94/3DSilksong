@@ -376,16 +376,40 @@ static bool load_slot(int slot) {
     return true;
 }
 
+// The title's look: the game draws its menu scene through the camera's post effects (colour grading, a vignette, the
+// lava's red bloom), which the baked scenery doesn't carry. Measured on the game's own title screen: red stronger,
+// green and blue lower, the sides and the top much darker, a red glow rising from the bottom centre.
+static void title_grade(void) {
+    float W = g_view.sw, H = g_view.sh, z = 0.85f;
+    gfx_blend(BLEND_MULTIPLY);
+    C2D_DrawRectSolid(0, 0, z, W, H, C2D_Color32(255, 135, 150, 255));
+    u32 dark = C2D_Color32(40, 40, 40, 255), none = C2D_Color32(255, 255, 255, 255);
+    C2D_DrawRectangle(0, 0, z, W * 0.32f, H, dark, none, dark, none);                    // left
+    C2D_DrawRectangle(W * 0.68f, 0, z, W * 0.32f, H, none, dark, none, dark);            // right
+    C2D_DrawRectangle(0, 0, z, W, H * 0.5f, dark, dark, none, none);                     // top
+    gfx_blend(BLEND_ADD);
+    // the red bloom: a fan of triangles from the bottom centre, red there, nothing at its rim
+    u32 hot = C2D_Color32(90, 10, 4, 255), rim = C2D_Color32(0, 0, 0, 0);
+    float cx = W * 0.5f, cy = H, rx = W * 0.42f, ry = H * 0.75f;
+    for (int i = 0; i < 16; i++) {
+        float a0 = (float)M_PI * i / 16, a1 = (float)M_PI * (i + 1) / 16;
+        C2D_DrawTriangle(cx, cy, hot, cx + cosf(a0) * rx, cy - sinf(a0) * ry, rim, cx + cosf(a1) * rx, cy - sinf(a1) * ry,
+                         rim, z);
+    }
+    gfx_blend(BLEND_NORMAL);
+}
+
 // the title screen: the game's Menu_Title scene behind the menu, its camera where the game puts it
 static void to_title(void) {
     s_mode = GS_TITLE;
     s_menu = false;
     menu_open_title();
     if (room_exists(TITLE_ROOM) && enter(TITLE_ROOM)) {
-        // the menu's camera on the logo (LogoTitle, x 14.6), framed as the game shows it (the logo 41% of the width)
-        view_height(10.45f);
-        g_view.cx = 14.6f;
-        g_view.cy = 6.3f;
+        // framed as the game's title (its 16:9 screen on our 5:3 one): the logo centred at the top, the needle three
+        // quarters across, stuck in the bone pile on the bottom edge
+        view_height(9.17f);
+        g_view.cx = 14.74f;
+        g_view.cy = 8.6f;
         room_preload_view(&s_room);
     }
     s_fade = 1;
@@ -918,9 +942,11 @@ static void draw_all(void) {
     room_frame_begin();
     float zcur = 1e30f;
     bool hero_done = false;
+    int logo = -1;
     for (int k = 0; k < s_norder; k++) {
         int li = s_order[k];
         const Layer *L = &s_room.layers[li];
+        if (!strcmp(L->name, "logo")) { logo = li; continue; }   // the title's logo: over the colour grading
         int rank = layer_rank(L);
         if (rank >= 5 && !hero_done) {
             // in front of everything at the gameplay plane: the objects there, then Hornet
@@ -944,6 +970,8 @@ static void draw_all(void) {
         if (s_mode != GS_TITLE) hero_draw(&s_hero);
     }
     draw_band(-1e30f, zcur);
+    if (s_mode == GS_TITLE) title_grade();
+    if (logo >= 0) room_draw_layer(&s_room, logo, false);
     gfx_blend(BLEND_NORMAL);
     if (s_mode != GS_TITLE) draw_hud();
     dlg_draw();

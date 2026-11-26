@@ -178,8 +178,8 @@ OPS = [
     ('ListenForDreamNail', 'wasPressed wasReleased isPressed isNotPressed'),
     ('ListenForQuickCast', 'wasPressed wasReleased isPressed isNotPressed'),
     ('SendEventToRegister', 'eventName'),
-    ('iTweenMoveBy', 'gameObject vector time delay finishEvent'),
-    ('iTweenMoveTo', 'gameObject transformPosition vectorPosition time delay finishEvent'),
+    ('iTweenMoveBy', 'gameObject vector time delay finishEvent speed'),
+    ('iTweenMoveTo', 'gameObject transformPosition vectorPosition time delay finishEvent speed'),
     ('ActivateGameObjectDelay', 'gameObject activate delay'),
     ('RandomFloatEither', 'value1 value2 storeResult'),
     ('GetPlayerDataVariable', 'VariableName StoreValue'),
@@ -238,6 +238,41 @@ OPS = [
     ('TimeLimitCheckV2', 'StoredValue AboveEvent BelowEvent StoreBool'),
     ('AddHP', 'target amount healToMax'),
     ('InstaDeath', 'target direction'),
+    ('GetPosition2dAs3d', 'SourceXY SourceZ StoreVector'),
+    ('GetColliderRange', 'gameObject minX maxX minY maxY'),
+    ('DistanceBetweenPoints', 'distanceResult point1 point2 ignoreX ignoreY'),
+    ('FloatAddRandom', 'floatVariable addMin addMax'),
+    ('RandomBool', 'storeResult'),
+    ('FloatSign', 'Value StoreValue'),
+    ('FloatSignToBool', 'Value StoreIsPositive'),
+    ('RandomlyFlipFloat', 'storeResult'),
+    ('BoolAnyTrue', 'boolVariables sendEvent storeResult'),
+    ('Vector2Multiply', 'vector2Variable multiplyBy'),
+    ('Vector3Add', 'vector3Variable addVector perSecond'),
+    ('Vector3AddXYZ', 'vector3Variable addX addY addZ perSecond'),
+    ('SetVector2Value', 'vector2Variable vector2Value'),
+    ('RandomFloatV2', 'min max storeResult'),
+    ('FloatAddV2', 'floatVariable add perSecond activeBool'),
+    ('SetFloatValueV2', 'floatVariable floatValue activeBool'),
+    ('IntSwitch', 'intVariable compareTo sendEvent'),
+    ('FloatSwitch', 'floatVariable lessThan sendEvent'),
+    ('IntCompareToBool', 'integer1 integer2 equalBool lessThanBool greaterThanBool'),
+    ('GetSpeed2d', 'gameObject storeResult'),
+    ('ClampVelocity2D', 'gameObject xMin xMax yMin yMax'),
+    ('ClampSpeed', 'gameObject speedMin speedMax'),
+    ('SetHP', 'target hp'),
+    ('GetHP', 'target storeValue'),
+    ('MatchScaleSign', 'Target MatchTo'),
+    ('DestroySelf', 'detachChildren'),
+    ('GetDistanceV2', 'gameObject target targetOffsetX targetOffsetY storeResult'),
+    ('ChaseObjectVertical', 'gameObject target offset speedMax acceleration'),
+    ('IdleBuzzV2', 'gameObject waitMin waitMax speedMax accelerationMax roamingRangeX roamingRangeY'),
+    ('FaceObjectV3', 'ObjectA ObjectB SpriteFacesRight'),
+    ('TranslateRandom', 'gameObject translateMin translateMax'),
+    ('GetCurrentTk2dClipName', 'gameObject storeName'),
+    ('SendRandomEventV2', 'events weights'),
+    ('MultiplyGravity', 'gameObject multiplyBy'),
+    ('EnableFsmSelf', 'SetEnabled'),
     ('CheckHeroPerformanceRegion', 'Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange'),
     ('CheckHeroPerformanceRegionV2', 'Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter '
                                      'IgnoreNeedolinRange'),
@@ -674,7 +709,7 @@ def main():
             print(f'{sc}: {nf} FSMs, {st["kept"]} actions kept')
     skipped = sum(v for k, v in total.items() if k.startswith('skipped'))
     print(f'{total["kept"]} actions kept, {skipped} skipped')
-    for k, v in sorted(((k, v) for k, v in total.items() if k.startswith('skipped')), key=lambda x: -x[1])[:15]:
+    for k, v in sorted(((k, v) for k, v in total.items() if k.startswith('skipped')), key=lambda x: -x[1])[:int(os.environ.get("SKIPPED_TOP", "15"))]:
         print(f'  {v:6d} {k}')
 
 
