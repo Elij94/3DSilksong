@@ -49,7 +49,9 @@ OPS = [
     ('SetGameObject', 'variable gameObject'),
     ('GetOwner', 'storeGameObject'),
     ('FindChild', 'gameObject childName storeResult'),
+    ('FindNamedChild', 'gameObject childName storeResult'),
     ('GetParent', 'gameObject storeResult'),
+    ('SetParent', 'gameObject parent'),
     ('GameObjectIsNull', 'gameObject isNull isNotNull'),
     ('GameObjectCompare', 'gameObjectVariable compareTo equalEvent notEqualEvent'),
     ('ActivateGameObject', 'gameObject activate'),
@@ -205,9 +207,18 @@ def flatten(t, p):
         p['fn'] = fc.get('function') or ''
         v = fc.get('v')
         p['p_num'] = float(v) if isinstance(v, (int, float)) else float(fc.get('f') or 0)
+    elif t == 'FindNamedChild':
+        sr = p.get('storeResult')
+        p['childName'] = sr.get('var') if isinstance(sr, dict) else ''
     elif t == 'ScreenFader':
-        p['start_a'] = float((p.get('startColour') or {}).get('a', 0) or 0)
-        p['end_a'] = float((p.get('endColour') or {}).get('a', 0) or 0)
+        def alpha(c):
+            if isinstance(c, dict):
+                return float(c.get('a', 0) or 0)
+            if isinstance(c, list) and len(c) >= 4:
+                return float(c[3] or 0)
+            return 0.0
+        p['start_a'] = alpha(p.get('startColour'))
+        p['end_a'] = alpha(p.get('endColour'))
     return p
 
 T_NONE, T_FLOAT, T_INT, T_BOOL, T_STR, T_VAR, T_NODE, T_EVENT, T_VEC, T_LIST, T_TARGET = range(11)

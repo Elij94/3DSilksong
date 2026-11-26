@@ -1191,10 +1191,16 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
     case OP_EnumCompare: send_self(f, ARG(a_i(f, ARG(0)) == a_i(f, ARG(1)) ? 2 : 3)); return !ac->every;
     case OP_SetGameObject: set_node(f, ARG(0), a_node(f, ARG(1))); return !ac->every;
     case OP_GetOwner: set_node(f, ARG(0), f->owner); return true;
-    case OP_FindChild: set_node(f, ARG(2), find_child(a_node(f, ARG(0)), a_str(f, ARG(1)))); return true;
+    case OP_FindChild: case OP_FindNamedChild:
+        set_node(f, ARG(2), find_child(a_node(f, ARG(0)), a_str(f, ARG(1)))); return true;
     case OP_GetParent: {
         int nd = a_node(f, ARG(0));
         set_node(f, ARG(1), nd >= 0 ? s_nodes[nd].parent : N_NONE);
+        return true;
+    }
+    case OP_SetParent: {
+        int nd = a_node(f, ARG(0));
+        if (nd >= 0) s_nodes[nd].parent = (s16)a_node(f, ARG(1));
         return true;
     }
     case OP_GameObjectIsNull: send_self(f, ARG(a_node(f, ARG(0)) == N_NONE ? 1 : 2)); return !ac->every;
