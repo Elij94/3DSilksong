@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.0 — sharp picture, the game's framing, title screen and saves, real progression starts
+
+- The 800-pixel top screen works (citro2d's projection), and the scenery and sprites are converted for it: 28 pixels
+  a unit across, 14 down, shrunk with Lanczos; opaque tiles in RGB565, the rest RGBA4 dithered. Data 2.93 -> 2.30 GB.
+- The camera frames like the game (8.71 units above and below the centre).
+- The game's fonts (distance fields), the title screen from its Menu_Title scene, the menus in French, 4 save slots
+  (the old save becomes slot 1), options (music, sound volumes, language, debug info), the pause menu.
+- The bottom screen: the area's name (text/zones.txt); the debug info only with the option.
+- Abilities need their PlayerData flags as in the game (SD:/3ds/3dsilksong/allabilities gives them all, for tests);
+  buttons as the game's defaults (ZR dash, ZL Clawline, X Needolin).
+- Scripts can take Hornet over (control, animations, facing, health), fade the screen, listen to buttons, broadcast
+  events, tween objects; the Needolin, heard by the scripts in the game's regions.
+
 ## 0.12.0 — the sharp 800-pixel top screen, the game's bind, the bench without a stall
 
 - The top screen in the 800x240 mode on the New 3DS (twice the pixels across; no 3D): the render target is made at
