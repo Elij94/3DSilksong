@@ -191,6 +191,19 @@ OPS = [
     ('FlingObjectsFromGlobalPool', 'prefab spawnPoint position spawnMin spawnMax speedMin speedMax angleMin angleMax '
                                    'originVariationX originVariationY'),
     ('RecycleSelf', ''),
+    ('PlayParticleEmitter', 'gameObject emit'),
+    ('SetRotation', 'gameObject zAngle'),
+    ('EaseFloat', 'fromValue toValue floatVariable time delay easeType reverse finishEvent'),
+    ('Rotate', 'gameObject zAngle perSecond'),
+    ('FaceAngle', 'gameObject angleOffset'),
+    # sounds from the game's RandomAudioClipTable assets (enemy sounds, voices): their clips, one picked at random
+    ('PlayRandomAudioClipTable', 'clips SpawnPoint'),
+    ('PlayRandomAudioClipTableV2', 'clips SpawnPoint'),
+    ('AudioPlayRandomVoiceFromTable', 'clips gameObject'),
+    ('AudioPlayRandomVoiceFromTableV2', 'clips gameObject'),
+    ('PlayParticleEmitterInState', 'gameObject'),
+    ('StopParticleEmitter', 'gameObject'),
+    ('SetParticleEmission', 'gameObject emission'),
     ('RecycleObject', 'gameObject'),
     ('CheckHeroPerformanceRegion', 'Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange'),
     ('CheckHeroPerformanceRegionV2', 'Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter '
@@ -215,9 +228,38 @@ def prefab_of(v):
     return _PREFABS.get(v.get('guid'), '') if isinstance(v, dict) else ''
 
 
+_TABLES = {}
+
+
+def table_clips(ref):
+    """a RandomAudioClipTable asset -> its clips, as sound references"""
+    g = ref.get('guid') if isinstance(ref, dict) else None
+    if not g:
+        return []
+    if g not in _TABLES:
+        out = []
+        try:
+            from sscommon import guidmap, load_yaml_docs
+            pth = guidmap().get(g)
+            if pth and pth.endswith('.asset'):
+                for _, v in load_yaml_docs(pth).values():
+                    for c in v.get('clips') or []:
+                        cg = ((c or {}).get('Clip') or {}).get('guid')
+                        if cg:
+                            out.append({'go': 8300000, 'guid': cg})
+        except Exception:   # noqa: BLE001
+            out = []
+        _TABLES[g] = out[:12]
+    return _TABLES[g]
+
+
 def flatten(t, p):
     """the parameters some actions nest: a method's first argument, a message's name, a fade's alphas"""
     p = dict(p)
+    if t in ('PlayRandomAudioClipTable', 'PlayRandomAudioClipTableV2'):
+        p['clips'] = table_clips(p.get('Table'))
+    elif t in ('AudioPlayRandomVoiceFromTable', 'AudioPlayRandomVoiceFromTableV2'):
+        p['clips'] = table_clips(p.get('audioClipTable'))
     if t in ('SpawnObjectFromGlobalPool', 'CreateObject', 'SpawnObjectFromGlobalPoolDelay', 'FlingObjectsFromGlobalPool'):
         p['prefab'] = prefab_of(p.get('gameObject'))
     if t in ('CallMethodProper', 'HeroControllerMethods'):
@@ -412,7 +454,7 @@ def compile_room(romfs, scene, out_path):
                                             'SkinHeight', 'float1', 'float2', 'p_num', 'start_a', 'end_a',
                                             'duration', 'value1', 'value2', 'MinReactDelay', 'speedMin', 'speedMax',
                                             'angleMin', 'angleMax', 'originVariationX', 'originVariationY',
-                                            'delayMin', 'delayMax',
+                                            'delayMin', 'delayMax', 'zAngle', 'angleOffset', 'fromValue', 'toValue',
                                             'MaxReactDelay', 'Radius') and t not in (
                                                 'RandomInt', 'IntCompare', 'IntAdd') else None
                     b += val(v, vars_ix, kind)
@@ -483,8 +525,27 @@ def compile_room(romfs, scene, out_path):
                 b_st += struct.pack('<B', len(g))
                 for t in g:
                     b_st += struct.pack('<BHBBif', int(t[0]), S(t[1]), int(t[2]), int(t[3]), int(t[4]), float(t[5]))
-    out = b'SSFM' + struct.pack('<H', 7) + S.blob() + bytes(b_nodes) + struct.pack('<H', nf) + bytes(b_fsm) + bytes(b_dyn) + \
-        bytes(b_en) + bytes(b_st)
+    # the room's particle emitters (rooms/<Scene>.spt, in work/rooms/<Scene>.parts.json order) and their nodes: the
+    # node of the same name at the same place
+    b_pt = bytearray(struct.pack('<H', 0))
+    pp = os.path.join(WORK, 'rooms', scene + '.parts.json')
+    if os.path.exists(pp):
+        by_name = collections.defaultdict(list)
+        for row in tree:
+            by_name[row[1]].append(row)
+        pairs = []
+        for i, e in enumerate(json.load(open(pp))):
+            cands = by_name.get(e.get('name'), [])
+            if not cands:
+                continue
+            best = min(cands, key=lambda r: (r[3] - e['pos'][0]) ** 2 + (r[4] - e['pos'][1]) ** 2)
+            if (best[3] - e['pos'][0]) ** 2 + (best[4] - e['pos'][1]) ** 2 < 0.01 and best[0] in node_of:
+                pairs.append((i, node_of[best[0]]))
+        b_pt = bytearray(struct.pack('<H', len(pairs)))
+        for i, nd in pairs:
+            b_pt += struct.pack('<Hh', i, nd)
+    out = b'SSFM' + struct.pack('<H', 8) + S.blob() + bytes(b_nodes) + struct.pack('<H', nf) + bytes(b_fsm) + bytes(b_dyn) + \
+        bytes(b_en) + bytes(b_st) + bytes(b_pt)
     open(out_path, 'wb').write(out)
     return stats, nf
 

@@ -150,6 +150,26 @@ void sprite_draw(SpriteSet *s, int f, float x, float y, float scx, float scy, fl
     gfx_draw_world(&s->pages[fr->page].tex, u0, v0, u1, v1, x0, y0, x1, y1, par, tint);
 }
 
+void sprite_draw_rot(SpriteSet *s, int f, float x, float y, float scx, float scy, float par, float rot,
+                     const C2D_ImageTint *tint) {
+    if (rot == 0) { sprite_draw(s, f, x, y, scx, scy, par, tint); return; }
+    if (!s || f < 0 || f >= s->nframes) return;
+    const SFrame *fr = &s->frames[f];
+    if (fr->page >= s->npages || !page_ready(s, fr->page)) return;
+    float x0 = fr->x0 * scx, x1 = fr->x1 * scx, y0 = fr->y0 * scy, y1 = fr->y1 * scy;
+    float u0 = fr->u0, u1 = fr->u1, v0 = fr->v0, v1 = fr->v1;
+    if (x1 < x0) { float t = x0; x0 = x1; x1 = t; t = u0; u0 = u1; u1 = t; }
+    if (y1 < y0) { float t = y0; y0 = y1; y1 = t; t = v0; v0 = v1; v1 = t; }
+    // the quad's centre turned around the origin, in world units, then on screen
+    float a = rot * (float)M_PI / 180, ca = cosf(a), sa = sinf(a);
+    float mx = (x0 + x1) * 0.5f, my = (y0 + y1) * 0.5f;
+    float wx = x + mx * ca - my * sa, wy = y + mx * sa + my * ca;
+    const View *v = &g_view;
+    float sx = v->sw * 0.5f + (wx - v->cx) * par * v->sx, sy = v->sh * 0.5f - (wy - v->cy) * par * v->sy;
+    gfx_draw_screen_rot(&s->pages[fr->page].tex, u0, v0, u1, v1, sx, sy, (x1 - x0) * par * v->sx,
+                        (y1 - y0) * par * v->sy, -a, tint);
+}
+
 void sprite_draw_uv(SpriteSet *s, int page, float u0, float v0, float u1, float v1, float x0, float y0, float x1,
                     float y1, float par, const C2D_ImageTint *tint) {
     if (!s || page < 0 || page >= s->npages || !page_ready(s, page)) return;

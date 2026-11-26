@@ -48,6 +48,9 @@ void gfx_draw_world(C3D_Tex *tex, float u0, float v0, float u1, float v1,
 // the same on a screen rectangle (pixels, y down)
 // the depth images are drawn at (citro2d tests it): 0.5, more for what goes over the menus's shading
 extern float g_draw_depth;
+// a textured rectangle w x h centred on screen pixel (cx, cy), turned by angle (radians, clockwise on screen)
+void gfx_draw_screen_rot(C3D_Tex *tex, float u0, float v0, float u1, float v1, float cx, float cy, float w, float h,
+                         float angle, const C2D_ImageTint *tint);
 void gfx_draw_screen(C3D_Tex *tex, float u0, float v0, float u1, float v1, float l, float t, float r, float b,
                      const C2D_ImageTint *tint);
 // a plain rectangle in world units (debug, effects)

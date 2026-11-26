@@ -9,6 +9,13 @@ void particles_update(float dt);
 void particles_draw(float zmin, float zmax);
 // a one-off effect, fx/<name>.spt, at (x, y), z added to its depth, turned by angle (degrees)
 void particles_fx(const char *name, float x, float y, float z, float angle);
+// emitters the scripts drive: the room's emitter (file index) under a node; started (count 0) or count particles
+// out now; stopped. The game says whether a node is active and where it is.
+void particles_bind(int file_i, int node);
+void particles_play(int node, int count);
+void particles_stop(int node);
+extern bool (*particles_node_on)(int node);
+extern void (*particles_node_pos)(int node, float *x, float *y);
 int particles_count(void);
 int particles_emitters(void);
 void particles_debug(char *out, int n);

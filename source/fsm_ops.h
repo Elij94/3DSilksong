@@ -176,7 +176,19 @@
 #define OP_SpawnObjectFromGlobalPoolDelay 172   // prefab spawnPoint position rotation storeObject delayMin delayMax
 #define OP_FlingObjectsFromGlobalPool     173   // prefab spawnPoint position spawnMin spawnMax speedMin speedMax angleMin angleMax originVariationX originVariationY
 #define OP_RecycleSelf                    174   // 
-#define OP_RecycleObject                  175   // gameObject
-#define OP_CheckHeroPerformanceRegion     176   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_CheckHeroPerformanceRegionV2   177   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_COUNT 178
+#define OP_PlayParticleEmitter            175   // gameObject emit
+#define OP_SetRotation                    176   // gameObject zAngle
+#define OP_EaseFloat                      177   // fromValue toValue floatVariable time delay easeType reverse finishEvent
+#define OP_Rotate                         178   // gameObject zAngle perSecond
+#define OP_FaceAngle                      179   // gameObject angleOffset
+#define OP_PlayRandomAudioClipTable       180   // clips SpawnPoint
+#define OP_PlayRandomAudioClipTableV2     181   // clips SpawnPoint
+#define OP_AudioPlayRandomVoiceFromTable  182   // clips gameObject
+#define OP_AudioPlayRandomVoiceFromTableV2 183   // clips gameObject
+#define OP_PlayParticleEmitterInState     184   // gameObject
+#define OP_StopParticleEmitter            185   // gameObject
+#define OP_SetParticleEmission            186   // gameObject emission
+#define OP_RecycleObject                  187   // gameObject
+#define OP_CheckHeroPerformanceRegion     188   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_CheckHeroPerformanceRegionV2   189   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_COUNT 190

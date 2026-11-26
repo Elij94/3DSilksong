@@ -23,6 +23,7 @@ typedef struct {
     float flash;           // hit flash, seconds left
     s16 node;              // its node in the room's FSM hierarchy (fsm.c), -1 if none
     bool hidden;           // renderer off (an FSM)
+    float rot;             // turned by a script (SetRotation, Rotate, FaceAngle), degrees counter-clockwise
     bool nocoll;           // collider off (an FSM)
     bool nodamage;         // doesn't hurt Hornet (an FSM)
     // a hit and a kill, as the game does them (the .ssf's enemy table: fsm.c; effects: fx.c)

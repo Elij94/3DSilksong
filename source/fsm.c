@@ -503,6 +503,12 @@ static bool load_ssf(const u8 *data, size_t size, const char *scene, Objects *os
             }
         }
     }
+    // the room's particle emitters (their index in its .spt) and their nodes (version 8)
+    if (ver >= 8 && p + 2 <= data + size) {
+        int n = rd16(p); p += 2;
+        for (int i = 0; i < n && p + 4 <= data + size; i++, p += 4)
+            if (!pack) particles_bind(rd16(p), map_node(rds16(p + 2)));
+    }
 done:
     if (pack) {
         for (int i = 0; i < nstr; i++) free(str[i]);
@@ -1817,6 +1823,57 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         }
         return true;
     }
+    case OP_EaseFloat: {   // a float from one value to another over a time (iTween's curves, the common ones)
+        float t0 = a_none(f, ARG(4)) ? 0 : a_f(f, ARG(4)), dur = a_f(f, ARG(3));
+        if (enter) rt->t = 0; else rt->t += s_dt;
+        float k = dur > 0 ? (rt->t - t0) / dur : 1;
+        if (k < 0) return false;
+        if (k > 1) k = 1;
+        float e = k;
+        int type = a_i(f, ARG(5));
+        if (a_i(f, ARG(6))) e = 1 - e;
+        switch (type) {
+        case 0: e = e * e; break;
+        case 1: e = e * (2 - e); break;
+        case 2: e = e < 0.5f ? 2 * e * e : -1 + (4 - 2 * e) * e; break;
+        case 3: e = e * e * e; break;
+        case 4: e = 1 - (1 - e) * (1 - e) * (1 - e); break;
+        case 5: e = e < 0.5f ? 4 * e * e * e : 1 - powf(-2 * e + 2, 3) / 2; break;
+        case 12: e = 1 - cosf(e * (float)M_PI / 2); break;
+        case 13: e = sinf(e * (float)M_PI / 2); break;
+        case 14: e = -(cosf((float)M_PI * e) - 1) / 2; break;
+        case 15: e = e <= 0 ? 0 : powf(2, 10 * e - 10); break;
+        case 16: e = e >= 1 ? 1 : 1 - powf(2, -10 * e); break;
+        default: break;   // linear, and the rarer ones
+        }
+        float a = a_f(f, ARG(0)), b = a_f(f, ARG(1));
+        set_f(f, ARG(2), a + (b - a) * e);
+        if (k >= 1) { send_self(f, ARG(7)); return true; }
+        return false;
+    }
+    case OP_SetRotation: case OP_Rotate: {
+        Obj *o = node_obj(a_node(f, ARG(0)));
+        if (o && !a_none(f, ARG(1))) {
+            if (ac->op == OP_SetRotation) o->rot = a_f(f, ARG(1));
+            else o->rot += a_f(f, ARG(1)) * (a_i(f, ARG(2)) ? s_dt : 1);
+        }
+        return !ac->every;
+    }
+    case OP_FaceAngle: {   // turned to where it flies
+        int nd = a_node(f, ARG(0));
+        Obj *o = node_obj(nd);
+        if (o && nd >= 0 && (s_nodes[nd].vx != 0 || s_nodes[nd].vy != 0))
+            o->rot = atan2f(s_nodes[nd].vy, s_nodes[nd].vx) * 180 / (float)M_PI + a_f(f, ARG(1));
+        return !ac->every;
+    }
+    case OP_PlayParticleEmitter: particles_play(a_node(f, ARG(0)), a_i(f, ARG(1))); return true;
+    case OP_PlayParticleEmitterInState: particles_play(a_node(f, ARG(0)), 0); return true;
+    case OP_StopParticleEmitter: particles_stop(a_node(f, ARG(0))); return true;
+    case OP_SetParticleEmission: {
+        int nd = a_node(f, ARG(0));
+        if (a_i(f, ARG(1))) particles_play(nd, 0); else particles_stop(nd);
+        return true;
+    }
     case OP_RecycleSelf: recycle(f->owner); return true;
     case OP_RecycleObject: recycle(a_node(f, ARG(0))); return true;
     case OP_RandomFloatEither: set_f(f, ARG(2), (rand() & 1) ? a_f(f, ARG(0)) : a_f(f, ARG(1))); return true;
@@ -1883,6 +1940,12 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         play_sfx(f, ARG(0), a_none(f, ARG(1)) ? 1 : a_f(f, ARG(1)), a_node(f, ARG(2)));
         return true;
     case OP_AudioPlayRandom: play_sfx(f, pick(f, ARG(0), ARG(1)), 1, a_node(f, ARG(2))); return true;
+    case OP_PlayRandomAudioClipTable: case OP_PlayRandomAudioClipTableV2: case OP_AudioPlayRandomVoiceFromTable:
+    case OP_AudioPlayRandomVoiceFromTableV2: {
+        static const Val none = {0};
+        play_sfx(f, pick(f, ARG(0), &none), 1, a_node(f, ARG(1)));
+        return true;
+    }
     case OP_AudioPlayerOneShot:
         play_sfx(f, pick(f, ARG(0), ARG(1)), a_none(f, ARG(3)) ? 1 : a_f(f, ARG(3)), a_node(f, ARG(2)));
         return true;
@@ -2054,3 +2117,5 @@ void fsm_spawn_debug(char *out, int cap) {
             return;
         }
 }
+
+void fsm_node_pos(int node, float *x, float *y) { node_pos(node, x, y); }

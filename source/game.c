@@ -143,10 +143,12 @@ static bool enter(const char *scene) {
     g_fsm_fade = 0;   // a script's fade ends with its room
     if (!room_load(&s_room, scene)) return false;
     objects_load(&s_objs, scene);
+    particles_load(scene);           // before the scripts: they tie its emitters to their nodes
+    particles_node_on = fsm_node_active;
+    particles_node_pos = fsm_node_pos;
     fsm_load(scene, &s_objs);
     room_dyn_solid = fsm_solid;
     enemies_init(&s_objs, &s_room);
-    particles_load(scene);
     room_music(scene);
     s_norder = s_room.nlayers;
     s_order = malloc(sizeof(s16) * (s_norder + 1));

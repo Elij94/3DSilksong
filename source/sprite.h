@@ -55,6 +55,9 @@ void sprite_preload_clip(SpriteSet *s, const char *name);
 // draws frame f with its origin at world (x, y), scaled (negative = flipped)
 void sprite_draw(SpriteSet *s, int f, float x, float y, float scx, float scy, float par, const C2D_ImageTint *tint);
 
+// the same turned by rot degrees (counter-clockwise) around its origin
+void sprite_draw_rot(SpriteSet *s, int f, float x, float y, float scx, float scy, float par, float rot,
+                     const C2D_ImageTint *tint);
 // a region (u, v from the bottom) of one page on a world rectangle
 void sprite_draw_uv(SpriteSet *s, int page, float u0, float v0, float u1, float v1, float x0, float y0, float x1,
                     float y1, float par, const C2D_ImageTint *tint);

@@ -30,7 +30,15 @@ typedef struct {
     bool burst_done;
     int live;
     bool fx_done;          // an effect: its one cycle is over
+    // room emitters: on (emitting), ambient (on by itself), its node (fsm.c) and offset from it, the file's index
+    bool on, ambient, once;
+    s16 node;
+    float ox, oy;
+    s16 file_i;
 } Emitter;
+
+bool (*particles_node_on)(int node);                     // set by the game: is that node active
+void (*particles_node_pos)(int node, float *x, float *y);
 
 // one-off effects (a hit, a death: fx/<name>.spt, tools/build_fx.py): templates read once, then copies placed
 // where they happen; their particles use emitter numbers FX_BASE + slot
@@ -59,6 +67,7 @@ static SpriteSet *s_tex;
 static float frand(void) { return (float)rand() / (float)RAND_MAX; }
 static Emitter *em_at(int i) { return i >= FX_BASE ? &s_fx[i - FX_BASE] : &s_em[i]; }
 static bool parse(const u8 *p, Emitter *e, bool ambient);
+static void spawn(int ei);
 static float range(const float r[2]) { return r[0] + (r[1] - r[0]) * frand(); }
 
 static bool one_off(const char *name) {
@@ -89,9 +98,56 @@ void particles_load(const char *scene) {
     int n = rd16(d + 6);
     if (8 + (size_t)n * 208 > size) n = (size - 8) / 208;
     s_em = calloc(n + 1, sizeof(Emitter));
-    for (int i = 0; i < n; i++)
-        if (parse(d + 8 + i * 208, &s_em[s_nem], true)) s_nem++;
+    for (int i = 0; i < n; i++) {
+        Emitter *e = &s_em[s_nem];
+        if (parse(d + 8 + i * 208, e, true)) {
+            e->ambient = e->on = true;
+            e->node = -1; e->file_i = (s16)i;
+            s_nem++;
+        } else if (parse(d + 8 + i * 208, e, false)) {   // one a script plays (PlayParticleEmitter...)
+            char name[33];
+            rdstr(name, d + 8 + i * 208 + 176, 32);
+            e->ambient = false;
+            // playing on awake: on, once its node is active (a burst-like one waits for its script)
+            e->on = (e->flags & 4) && !one_off(name);
+            e->once = !(e->flags & 1);
+            e->node = -1; e->file_i = (s16)i;
+            s_nem++;
+        }
+    }
     free(d);
+}
+
+void particles_bind(int file_i, int node) {
+    for (int i = 0; i < s_nem; i++)
+        if (s_em[i].file_i == file_i) {
+            Emitter *e = &s_em[i];
+            e->node = (s16)node;
+            float x = 0, y = 0;
+            if (particles_node_pos) particles_node_pos(node, &x, &y);
+            e->ox = e->x - x; e->oy = e->y - y;
+        }
+}
+
+static bool under(int node, int top) {   // node is top or one of its children (the game: the system and its children)
+    (void)top;
+    return node == top;
+}
+
+void particles_play(int node, int count) {
+    for (int i = 0; i < s_nem; i++) {
+        Emitter *e = &s_em[i];
+        if (e->node < 0 || !under(e->node, node)) continue;
+        if (count > 0) { for (int k = 0; k < count && k < 24; k++) spawn(i); continue; }
+        e->on = true;
+        e->cyc = e->acc = 0;
+        e->burst_done = false;
+    }
+}
+
+void particles_stop(int node) {
+    for (int i = 0; i < s_nem; i++)
+        if (s_em[i].node >= 0 && under(s_em[i].node, node)) s_em[i].on = false;
 }
 
 // one emitter of a .spt; ambient: only the ones that loop and play on their own
@@ -246,9 +302,21 @@ void particles_update(float dt) {
     // emit, near the view only
     for (int ei = 0; ei < s_nem; ei++) {
         Emitter *e = &s_em[ei];
-        if (!near_view(e, 4)) continue;
+        if (e->node >= 0) {
+            if (particles_node_pos) {
+                float x, y;
+                particles_node_pos(e->node, &x, &y);
+                e->x = x + e->ox; e->y = y + e->oy;
+            }
+            if (particles_node_on && !particles_node_on(e->node)) continue;
+        }
+        if (!e->on || !near_view(e, 4)) continue;
         e->cyc += dt;
-        if (e->cyc >= e->duration) { e->cyc -= e->duration; e->burst_done = false; }
+        if (e->cyc >= e->duration) {
+            if (e->once && !e->ambient) { e->on = false; continue; }   // a one-shot system: one cycle
+            e->cyc -= e->duration;
+            e->burst_done = false;
+        }
         if (e->burst && !e->burst_done && e->cyc >= e->burst_t) {
             e->burst_done = true;
             for (int k = 0; k < e->burst && k < 16; k++) spawn(ei);

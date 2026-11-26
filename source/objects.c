@@ -156,7 +156,7 @@ void objects_draw(Objects *os, float zmin, float zmax) {
             C2D_PlainImageTint(&white, C2D_Color32(255, 255, 255, 255), clampf(k, 0, 1));
             tint = &white;
         } else if (o->flash > 0) tint = &white;
-        sprite_draw(o->anim.set, anim_frame(&o->anim), o->x, o->y, o->scx, o->scy, o->par, tint);
+        sprite_draw_rot(o->anim.set, anim_frame(&o->anim), o->x, o->y, o->scx, o->scy, o->par, o->rot, tint);
     }
 }
 

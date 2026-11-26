@@ -40,3 +40,4 @@ void pd_clear_semi(void);           // a bench rest
 int fsm_count(void);                // for the status screen
 int fsm_spawned(void);
 void fsm_spawn_debug(char *out, int cap);
+void fsm_node_pos(int node, float *x, float *y);

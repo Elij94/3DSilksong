@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.14.0 — projectiles, effects and summons; script-driven particles; enemy sounds
+
+- Spawned prefabs, as the game's global pool: tools/build_prefabs.py converts the 242 prefabs the scripts spawn
+  (projectiles, effects, summoned enemies) into packs the engine puts in the room with their objects, FSMs and
+  particles, and recycles. SpawnObjectFromGlobalPool (+Delay), CreateObject, FlingObjectsFromGlobalPool, RecycleSelf,
+  RecycleObject; projectiles hit walls (Trigger2dEventLayer on the terrain) and Hornet.
+- Particles the scripts drive: every emitter kept and tied to its node (format 8); PlayParticleEmitter,
+  StopParticleEmitter, SetParticleEmission, PlayParticleEmitterInState; emitters follow their objects and stop with them.
+- Enemy sounds and voices from the game's sound tables (PlayRandomAudioClipTable, AudioPlayRandomVoiceFromTable),
+  3,160 more sounds converted (tools/build_sfx_missing.py).
+- Objects turn (SetRotation, Rotate, FaceAngle: projectiles point where they fly); EaseFloat.
+- Hurting colliders follow their shape (a long spike strip no longer hurts on the floor beside it); objects switched
+  off in the scene get their sprites (enemies a script switches on were invisible).
+
 ## 0.13.0 — sharp picture, the game's framing, title screen and saves, real progression starts
 
 - The 800-pixel top screen works (citro2d's projection), and the scenery and sprites are converted for it: 28 pixels

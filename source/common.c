@@ -80,6 +80,15 @@ void gfx_draw_world(C3D_Tex *tex, float u0, float v0, float u1, float v1,
 
 float g_draw_depth = 0.5f;
 
+void gfx_draw_screen_rot(C3D_Tex *tex, float u0, float v0, float u1, float v1, float cx, float cy, float w, float h,
+                         float angle, const C2D_ImageTint *tint) {
+    // as gfx_draw_screen (the region upside down, turned half a turn), turned by angle (radians, screen: clockwise)
+    Tex3DS_SubTexture sub = {(u16)tex->width, (u16)tex->height, u1, 1.0f - v0, u0, 1.0f - v1};
+    C2D_Image img = {tex, &sub};
+    C2D_DrawParams p = {{cx, cy, w, h}, {w * 0.5f, h * 0.5f}, g_draw_depth, (float)M_PI + angle};
+    C2D_DrawImage(img, &p, tint);
+}
+
 void gfx_draw_screen(C3D_Tex *tex, float u0, float v0, float u1, float v1, float l, float t, float r, float b,
                      const C2D_ImageTint *tint) {
     const View *v = &g_view;
