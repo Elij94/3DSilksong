@@ -2,6 +2,7 @@
 // of game time from the start:
 //   <t0> <t1> KEY [KEY...]   hold these keys from t0 to t1 (A B X Y L R ZR UP DOWN LEFT RIGHT SELECT START)
 //   <t> warp <Scene> <x> <y> put Hornet there
+//   <t> warp <Scene>@<gate> 0 0   in by that gate (as from the next room)
 //   <t> quit                 save the log and leave
 //   <t> shot <name>          the top screen as it is shown (800 or 400 wide) into SD:/3ds/3dsilksong/<name>.ppm
 // Meanwhile SD:/3ds/3dsilksong/log.txt gets Hornet's state 20 times a second. Without the file nothing changes.

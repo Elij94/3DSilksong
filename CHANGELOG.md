@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.18.0 — the game's room entries, its down spike, its menus; the scenery cleaned up
+
+- Room entries as HeroController.EnterScene: walked in from the sides (0.33 s at run speed), dropped in from above,
+  thrown up from below (3 units over the gate, then 9.4 up and 8 across, falling on across until she lands: no more
+  falling back into the room she left), out of doors with Exit Door To Idle.
+- The down spike plays the Hunter crest's DownSlashEffect and its Downspike Burst, at their places by her.
+- Scenery: a sprite is drawn only within its mesh, as Unity does; the tightly packed atlases put other sprites inside
+  a sprite's rectangle, and those stray bits showed in most rooms (74 of Tut_01's 123 sprites). Items to pick up and
+  scripted critters (silk flies) are no longer baked as still pictures. Every room re-baked.
+- Title screen: the camera on the logo and framed as the game's (centred, the logo its size); the selection's fleurs
+  are the game's pointers; the port's version bottom left.
+- Profile screen as Silksong's: 4 cards side by side, each with its area's picture, masks, needle, rosaries, shards,
+  play time and area name, the fleurs and the selection arrows. Play time is counted (PlayerData playTime).
+- Tests: `warp <Scene>@<gate>` in autotest.txt enters a room by a gate.
+
 ## 0.17.0 — from the console test: scenery streaming, lights, menus, swimming, a test menu
 
 - Scenery streaming: a room's tile file is read into memory when it is entered (no card reads while walking), the

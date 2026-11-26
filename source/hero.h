@@ -47,6 +47,11 @@ typedef struct {
     float swim_top, swim_x0, swim_x1, swim_flow;   // HS_SWIM: the water's top, its sides, its flow
     bool swim_spa;
     int swim_loop;          // the swimming sound's voice, -1
+    // entering a room (HeroController.EnterScene): the buttons ignored, Left/Right held for her, up to enter_t, then
+    // (enter_land) until she lands; nograv_t: rising at nograv_v without gravity
+    float enter_t, nograv_t, nograv_v;
+    int enter_dir;
+    bool enter_land;
     bool queued_jump;
     // the abilities found later in the game, all unlocked here
     bool djump_used;        // Faydown Cloak: the double jump, once per jump
@@ -67,6 +72,10 @@ typedef struct {
     int needolin_loop;      // its sound's voice, -1 when none
     float sit_x0, sit_x1;   // the bench: from where she stood to the seat
     Anim body, fx, bsilk;  // bsilk: the bind silk round her
+    float fx_dx, fx_dy, fx_kx, fx_ky;   // the effect's place by her (facing left) and its scale (the attack objects')
+    Anim burst;             // the down spike's Downspike Burst, behind her
+    bool burst_on;
+    int burst_face;
     bool fx_on, silk_on;
     float silk_sx;          // the bind silk's mirroring (RandomlyFlipFloat)
     float flash_t;          // a white flash on her (flashFocusHeal, flashBenchRest)
@@ -82,6 +91,9 @@ typedef struct {
 
 bool hero_init(Hero *h);
 void hero_place(Hero *h, float x, float y, int face);
+// the game's scene entry: dir held for t seconds (then until landing if land), rising at up_v for up_t first
+void hero_enter(Hero *h, int dir, float t, bool land, float up_v, float up_t);
+void hero_door_exit(Hero *h);   // out of a door: Exit Door To Idle, then control
 // one frame of play; returns the attack's hit box through *box (x0,y0,x1,y1) when it can hit this frame
 bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]);
 void hero_pogo(Hero *h);          // a down attack connected: the bounce

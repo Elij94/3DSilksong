@@ -333,7 +333,57 @@ def sprite_image(guid, fileid):
     tro = rd.get('textureRectOffset') or {}
     x0 = (f(tro.get('x')) - f(pv.get('x')) * fw) / ppu
     y0 = (f(tro.get('y')) - f(pv.get('y')) * fh) / ppu
-    return crop, (x0, y0, x0 + crop.shape[1] / ppu, y0 + crop.shape[0] / ppu)
+    quad = (x0, y0, x0 + crop.shape[1] / ppu, y0 + crop.shape[0] / ppu)
+    tris = sprite_mesh(p)
+    if tris is not None and len(tris):
+        crop = mesh_masked(crop, quad, ppu, tris)
+    return crop, quad
+
+
+@__import__('functools').lru_cache(None)
+def sprite_mesh(path):
+    """a Sprite asset's mesh as triangles of local positions (units), or None: Unity draws only these (a tightly
+    packed atlas puts other sprites inside a sprite's rectangle). Read from the file's text (YAML would read the hex
+    index buffer as a number)."""
+    try:
+        txt = open(path, encoding='utf-8', errors='replace').read()
+    except OSError:
+        return None
+    mi = re.search(r'm_IndexBuffer: ([0-9a-fA-F]*)', txt)
+    mv = re.search(r'm_VertexCount: (\d+)', txt)
+    md = re.search(r'_typelessdata: ([0-9a-fA-F]*)', txt)
+    if not (mi and mv and md) or not mi.group(1) or not md.group(1):
+        return None
+    chans = [tuple(int(x) for x in c) for c in
+             re.findall(r'- stream: (\d+)\s+offset: (\d+)\s+format: (\d+)\s+dimension: (\d+)', txt)]
+    if not chans or chans[0][3] < 2 or chans[0][2] != 0 or chans[0][0] != 0:
+        return None
+    sizes = {0: 4, 1: 2, 2: 1, 3: 1, 4: 2, 5: 2, 6: 1, 7: 1, 8: 2, 9: 2, 10: 4, 11: 4}   # VertexFormat byte sizes
+    stride = sum(sizes.get(fm, 4) * d for st, _, fm, d in chans if st == 0 and d)
+    n = int(mv.group(1))
+    data = bytes.fromhex(md.group(1))
+    idx = np.frombuffer(bytes.fromhex(mi.group(1)), '<u2')
+    if stride <= 0 or n * stride > len(data) or len(idx) < 3 or idx.max() >= n:
+        return None
+    pos = np.array([struct.unpack_from('<2f', data, i * stride) for i in range(n)], np.float32)
+    return pos[idx[:len(idx) // 3 * 3]].reshape(-1, 3, 2)
+
+
+def mesh_masked(img, quad, ppu, tris):
+    """the image with what lies outside the sprite's mesh made transparent (a pixel of margin kept)"""
+    from PIL import ImageDraw, ImageFilter
+    h, w = img.shape[:2]
+    x0, y0, x1, y1 = quad
+    mask = Image.new('L', (w, h), 0)
+    d = ImageDraw.Draw(mask)
+    for t in tris:
+        d.polygon([((x - x0) * ppu, (y1 - y) * ppu) for x, y in t], fill=255)
+    m = np.asarray(mask.filter(ImageFilter.MaxFilter(3)))
+    if m.min() == 255:
+        return img
+    out = img.copy()
+    out[..., 3] = np.minimum(out[..., 3], m)
+    return out
 
 
 BLEND_NORMAL, BLEND_ADD, BLEND_MUL = 0, 1, 2
@@ -431,6 +481,12 @@ def hidden_at_start(sc, scripts):
             n = scripts.get((v.get('m_Script') or {}).get('guid'), '')
             if n == 'DeactivateIfPlayerdataFalse' and v.get('boolName'):
                 out.add(gid)
+            elif n == 'CollectableItemPickup':
+                out.add(gid)   # an item to pick up: not a still part of the scenery (picked up, it goes)
+            elif n == 'PlayFromRandomFrameMecanim' and any(
+                    scripts.get((w.get('m_Script') or {}).get('guid'), '') == 'PlayMaker' for t2, w in comps
+                    if t2 == 'MonoBehaviour'):
+                out.add(gid)   # a scripted animated critter (silk flies...): it moves, a still copy would hang there
             elif n == 'TestGameObjectActivator':
                 ok = _fresh_test((v.get('playerDataTest') or {}).get('TestGroups'))
                 off = (v.get('deactivateGameObject') if ok else v.get('activateGameObject')) or {}

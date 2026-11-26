@@ -36,6 +36,27 @@ def main():
     os.makedirs(os.path.join(out, 'text'), exist_ok=True)
     open(os.path.join(out, 'text', 'zones.txt'), 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
     print(f'{len(lines)} rooms with a map zone')
+    save_art(out, names)
+
+
+def save_art(out, names):
+    """the save slots' pictures (SaveSlotBackgrounds in Menu_Title: one sprite per MapZone, an Act 3 one) ->
+    text/save_art.txt, ZONE<TAB>sprite<TAB>act 3 sprite (or -): clips of ui/area_art.sss (tools/build_ui.py)"""
+    from build_room import Scene, find_scene
+    from sscommon import guidmap
+    sc = Scene(find_scene('Menu_Title'))
+    rows = []
+    for gid, comps in sc.comps.items():
+        for t, v in comps:
+            if t == 'MonoBehaviour' and 'areaBackgrounds' in v:
+                def nm(ref):
+                    p = guidmap().get((ref or {}).get('guid'))
+                    return os.path.splitext(os.path.basename(p))[0] if p else '-'
+                for i, b in enumerate(v['areaBackgrounds'] or []):
+                    if i in names and (b or {}).get('BackgroundImage', {}).get('guid'):
+                        rows.append(f"{names[i]}\t{nm(b.get('BackgroundImage'))}\t{nm(b.get('Act3BackgroundImage'))}")
+    open(os.path.join(out, 'text', 'save_art.txt'), 'w', encoding='utf-8', newline='\n').write('\n'.join(rows) + '\n')
+    print(f'{len(rows)} save slot pictures')
 
 
 if __name__ == '__main__':

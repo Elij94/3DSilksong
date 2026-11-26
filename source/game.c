@@ -177,22 +177,27 @@ static void place_at_entry(const char *entry) {
         hero_settle(h, &s_room, 6);
         return;
     }
-    float cx = g->x + g->w * 0.5f;
-    if (!strncmp(g->name, "left", 4)) {
-        hero_place(h, g->x + g->w + 1.0f, g->y - HERO_FOOT + 0.1f, 1);
+    // HeroController.EnterScene: the gate's position (its trigger's middle) and entry offset, then by its side:
+    // walked in from the sides (0.33 s at run speed), dropped in from above (-12, 0.33 s), thrown up from below
+    // (3 units over the gate, 9.4 up and 8 across for 0.1 s, then falling on across until she lands)
+    float cx = g->x + g->w * 0.5f + g->edx, cy = g->y + g->h * 0.5f + g->edy;
+    int face = g->enter_right ? 1 : g->enter_left ? -1 : 0;
+    if (!strncmp(g->name, "left", 4) || !strncmp(g->name, "right", 5)) {
+        int dir = !strncmp(g->name, "left", 4) ? 1 : -1;
+        hero_place(h, cx, cy - HERO_FOOT, dir);
         hero_settle(h, &s_room, g->h + 4);
-        h->vx = 0;
-    } else if (!strncmp(g->name, "right", 5)) {
-        hero_place(h, g->x - 1.0f, g->y - HERO_FOOT + 0.1f, -1);
-        hero_settle(h, &s_room, g->h + 4);
+        hero_enter(h, dir, 0.33f, false, 0, 0);
     } else if (!strncmp(g->name, "top", 3)) {
-        hero_place(h, cx, g->y - 2.2f, 0);   // falls in from above
+        hero_place(h, cx, cy, face);
+        h->vy = -12.0f;
+        hero_enter(h, 0, 0.33f, false, 0, 0);
     } else if (!strncmp(g->name, "bot", 3)) {
-        hero_place(h, cx, g->y + g->h - HERO_FOOT + 0.3f, 0);
-        h->vy = 22.0f;                        // jumps up into the room
-    } else {                                  // doors
-        hero_place(h, cx, g->y - HERO_FOOT + 0.1f, 0);
+        hero_place(h, cx, cy + 3.0f, face);
+        hero_enter(h, h->face, 0.1f, true, 9.4f, 0.1f);
+    } else {                                  // doors: out of it, the game's Exit Door To Idle
+        hero_place(h, cx, cy - HERO_FOOT + 0.1f, face);
         hero_settle(h, &s_room, 4);
+        hero_door_exit(h);
     }
     // whatever the gate, never inside the ground
     for (int i = 0; i < 40 && !hero_box_free(&s_room, h->x, h->y); i++) h->y += 0.25f;
@@ -324,7 +329,17 @@ static void list_rooms(void) {
 }
 
 // a slot's save: where Hornet was, her masks, the last bench, the PlayerData
+// the view's height in units (8.71 above and below the centre in play; the title's camera shows more)
+static void view_height(float half) {
+    View *v = &g_view;
+    v->sy = v->sh / (2 * half);
+    v->sx = v->sy * v->sw / 400.0f;
+    v->hw = v->sw * 0.5f / v->sx;
+    v->hh = v->sh * 0.5f / v->sy;
+}
+
 static bool load_slot(int slot) {
+    view_height(8.710664f);
     char scene[48] = FIRST_ROOM;
     float x = 0, y = 0;
     int hp = 0;
@@ -367,8 +382,10 @@ static void to_title(void) {
     s_menu = false;
     menu_open_title();
     if (room_exists(TITLE_ROOM) && enter(TITLE_ROOM)) {
-        g_view.cx = 18.6f;
-        g_view.cy = 9.2f;
+        // the menu's camera on the logo (LogoTitle, x 14.6), framed as the game shows it (the logo 41% of the width)
+        view_height(10.45f);
+        g_view.cx = 14.6f;
+        g_view.cy = 6.3f;
         room_preload_view(&s_room);
     }
     s_fade = 1;
@@ -420,6 +437,9 @@ static bool probe_enemy(float x0, float y0, float x1, float y1, int face, float 
 
 static void play(const Input *in_raw, float dt) {
     Hero *h = &s_hero;
+    static float secs;   // PlayerData playTime, in whole seconds (the save slots show it)
+    secs += dt;
+    if (secs >= 1) { pd_set_int("playTime", pd_int("playTime") + (int)secs); secs -= (int)secs; }
     // a dialogue open: it takes the buttons, Hornet stands
     Input none = {0}, *in = (Input *)in_raw;
     if (shop_active()) { shop_update(in_raw->down, in_raw->held, dt); in = &none; }
@@ -564,6 +584,14 @@ static void rooms_update(const Input *in) {
 }
 
 void game_warp(const char *scene, float x, float y) {
+    const char *at = strchr(scene, '@');   // "Scene@gate": in by that gate, as from the room next door
+    if (at) {
+        char sc[48];
+        snprintf(sc, sizeof sc, "%.*s", (int)(at - scene), scene);
+        go(sc, at + 1);
+        s_fade = 0;
+        return;
+    }
     if (strcmp(scene, s_room.scene)) go(scene, NULL);
     if (x == 0 && y == 0) { s_fade = 0; return; }   // 0 0: the room's own entry point
     hero_place(&s_hero, x, y, 1);
@@ -612,6 +640,7 @@ static void log_state(void) {
 bool game_quit(void) { return s_quit; }
 
 static void new_game(void) {
+    view_height(8.710664f);
     s_bench_scene[0] = 0;
     pd_clear();
     map_clear();

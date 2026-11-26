@@ -98,7 +98,9 @@ bool hero_init(Hero *h) {
             for (unsigned i = 0; i < sizeof warm / sizeof *warm; i++) sprite_preload_clip(s_set, warm[i]);
         }
     }
-    h->body.set = h->fx.set = h->bsilk.set = h->heal.set = s_set;
+    h->body.set = h->fx.set = h->bsilk.set = h->heal.set = h->burst.set = s_set;
+    h->burst.clip = -1;
+    h->burst_on = false;
     h->body.clip = h->fx.clip = h->bsilk.clip = h->heal.clip = -1;
     h->bind_loop = h->needolin_loop = -1;
     h->maxhp = h->hp = 5;
@@ -108,7 +110,25 @@ bool hero_init(Hero *h) {
     return s_set != NULL;
 }
 
+void hero_enter(Hero *h, int dir, float t, bool land, float up_v, float up_t) {
+    h->enter_dir = dir;
+    h->enter_t = t;
+    h->enter_land = land;
+    h->nograv_v = up_v;
+    h->nograv_t = up_t;
+    if (up_t > 0) h->vy = up_v;
+    if (dir) h->face = dir;
+}
+
+void hero_door_exit(Hero *h) {   // as HS_RESPAWN: the clip plays, then she is hers again
+    h->state = HS_RESPAWN;
+    h->st = 0;
+    anim_play_name(&h->body, "Exit Door To Idle", true);
+}
+
 void hero_place(Hero *h, float x, float y, int face) {
+    h->enter_t = h->nograv_t = 0;
+    h->enter_land = false;
     h->x = x; h->y = y;
     h->vx = h->vy = 0;
     if (face) h->face = face;
@@ -211,8 +231,10 @@ static void start_attack(Hero *h, int kind) {
     h->fx_kind = kind;
     h->atk_alt = !h->atk_alt;
     const char *b = "Slash", *f = "SlashEffect";
-    if (kind == ATK_SIDE && h->atk_alt) { b = "SlashAlt"; f = "SlashEffectAlt"; }
-    if (kind == ATK_UP) { b = "UpSlash"; f = "UpSlashEffect"; }
+    // the Hunter crest's attack objects (Attacks/Default): their places by her and their scales
+    h->fx_dx = -0.07f; h->fx_dy = 0; h->fx_kx = 0.9f; h->fx_ky = 1;
+    if (kind == ATK_SIDE && h->atk_alt) { b = "SlashAlt"; f = "SlashEffectAlt"; h->fx_dx = -0.1f; h->fx_dy = 0.03f; }
+    if (kind == ATK_UP) { b = "UpSlash"; f = "UpSlashEffect"; h->fx_dx = -0.04f; h->fx_dy = 0.19f; h->fx_kx = 1; h->fx_ky = 0.9f; }
     body(h, b, true);
     if (!anim_play_name(&h->fx, f, true)) h->fx_on = false;
     static const char *SW[] = {"hornet_sword_1", "hornet_sword_2", "hornet_sword_3", "hornet_sword_5"};
@@ -385,6 +407,14 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
     bool hit_frame = false;
     static const Input none = {0, 0, 0};
     if (h->ctrl_off) in = &none;   // a script holds her
+    static Input entering;
+    if (h->enter_t > 0 || h->enter_land) {   // coming into the room: the game walks or drops her in
+        entering.down = entering.up = 0;
+        entering.held = h->enter_dir > 0 ? KEY_RIGHT : h->enter_dir < 0 ? KEY_LEFT : 0;
+        in = &entering;
+        if (h->enter_t > 0) h->enter_t -= dt;
+        else if (h->ground || h->state != HS_NORMAL) h->enter_land = false;
+    }
     int dir = (in->held & KEY_RIGHT ? 1 : 0) - (in->held & KEY_LEFT ? 1 : 0);
     bool jump_down = in->down & KEY_B, jump_held = in->held & KEY_B;
     bool can_dash = has("hasDash");                    // Swift Step: the dash and the sprint
@@ -610,6 +640,12 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 h->atk_hit = false;
                 body(h, "DownSpike", true);
                 snd("hornet_sword_3");
+                // Downspike.StartSlash: its DownSlashEffect (Attacks/Default/DownSlash); the Downspike Burst behind
+                h->fx_dx = 0.69f; h->fx_dy = -0.37f; h->fx_kx = h->fx_ky = 1.2f;
+                h->fx_on = anim_play_name(&h->fx, "DownSlashEffect", true);
+                h->fx_kind = ATK_DOWN;
+                h->burst_on = anim_play_name(&h->burst, "DownSpike Burst", true);
+                h->burst_face = h->face;
             }
         } else {
             h->vx = h->face * SPIKE_V;
@@ -860,6 +896,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
                 h->air_sprint_t = -1;
                 body(h, "Double Jump", true);
                 snd("hornet_sprint_jump_first_spin");
+                h->fx_dx = h->fx_dy = 0; h->fx_kx = h->fx_ky = 1;
                 h->fx_on = anim_play_name(&h->fx, "Double Jump Wings 2", true);
             } else if (!h->floating && h->djump_t < 0 && has("hasBrolly")) {
                 // Drifter's Cloak: float down while B is held
@@ -955,7 +992,10 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         } else if (h->floating) {
             h->vy = FLOAT_V;
         } else if (h->jumping) h->vy = JUMP_V;
-        else {
+        else if (h->nograv_t > 0) {   // entering from below: up at a steady speed a moment
+            h->nograv_t -= dt;
+            h->vy = h->nograv_v;
+        } else {
             // a moment of floating at the top of the jump, as long as B is held
             if (!h->did_hang && !h->ground && h->vy < 0) { h->did_hang = true; h->grav = HANG_GRAV; }
             if (h->grav < 1) h->grav = jump_held ? fminf(1, h->grav + HANG_ACCEL * dt) : 1;
@@ -1126,6 +1166,10 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         anim_update(&h->fx, dt);
         if (h->fx.done) h->fx_on = false;
     }
+    if (h->burst_on) {   // DeactivateAfter2dtkAnimation, DeactivateOnParentScaleFlip
+        anim_update(&h->burst, dt);
+        if (h->burst.done || h->face != h->burst_face) h->burst_on = false;
+    }
     return hit_frame;
 }
 
@@ -1150,7 +1194,9 @@ void hero_draw(Hero *h) {
     if (h->heal_on)
         sprite_draw(h->heal.set, anim_frame(&h->heal), h->x + h->face * 0.25f, h->y + 0.17f, 1.845f * sx, 1.845f, 1,
                     NULL);
-    if (h->fx_on) {
-        sprite_draw(h->fx.set, anim_frame(&h->fx), h->x, h->y, sx, 1, 1, NULL);
-    }
+    if (h->fx_on)
+        sprite_draw(h->fx.set, anim_frame(&h->fx), h->x - h->face * h->fx_dx, h->y + h->fx_dy, sx * h->fx_kx, h->fx_ky, 1,
+                    NULL);
+    if (h->burst_on)
+        sprite_draw(h->burst.set, anim_frame(&h->burst), h->x - h->face * 2.39f, h->y + 2.19f, sx, 1, 1, NULL);
 }
