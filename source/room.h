@@ -11,7 +11,7 @@ typedef struct {
     u8 enter_left, enter_right;
 } Gate;
 
-enum { TRIG_RESPAWN = 1, TRIG_HAZARD = 2, TRIG_CAMLOCK = 3 };
+enum { TRIG_RESPAWN = 1, TRIG_HAZARD = 2, TRIG_CAMLOCK = 3, TRIG_MAPREGION = 4, TRIG_MAPSTART = 5 };
 
 typedef struct {
     u8 kind;

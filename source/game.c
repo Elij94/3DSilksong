@@ -16,6 +16,7 @@
 #include "fx.h"
 #include "currency.h"
 #include "menu.h"
+#include "map.h"
 #include "font.h"
 
 #define FIRST_ROOM "Tut_01"
@@ -144,6 +145,11 @@ static bool enter(const char *scene) {
     if (!room_load(&s_room, scene)) return false;
     objects_load(&s_objs, scene);
     particles_load(scene);           // before the scripts: they tie its emitters to their nodes
+    if (strncmp(scene, "Menu_", 5)) {
+        map_visit(scene);
+        for (int i = 0; i < s_room.ntrig; i++)
+            if (s_room.trig[i].kind == TRIG_MAPSTART) map_set_mapped(s_room.trig[i].name);
+    }
     particles_node_on = fsm_node_active;
     particles_node_pos = fsm_node_pos;
     fsm_load(scene, &s_objs);
@@ -292,6 +298,7 @@ void game_save(void) {
     fprintf(f, "%s %.3f %.3f %d\n", s_room.scene, s_safe_x, s_safe_y, s_hero.hp);
     fprintf(f, "bench %s %.3f %.3f\n", s_bench_scene[0] ? s_bench_scene : "-", s_bench_x, s_bench_y);
     pd_save(f);
+    map_save(f);
     fclose(f);
 }
 
@@ -322,6 +329,7 @@ static bool load_slot(int slot) {
     bool saved = false;
     s_bench_scene[0] = 0;
     pd_clear();
+    map_clear();
     FILE *f = fopen(menu_save_path(slot), "r");
     if (f) {
         saved = fscanf(f, "%47s %f %f %d", scene, &x, &y, &hp) >= 3;
@@ -330,7 +338,7 @@ static bool load_slot(int slot) {
             !room_exists(s_bench_scene))
             s_bench_scene[0] = 0;
         char line[128];
-        while (fgets(line, sizeof line, f)) pd_load_line(line);
+        while (fgets(line, sizeof line, f)) if (!map_load_line(line)) pd_load_line(line);
         fclose(f);
     }
     if (!saved || !room_exists(scene)) { strcpy(scene, FIRST_ROOM); saved = false; }
@@ -460,6 +468,11 @@ static void play(const Input *in_raw, float dt) {
     }
     if (h->ground && h->state == HS_NORMAL) { s_safe_x = h->x; s_safe_y = h->y; }
 
+    // the parts of the room on the map (MapSceneRegion): visited when she is in them
+    for (int i = 0; i < s_room.ntrig; i++) {
+        const Trigger *t = &s_room.trig[i];
+        if (t->kind == TRIG_MAPREGION && rects_overlap(x0, y0, x1 - x0, y1 - y0, t->x, t->y, t->w, t->h)) map_visit(t->name);
+    }
     // hazards (spikes, acid...) and falling out of the room
     bool hazard = h->y < s_room.gy - 4;
     for (int i = 0; i < s_room.ntrig && !hazard; i++) {
@@ -489,6 +502,7 @@ static void play(const Input *in_raw, float dt) {
                 hero_sit(h, o->rx + o->rw * 0.5f);
                 h->silk = SILK_MAX;   // a rest fills the spool
                 pd_clear_semi();      // and the enemies come back
+                map_bench_update();   // with the quill, the visited rooms of the areas she has the map of
                 h->hp = h->maxhp;
                 snprintf(s_bench_scene, sizeof s_bench_scene, "%s", s_room.scene);
                 s_bench_x = h->sit_x1;
@@ -591,6 +605,7 @@ bool game_quit(void) { return s_quit; }
 static void new_game(void) {
     s_bench_scene[0] = 0;
     pd_clear();
+    map_clear();
     s_fade = 1;
     hero_init(&s_hero);
     go(FIRST_ROOM, NULL);
@@ -926,6 +941,7 @@ void game_draw_bottom(void) {
         const char *z = menu_zone_name(s_room.scene);
         Font *f = font_get("trajanpro_bold_sdf");
         if (z[0]) font_draw(f, z, 160, 18, 16, C2D_Color32(220, 214, 200, 255), FONT_CENTER);
+        map_draw(s_room.scene);
     }
     g_view = save;
 }

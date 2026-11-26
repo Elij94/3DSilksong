@@ -232,6 +232,18 @@ def gather(sc, scripts):
             for r in hazard_rects(trig):
                 triggers.append(dict(kind='hazard', name=sc.name(gid), rect=r,
                                      damage=int(mv.get('damageDealt') or 1), hazard=int(mv.get('hazardType') or 0)))
+        if 'MapSceneRegion' in monos:
+            # a part of the room on the map (its own map piece): visited when Hornet enters its trigger
+            mv = monos['MapSceneRegion']
+            tc = sc.objs.get(((mv.get('trigger') or {}).get('fileID')))
+            tg = tc[1]['m_GameObject']['fileID'] if tc and isinstance(tc[1], dict) and 'm_GameObject' in tc[1] else gid
+            shapes = [s_ for t, v in sc.comps.get(tg, []) if t.endswith('Collider2D') for s_ in collider_shapes(sc, tg, t, v)]
+            if shapes and mv.get('sceneName'):
+                triggers.append(dict(kind='mapregion', name=str(mv['sceneName']), rect=rect_of(shapes)))
+        if 'SetMappedOnStart' in monos and monos['SetMappedOnStart'].get('sceneName'):
+            p_ = sc.world(gid)[:2, 3]
+            triggers.append(dict(kind='mapstart', name=str(monos['SetMappedOnStart']['sceneName']),
+                                 rect=[float(p_[0]), float(p_[1]), 0, 0]))
         if 'CameraLockArea' in monos and trig:
             mv = monos['CameraLockArea']
             triggers.append(dict(kind='camlock', name=sc.name(gid), rect=rect_of(trig),
@@ -708,7 +720,7 @@ def build(name, out, a, scripts, sorting, path=None, prefab=False):
     for g in gates:
         b += s(g['name'], 16) + s(g['target'], 32) + s(g['entry'], 16) + struct.pack('<6fBB2x', *g['rect'], *g['offset'],
                                                                                     g['enter_left'], g['enter_right'])
-    KIND = {'respawn': 1, 'hazard': 2, 'camlock': 3}
+    KIND = {'respawn': 1, 'hazard': 2, 'camlock': 3, 'mapregion': 4, 'mapstart': 5}
     for t in triggers:
         extra = t.get('cam') or [float(t.get('damage', 0)), float(t.get('hazard', 0)), 0, 0]
         b += struct.pack('<B3x4f4f', KIND[t['kind']], *t['rect'], *extra) + s(t['name'], 32)
@@ -760,7 +772,8 @@ def preview(info, grid, path, scale=6):
         x0, y0 = L['ox'], L['oy']
         tw = 256 / L['ppu']
         d.rectangle([X(x0), Y(y0), X(x0 + L['ntx'] * tw), Y(y0 - L['nty'] * tw)], outline=(150, 150, 255))
-    colors = {'hazard': (220, 40, 40), 'respawn': (40, 180, 40), 'camlock': (220, 200, 0)}
+    colors = {'hazard': (220, 40, 40), 'respawn': (40, 180, 40), 'camlock': (220, 200, 0), 'mapregion': (60, 120, 220),
+              'mapstart': (60, 120, 220)}
     for t in info['triggers']:
         x, y, w, h = t['rect']
         d.rectangle([X(x), Y(y + h), X(x + w), Y(y)], outline=colors[t['kind']], width=2)
