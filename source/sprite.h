@@ -15,6 +15,7 @@ typedef struct {
     float fps;
     u16 loop_start;
     u8 wrap;                // tk2d: 0 loop, 1 loop section, 2 once, 3 ping-pong, 4/5 random, 6 single
+    u8 trig;                // its first frame with a tk2d trigger event, + 1 (0: none)
     u16 n;
     const s16 *frames;      // into the file (little-endian s16, read with rds16)
 } SClip;

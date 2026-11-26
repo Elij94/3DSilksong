@@ -50,6 +50,7 @@ static SpriteSet *set_load(const char *rel) {
         c->fps = rdf(p + 32);
         c->loop_start = rd16(p + 36);
         c->wrap = p[38];
+        c->trig = p[39];
         c->n = rd16(p + 40);
         c->frames = (const s16 *)(p + 42);
         p += 42 + 2 * c->n;

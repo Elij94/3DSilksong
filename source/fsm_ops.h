@@ -197,6 +197,26 @@
 #define OP_ShopHasStockNotInfinite        193   // Target trueEvent falseEvent storeValue
 #define OP_ShopWasItemPurchased           194   // Target trueEvent falseEvent storeValue
 #define OP_PlayerDataVariableTest         195   // VariableName expect IsExpectedEvent IsNotExpectedEvent
-#define OP_CheckHeroPerformanceRegion     196   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_CheckHeroPerformanceRegionV2   197   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_COUNT 198
+#define OP_WalkLeftRight                  196   // gameObject walkSpeed spriteFacesLeft turnDelay wallLookAhead walkAnimName turnAnimName moveWhileTurning startLeft startRight keepDirection flipBeforeTurn
+#define OP_DistanceFlyV2                  197   // gameObject target distance speedMax acceleration targetsHeight height maxHeight stayLeft stayRight
+#define OP_CheckXPosition                 198   // gameObject compareTo compareToOffset tolerance equal equalBool lessThan lessThanBool greaterThan greaterThanBool space activeBool
+#define OP_CheckYPosition                 199   // gameObject compareTo compareToOffset tolerance equal lessThan greaterThan space activeBool
+#define OP_CheckPassedTarget              200   // Self Target IsActive DefaultFacingRight DistancePast StoreResult PassedEvent NotPassedEvent
+#define OP_SetVelocity2dBool              201   // gameObject activeBool vector x y
+#define OP_AddForce2d                     202   // gameObject forceMode vector x y vector3
+#define OP_ShoveFromWall                  203   // gameObject shoveForce rayLength checkUp checkDown checkLeft checkRight
+#define OP_Decelerate                     204   // gameObject deceleration
+#define OP_StopWalkerV2                   205   // Target
+#define OP_WaitBool                       206   // boolTest time finishEvent
+#define OP_BoolFlipEveryFrame             207   // boolVariable
+#define OP_SelectRandomString             208   // strings weights storeString
+#define OP_ConvertBoolToString            209   // boolVariable stringVariable falseString trueString
+#define OP_SetFsmGameObject               210   // gameObject fsmName variableName setValue
+#define OP_TimeLimitSetV2                 211   // TimeDelay StoreValue CanSet
+#define OP_TimeLimitCheck                 212   // storedValue aboveEvent belowEvent
+#define OP_TimeLimitCheckV2               213   // StoredValue AboveEvent BelowEvent StoreBool
+#define OP_AddHP                          214   // target amount healToMax
+#define OP_InstaDeath                     215   // target direction
+#define OP_CheckHeroPerformanceRegion     216   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_CheckHeroPerformanceRegionV2   217   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_COUNT 218

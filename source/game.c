@@ -630,6 +630,21 @@ static void log_state(void) {
                  o->anim.set && o->anim.clip >= 0 ? o->anim.set->clips[o->anim.clip].name : "-", o->dead ? " dead" : "");
         strncat(clip, e, sizeof clip - strlen(clip) - 1);
     }
+    static int every;   // once a second: every enemy (where, its clip, alive), to find the ones that misbehave
+    if (++every >= 20) {
+        every = 0;
+        for (int i = 0; i < s_objs.n; i++) {
+            const Obj *o = &s_objs.o[i];
+            if (!(o->flags & OF_ENEMY) && !(o->parent >= 0 && (s_objs.o[o->parent].flags & OF_ENEMY))) continue;
+            char m[160];
+            float nx = 0, ny = 0, vx = 0, vy = 0;
+            if (o->node >= 0) { fsm_node_pos(o->node, &nx, &ny); fsm_node_velocity(o->node, &vx, &vy, false); }
+            snprintf(m, sizeof m, "enemy %d %s at %.1f,%.1f v %.1f,%.1f %s%s%s%s hp=%d", i, o->name, o->x, o->y, vx, vy,
+                     o->anim.set && o->anim.clip >= 0 ? o->anim.set->clips[o->anim.clip].name : "-", o->anim.done ? " done" : "",
+                     o->dead ? " dead" : "", obj_alive(&s_objs, i) ? "" : " off", o->hp);
+            autotest_note(m);
+        }
+    }
     char pd[96];
     particles_debug(pd, sizeof pd);
     strncat(clip, " ", sizeof clip - strlen(clip) - 1);

@@ -117,6 +117,7 @@ static u16 s_ev_finished;
 static Delayed s_delayed[32];
 static int s_ndelayed;
 static float s_dt;
+static float s_clock;     // seconds since the engine started (Time.time)
 
 // ------------------------------------------------------------------ PlayerData
 
@@ -1003,6 +1004,18 @@ static void body_move(int node, float dx, float dy) {
             d -= st;
             node_box(node, &x0, &y0, &x1, &y1);
             bool hit = axis ? solid(x0 + 0.02f, y0 + st, x1 - 0.02f, y1 + st) : solid(x0 + st, y0 + 0.02f, x1 + st, y1 - 0.02f);
+            if (hit && !axis) {
+                // a slope or a seam in the floor: up over it as Unity's bodies slide along slopes (up to 0.3 units)
+                for (float up = 0.05f; up <= 0.3f + 1e-4f; up += 0.05f)
+                    if (!solid(x0 + st, y0 + 0.02f + up, x1 + st, y1 - 0.02f + up)) {
+                        float x, y;
+                        node_pos(node, &x, &y);
+                        node_set_pos(node, x, y + up);
+                        hit = false;
+                        break;
+                    }
+                if (!hit) { node_box(node, &x0, &y0, &x1, &y1); }
+            }
             if (hit) {
                 if (axis) { n->coll |= st < 0 ? 4 : 1; n->vy = 0; }       // 1 top, 2 right, 4 bottom, 8 left
                 else { n->coll |= st > 0 ? 2 : 8; n->vx = 0; }
@@ -1343,12 +1356,219 @@ static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) 
         }
         return true;
     }
-    case OP_StartWalker: case OP_StartWalkerV2: case OP_StopWalker: {
+    case OP_StartWalker: case OP_StartWalkerV2: case OP_StopWalker: case OP_StopWalkerV2: {
         Obj *o = node_obj(a_node(f, ARG(0)));
         if (o) {
-            o->walking = ac->op != OP_StopWalker;
+            o->walking = ac->op != OP_StopWalker && ac->op != OP_StopWalkerV2;
             if (ac->op == OP_StartWalker && !a_none(f, ARG(1))) o->dir = a_i(f, ARG(1)) ? 1 : -1;
             if (!o->walking && o->node >= 0) s_nodes[o->node].vx = 0;
+        }
+        return true;
+    }
+    case OP_WalkLeftRight: {
+        // the game's WalkLeftRight: along at walkSpeed the way it faces; on the ground, at most every turnDelay seconds,
+        // it turns at a wall ahead or where its floor ends (its turn clip played, standing or still moving)
+        int nd = a_node(f, ARG(0));
+        Obj *o = node_obj(nd);
+        if (nd < 0) return true;
+        Node *nn = &s_nodes[nd];
+        bool faces_left = a_i(f, ARG(2)) != 0, mwt = a_i(f, ARG(7)) != 0, fbt = a_i(f, ARG(11)) != 0;
+        float speed = a_f(f, ARG(1));
+        const char *walk = a_none(f, ARG(5)) ? "Walk" : str_at(a_str(f, ARG(5)));
+        if (!walk[0]) walk = "Walk";
+        const char *turn = a_none(f, ARG(6)) ? "" : str_at(a_str(f, ARG(6)));
+#define WLR_DIR() ((node_scale(nd) >= 0 ? 1 : -1) * (faces_left ? -1 : 1))
+        if (enter) {
+            rt->t = 0; rt->dur = 0; rt->done = 0; rt->x0 = 0;
+            int dir = WLR_DIR();
+            if (a_i(f, ARG(8))) { if (dir > 0) face_to(nd, false, !faces_left); }
+            else if (a_i(f, ARG(9))) { if (dir < 0) face_to(nd, true, !faces_left); }
+            else if (!a_i(f, ARG(10)) && frand(0, 1) < 0.5f) face_to(nd, dir < 0, !faces_left);
+            if (o && o->anim.set) anim_play_name(&o->anim, walk, true);
+        }
+        rt->t += s_dt;
+        if (rt->done) {   // turning: the turn clip's length, then (standing) the flip, and walking again
+            rt->x0 -= s_dt;
+            if (rt->x0 > 0) return false;
+            rt->done = 0;
+            if (!mwt && !fbt) { int dir = WLR_DIR(); face_to(nd, dir < 0, !faces_left); }
+            if (o && o->anim.set) anim_play_name(&o->anim, walk, true);
+        }
+        int dir = WLR_DIR();
+        nn->vx = speed * dir;
+        float x0, y0, x1, y1;
+        if (rt->t >= rt->dur && node_box(nd, &x0, &y0, &x1, &y1)) {
+            float cx = (x0 + x1) / 2, hw = (x1 - x0) / 2, oy = y0 + 0.5f;
+            bool grounded = ray(cx, oy, 0, -1, 1) >= 0;
+            if (grounded && (ray(cx, oy, dir, 0, hw + 0.1f + a_f(f, ARG(4))) >= 0 ||
+                             ray(cx + (hw + 0.1f) * dir, oy, 0, -1, 1) < 0)) {
+                rt->dur = rt->t + a_f(f, ARG(3));
+                int c = o && o->anim.set && turn[0] ? sprite_clip(o->anim.set, turn) : -1;
+                float len = c >= 0 ? o->anim.set->clips[c].n / fmaxf(1, o->anim.set->clips[c].fps) : 0;
+                if (mwt) {
+                    face_to(nd, dir < 0, !faces_left);
+                    nn->vx = -nn->vx;
+                } else {
+                    nn->vx = 0;
+                    if (fbt || c < 0) face_to(nd, dir < 0, !faces_left);
+                }
+                if (c >= 0) { anim_play(&o->anim, c, true); rt->x0 = len; rt->done = 1; }
+                else if (!mwt && !fbt) { /* flipped above */ }
+            }
+        }
+#undef WLR_DIR
+        return false;
+    }
+    case OP_DistanceFlyV2: {
+        // keeps its distance from the target: accelerates towards it when farther, away when nearer (each physics step)
+        int nd = a_node(f, ARG(0)), tg = a_node(f, ARG(1));
+        if (nd < 0 || tg == N_NONE) return false;
+        Node *nn = &s_nodes[nd];
+        float x, y, tx, ty;
+        node_pos(nd, &x, &y);
+        node_pos(tg, &tx, &ty);
+        float acc = a_f(f, ARG(4)) * s_dt * 50, sm = a_f(f, ARG(3));
+        bool th = a_i(f, ARG(5)) != 0, sl = a_i(f, ARG(8)) != 0, sr = a_i(f, ARG(9)) != 0;
+        int towards = hypotf(x - tx, y - ty) > a_f(f, ARG(2)) ? 1 : -1;
+        if (sl && !sr && x > tx + 1) nn->vx -= acc;
+        else if (sr && !sl && x < tx - 1) nn->vx += acc;
+        else nn->vx += (x < tx ? acc : -acc) * towards;
+        if (!th) nn->vy += (y < ty ? acc : -acc) * towards;
+        else {
+            float h = a_f(f, ARG(6)), mh = a_none(f, ARG(7)) ? 0 : a_f(f, ARG(7));
+            if (y > ty + h) nn->vy -= acc;
+            else if (mh != 0 && y > mh) nn->vy -= acc;
+            else if (y < ty + h) nn->vy += acc;
+        }
+        nn->vx = clampf(nn->vx, -sm, sm);
+        nn->vy = clampf(nn->vy, -sm, sm);
+        return false;
+    }
+    case OP_CheckXPosition: case OP_CheckYPosition: {
+        bool isx = ac->op == OP_CheckXPosition;
+        int base = isx ? 10 : 7;   // space, activeBool
+        if (!a_none(f, ARG(base + 1)) && !a_i(f, ARG(base + 1))) return !ac->every;
+        int nd = a_node(f, ARG(0));
+        float x, y;
+        node_pos(nd, &x, &y);
+        if (a_i(f, ARG(base)) == 1 && nd >= 0 && s_nodes[nd].parent >= 0) {
+            float px, py;
+            node_pos(s_nodes[nd].parent, &px, &py);
+            x -= px; y -= py;
+        }
+        float v = isx ? x : y, c = a_f(f, ARG(1)) + a_f(f, ARG(2));
+        int r = fabsf(v - c) <= a_f(f, ARG(3)) ? 0 : v < c ? 1 : 2;   // equal, less, greater
+        if (isx) {
+            set_i(f, ARG(5), r == 0);
+            set_i(f, ARG(7), r == 1);
+            set_i(f, ARG(9), r == 2);
+            send_self(f, ARG(r == 0 ? 4 : r == 1 ? 6 : 8));
+        } else send_self(f, ARG(4 + r));
+        return !ac->every;
+    }
+    case OP_CheckPassedTarget: {
+        if (!a_none(f, ARG(2)) && !a_i(f, ARG(2))) return !ac->every;
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return true;
+        float x, y, tx, ty;
+        node_pos(nd, &x, &y);
+        node_pos(a_node(f, ARG(1)), &tx, &ty);
+        bool pos = node_scale(nd) > 0;
+        if (!a_none(f, ARG(3)) && !a_i(f, ARG(3))) pos = !pos;
+        float lim = tx + a_f(f, ARG(4)) * (pos ? 1 : -1);
+        bool passed = pos ? x >= lim : x <= lim;
+        set_i(f, ARG(5), passed);
+        send_self(f, ARG(passed ? 6 : 7));
+        return !ac->every;
+    }
+    case OP_SetVelocity2dBool: {
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return true;
+        if (a_none(f, ARG(1)) || a_i(f, ARG(1))) {
+            const Val *vec = deref(f, ARG(2));
+            if (vec->t == T_VEC) { s_nodes[nd].vx = vec->f[0]; s_nodes[nd].vy = vec->f[1]; }
+            if (!a_none(f, ARG(3))) s_nodes[nd].vx = a_f(f, ARG(3));
+            if (!a_none(f, ARG(4))) s_nodes[nd].vy = a_f(f, ARG(4));
+        }
+        return !ac->every;
+    }
+    case OP_AddForce2d: {
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return true;
+        float fx = 0, fy = 0;
+        const Val *vec = deref(f, ARG(2)), *v3 = deref(f, ARG(5));
+        if (vec->t == T_VEC) { fx = vec->f[0]; fy = vec->f[1]; }
+        if (v3->t == T_VEC) { fx = v3->f[0]; fy = v3->f[1]; }
+        if (!a_none(f, ARG(3))) fx = a_f(f, ARG(3));
+        if (!a_none(f, ARG(4))) fy = a_f(f, ARG(4));
+        float k = a_i(f, ARG(1)) == 1 ? 1 : s_dt;   // ForceMode2D: Force (per second) or Impulse (at once); mass 1
+        s_nodes[nd].vx += fx * k;
+        s_nodes[nd].vy += fy * k;
+        return !ac->every;
+    }
+    case OP_ShoveFromWall: {
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return true;
+        float x, y, len = a_f(f, ARG(2)), sh = a_f(f, ARG(1)), fx = 0, fy = 0;
+        node_pos(nd, &x, &y);
+        bool u = a_i(f, ARG(3)) && ray(x, y, 0, 1, len) >= 0, d = a_i(f, ARG(4)) && ray(x, y, 0, -1, len) >= 0;
+        bool l = a_i(f, ARG(5)) && ray(x, y, -1, 0, len) >= 0, r = a_i(f, ARG(6)) && ray(x, y, 1, 0, len) >= 0;
+        if (u != d) fy = u ? -sh : sh;
+        if (l != r) fx = l ? sh : -sh;
+        s_nodes[nd].vx += fx * s_dt;
+        s_nodes[nd].vy += fy * s_dt;
+        return !ac->every;
+    }
+    case OP_Decelerate: {
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return true;
+        float k = a_f(f, ARG(1)) * s_dt * 50;
+        s_nodes[nd].vx = approachf(s_nodes[nd].vx, 0, k);
+        s_nodes[nd].vy = approachf(s_nodes[nd].vy, 0, k);
+        return false;
+    }
+    case OP_WaitBool: {
+        if (!a_i(f, ARG(0))) return true;
+        if (enter) rt->t = 0; else rt->t += s_dt;
+        if (rt->t >= a_f(f, ARG(1))) { send_self(f, ARG(2)); return true; }
+        return false;
+    }
+    case OP_BoolFlipEveryFrame: set_i(f, ARG(0), !a_i(f, ARG(0))); return !ac->every;
+    case OP_SelectRandomString: {
+        const Val *v = pick(f, ARG(0), ARG(1));
+        Val *dst = var_of(f, ARG(2));
+        if (dst && v->t != T_LIST) { dst->t = T_STR; dst->s = a_str(f, v); }
+        return true;
+    }
+    case OP_ConvertBoolToString: {
+        Val *dst = var_of(f, ARG(1));
+        if (dst) { dst->t = T_STR; dst->s = a_str(f, ARG(a_i(f, ARG(0)) ? 3 : 2)); }
+        return !ac->every;
+    }
+    case OP_SetFsmGameObject: {
+        Val *v = fsm_var(fsm_on(a_node(f, ARG(0)), a_str(f, ARG(1))), a_str(f, ARG(2)));
+        if (v) { v->t = T_NODE; v->node = a_node(f, ARG(3)); }
+        return !ac->every;
+    }
+    case OP_TimeLimitSetV2:
+        if (a_none(f, ARG(2)) || a_i(f, ARG(2))) set_f(f, ARG(1), s_clock + a_f(f, ARG(0)));
+        return !ac->every;
+    case OP_TimeLimitCheck: send_self(f, ARG(s_clock >= a_f(f, ARG(0)) ? 1 : 2)); return !ac->every;
+    case OP_TimeLimitCheckV2: {
+        bool above = s_clock >= a_f(f, ARG(0));
+        set_i(f, ARG(3), above);
+        send_self(f, ARG(above ? 1 : 2));
+        return above || !ac->every;
+    }
+    case OP_AddHP: { Obj *o = node_obj(a_node(f, ARG(0))); if (o && !o->dead) o->hp += a_i(f, ARG(1)); return true; }
+    case OP_InstaDeath: {
+        int nd = a_node(f, ARG(0));
+        Obj *o = node_obj(nd);
+        if (o && !o->dead && s_os) {
+            float x, y;
+            node_pos(nd, &x, &y);
+            o->hp = 0;
+            enemy_kill(s_os, (int)(o - s_os->o), x, a_f(f, ARG(1)) > 90 && a_f(f, ARG(1)) < 270 ? -1 : 1);
         }
         return true;
     }
@@ -1531,7 +1751,13 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
     }
     case OP_GetPosition: case OP_GetPosition2D: {
         float x, y;
-        node_pos(a_node(f, ARG(0)), &x, &y);
+        int nd = a_node(f, ARG(0));
+        node_pos(nd, &x, &y);
+        if (a_i(f, ARG(4)) == 1 && nd >= 0 && s_nodes[nd].parent >= 0) {   // Space.Self: relative to its parent
+            float px, py;
+            node_pos(s_nodes[nd].parent, &px, &py);
+            x -= px; y -= py;
+        }
         Val *v = var_of(f, ARG(1));
         if (v) { v->t = T_VEC; v->f[0] = x; v->f[1] = y; }
         set_f(f, ARG(2), x);
@@ -1663,6 +1889,13 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         }
         Obj *o = node_obj(nd);
         if (!o || !o->anim.set) { if (!enter || !play) { send_self(f, ARG(ce)); return true; } return false; }
+        if (enter) rt->done = 0;
+        // the clip's trigger frame (tk2d's frame events): its trigger event, once
+        int te = play ? 2 : 1;
+        if (!rt->done && ev_of(f, ARG(te)) >= 0 && o->anim.clip >= 0) {
+            const SClip *c = &o->anim.set->clips[o->anim.clip];
+            if (c->trig && (int)(o->anim.t * c->fps) >= c->trig - 1) { rt->done = 1; send_self(f, ARG(te)); }
+        }
         if (o->anim.done) { send_self(f, ARG(ce)); return true; }
         return false;
     }
@@ -2137,6 +2370,7 @@ static void settle(Fsm *f) {
 void fsm_update(float dt, Hero *h, Objects *os, const Room *r) {
     if (!s_nfsm && !s_nnodes) return;
     s_dt = dt;
+    s_clock += dt;
     s_hero = h;
     s_os = os;
     s_room = r;

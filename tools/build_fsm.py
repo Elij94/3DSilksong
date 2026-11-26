@@ -215,6 +215,29 @@ OPS = [
     ('ShopHasStockNotInfinite', 'Target trueEvent falseEvent storeValue'),
     ('ShopWasItemPurchased', 'Target trueEvent falseEvent storeValue'),
     ('PlayerDataVariableTest', 'VariableName expect IsExpectedEvent IsNotExpectedEvent'),
+    # enemy movement and logic (0.19)
+    ('WalkLeftRight', 'gameObject walkSpeed spriteFacesLeft turnDelay wallLookAhead walkAnimName turnAnimName '
+                      'moveWhileTurning startLeft startRight keepDirection flipBeforeTurn'),
+    ('DistanceFlyV2', 'gameObject target distance speedMax acceleration targetsHeight height maxHeight stayLeft stayRight'),
+    ('CheckXPosition', 'gameObject compareTo compareToOffset tolerance equal equalBool lessThan lessThanBool greaterThan '
+                       'greaterThanBool space activeBool'),
+    ('CheckYPosition', 'gameObject compareTo compareToOffset tolerance equal lessThan greaterThan space activeBool'),
+    ('CheckPassedTarget', 'Self Target IsActive DefaultFacingRight DistancePast StoreResult PassedEvent NotPassedEvent'),
+    ('SetVelocity2dBool', 'gameObject activeBool vector x y'),
+    ('AddForce2d', 'gameObject forceMode vector x y vector3'),
+    ('ShoveFromWall', 'gameObject shoveForce rayLength checkUp checkDown checkLeft checkRight'),
+    ('Decelerate', 'gameObject deceleration'),
+    ('StopWalkerV2', 'Target'),
+    ('WaitBool', 'boolTest time finishEvent'),
+    ('BoolFlipEveryFrame', 'boolVariable'),
+    ('SelectRandomString', 'strings weights storeString'),
+    ('ConvertBoolToString', 'boolVariable stringVariable falseString trueString'),
+    ('SetFsmGameObject', 'gameObject fsmName variableName setValue'),
+    ('TimeLimitSetV2', 'TimeDelay StoreValue CanSet'),
+    ('TimeLimitCheck', 'storedValue aboveEvent belowEvent'),
+    ('TimeLimitCheckV2', 'StoredValue AboveEvent BelowEvent StoreBool'),
+    ('AddHP', 'target amount healToMax'),
+    ('InstaDeath', 'target direction'),
     ('CheckHeroPerformanceRegion', 'Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange'),
     ('CheckHeroPerformanceRegionV2', 'Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter '
                                      'IgnoreNeedolinRange'),
@@ -414,6 +437,8 @@ def compile_room(romfs, scene, out_path):
             return b
         if isinstance(v, dict):
             if 'var' in v:
+                if v['var'] not in vars_ix and v['var'] == 'Hero':   # PlayMaker's global "Hero": Hornet
+                    return struct.pack('<Bh', T_NODE, N_HERO)
                 return struct.pack('<BH', T_VAR, vars_ix.get(v['var'], 0xFFFF))
             if v.get('owner'):
                 return struct.pack('<Bh', T_NODE, N_OWNER)

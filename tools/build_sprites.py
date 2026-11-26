@@ -102,7 +102,8 @@ def build(out, names, clips_wanted, scale, fmt, page):
             frames.append((seen[hsh], quad))
     if not frames:
         raise SystemExit('no frame could be cut (are the atlases in the export?)')
-    out_clips = {n: dict(fps=c['fps'], loop_start=c['loop_start'], wrap=c['wrap'], ids=[frame_of[k] for k in c['frames']])
+    out_clips = {n: dict(fps=c['fps'], loop_start=c['loop_start'], wrap=c['wrap'], trig=c.get('trig', -1),
+                         ids=[frame_of[k] for k in c['frames']])
                  for n, c in clips.items()}
     lost = sum(1 for v in frame_of.values() if v < 0)
     write_set(out, out_clips, frames, images, fmt, page, lost)
@@ -152,7 +153,8 @@ def write_set(out, clips, frames, images, fmt, page=512, lost=0):
         tables += struct.pack('<HH4f4f', p, 0, u0, v0, u1, v1, x0, y0, x1, y1)
     for cname, c in clips.items():
         ids = c['ids']
-        tables += s(cname, 32) + struct.pack('<fHBBH', c['fps'], c['loop_start'], c['wrap'], 0, len(ids))
+        tables += s(cname, 32) + struct.pack('<fHBBH', c['fps'], c['loop_start'], c['wrap'],
+                                                      c.get('trig', -1) + 1 if 0 <= c.get('trig', -1) < 254 else 0, len(ids))
         tables += struct.pack(f'<{len(ids)}h', *ids)
     blobs = [zlib.compress(ctrtex.encode(cv, fmt, True), 9) for cv in canv]
     page_table = b''.join(struct.pack('<HHBBxxII', page, page, fmt, 0, 0, len(bl)) for bl in blobs)
@@ -185,7 +187,7 @@ def from_objects(a):
             libs |= {x for x in (o.get('library'), (o.get('enemy') or {}).get('corpse_library')) if x}
     jobs = [(os.path.join(a.objects, 'sprites', safe(l) + '.sss'), l, a.scale, ctrtex.FORMATS[a.fmt], a.page)
             for l in sorted(libs)]
-    todo = [j for j in jobs if not os.path.exists(j[0])]
+    todo = [j for j in jobs if a.force or not os.path.exists(j[0])]
     print(f'{len(libs)} libraries used by the objects, {len(todo)} to convert')
     with ProcessPoolExecutor(max_workers=max(1, a.jobs)) as ex:
         errors = [e for e in ex.map(_one, todo) if e]
@@ -206,6 +208,7 @@ def main():
     ap.add_argument('--list', nargs='?', const='', metavar='PATTERN')
     ap.add_argument('--objects', metavar='OUT_DIR')
     ap.add_argument('--jobs', type=int, default=6)
+    ap.add_argument('--force', action='store_true', help='--objects: convert the sets already there too')
     a = ap.parse_args()
     a.scale = (a.scale, a.scale * a.aspect)
     if a.objects:

@@ -39,7 +39,9 @@ def load_library(path):
                 fr = [((x.get('spriteCollection') or {}).get('guid'), int(x.get('spriteId') or 0))
                       for x in (c.get('frames') or [])]
                 clips[c.get('name') or ''] = dict(fps=f(c.get('fps')) or 12.0, loop_start=int(c.get('loopStart') or 0),
-                                                  wrap=int(c.get('wrapMode') or 0), frames=fr)
+                                                  wrap=int(c.get('wrapMode') or 0), frames=fr,
+                                                  trig=next((i for i, x in enumerate(c.get('frames') or [])
+                                                             if int(x.get('triggerEvent') or 0)), -1))
             return clips
     return None
 
