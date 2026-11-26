@@ -13,5 +13,6 @@ void map_visit(const char *scene);           // a room entered, or a part of one
 void map_set_mapped(const char *scene);      // SetMappedOnStart
 // a bench rest: the visited rooms of the areas whose map she has become mapped (with the quill); true if any did
 bool map_bench_update(void);
+bool map_has_any(void);                      // PlayerData.HasAnyMap: an area's map bought
 // draws the current room's area into the bottom screen (320 x 240), under its name; false if there is nothing to show
 bool map_draw(const char *scene);

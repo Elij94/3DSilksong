@@ -45,7 +45,7 @@ Tools that convert **Hollow Knight: Silksong** into data for the **New 3DS / New
 `SD:/3ds/3dsilksong/` and start it from the Homebrew Launcher on a New 3DS. Music needs the DSP firmware dump,
 `SD:/3ds/dspfirm.cdc` (DSP1); without it the game runs silent.
 
-What it does (0.6.0):
+What it does (0.15.0):
 - **Rooms** (`room.c`): the collision grid, gates, hazards, respawn points and camera locks; the scenery layers with
   their parallax and blending, their tiles inflated (`inflate.c`, a zlib decoder of its own) and shrunk to what the
   screen shows of their layer, into a texture cache as the camera reaches them.
@@ -70,15 +70,22 @@ What it does (0.6.0):
 - **Music and sounds** (`audio.c`): each room's music and ambience (`music/rooms.txt`), streamed as PCM, with fades;
   the FSMs' sound effects on 8 more channels, by distance.
 - **Rosaries and shell shards** (`currency.c`): flung out of kills, picked up, counted in PlayerData.
-- **Game** (`game.c`): title screen, pause menu, camera, gates between rooms, the game's HUD at the game's size (bind
-  orb, masks, silk spool, counters),
-  benches as respawn points, the room menu (SELECT), saves in `SD:/3ds/3dsilksong/save.txt`.
+- **Game** (`game.c`, `menu.c`): the title screen from the game's Menu_Title scene, its menus in its own text and
+  fonts, 4 save slots (`SD:/3ds/3dsilksong/save<N>.txt`), options, the pause menu, the camera framing, gates between
+  rooms, the game's HUD at the game's size (bind orb, masks, silk spool, counters), benches.
+- **Spawned prefabs** (`fsm.c`, `tools/build_prefabs.py`): projectiles, effects and summons from the game's pool.
+- **Map** (`map.c`, `tools/build_map.py`): on the bottom screen once the area's map is bought, rooms mapped at a
+  bench with the quill, as the game's GameMap does; before that the area's name.
+- **Shops** (`shop.c`, `tools/build_shops.py`): the merchants' stocks, bought with rosaries or shards.
 
-Controls: pad or Circle Pad to move (and look up/down), B jump (in the air: double jump, then held: float), Y needle
-(up+Y, down+Y in the air), R/ZR dash (held on: sprint), L/ZL Clawline (down+L held: Silk Soar), A bind, Up for doors, benches and NPCs (A/B/Y: next line), SELECT room menu, START pause.
+Controls (the Switch version's): pad or Circle Pad to move (and look up/down), B jump, Y needle (up+Y, down+Y in
+the air), ZR dash (held on: sprint), ZL Clawline, X Needolin, A bind, Up for doors, benches, NPCs and shops (A: next
+line, buy; B: leave), START pause. Abilities come as the game gives them.
 
-Not there yet: projectiles and summons (SpawnObjectFromGlobalPool), bosses' special parts, items and the inventory,
-the map, hidden areas (shown from the start).
+Testing switches on the SD card, in `SD:/3ds/3dsilksong/`: `allabilities`, `allmaps`, `nowide`, `nofsm`,
+`autotest.txt` (scripted input, see `source/autotest.c`).
+
+Not there yet: the inventory, tools and crests, map pins and markers, bosses' special parts, cutscenes.
 
 ### Testing in an emulator
 
@@ -155,8 +162,9 @@ docs/          EXPLORATION.md (what the game holds), FORMATS.md (the files produ
 
 ## Known limits
 
-- The engine plays the rooms, but none of the game's scripts (see [The engine](#the-engine)): no NPCs, bosses, items
-  or abilities yet; hidden areas are shown from the start. Tested on a New 3DS and in Azahar.
+- The engine runs about 200 of the game's script actions (see [The engine](#the-engine)); the others are skipped.
+  Shop items that give tools or collectables are counted in PlayerData until those systems exist; the ones needing
+  another item or a quest are not offered yet. Tested on a New 3DS and in Azahar.
 - Cutscenes (videos) are not converted.
 - Particles: Unity's curves (speed, size, colour over lifetime) are reduced to their start and end values; the rarer
   modules (noise, collisions, sub-emitters, trails) are not read.

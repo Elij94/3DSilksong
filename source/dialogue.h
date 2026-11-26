@@ -6,6 +6,7 @@
 void dlg_init(void);                       // picks the language (French on a French console, else English)
 bool dlg_open(const char *sheet, const char *key, void (*done)(void *ctx), void *ctx);
 bool dlg_active(void);
+void dlg_on_line(void (*line)(void *ctx));   // after dlg_open: called as each page but the last is over
 void dlg_update(u32 keys_down);            // A, B or Y: next page
 void dlg_draw(void);                       // on the top screen, over the game
 void dlg_close(void);

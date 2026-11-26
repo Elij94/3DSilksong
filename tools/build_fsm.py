@@ -205,6 +205,16 @@ OPS = [
     ('StopParticleEmitter', 'gameObject'),
     ('SetParticleEmission', 'gameObject emission'),
     ('RecycleObject', 'gameObject'),
+    # RunFSM: a template's FSM run as a sub-FSM (expand_templates): its index, its inputs (name, value pairs)
+    ('RunFSM', 'sub inputs finishEvent'),
+    ('CheckQuestState', 'quest NotTrackedEvent TrackedEvent CompletedEvent'),
+    ('CheckTrackTriggerCount', 'target count test successEvent'),
+    # shops (source/shop.c): the shop menu object, its stock
+    ('GetShopObject', 'StoreObject Target'),
+    ('ShopHasStock', 'Target trueEvent falseEvent storeValue'),
+    ('ShopHasStockNotInfinite', 'Target trueEvent falseEvent storeValue'),
+    ('ShopWasItemPurchased', 'Target trueEvent falseEvent storeValue'),
+    ('PlayerDataVariableTest', 'VariableName expect IsExpectedEvent IsNotExpectedEvent'),
     ('CheckHeroPerformanceRegion', 'Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange'),
     ('CheckHeroPerformanceRegionV2', 'Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter '
                                      'IgnoreNeedolinRange'),
@@ -253,6 +263,12 @@ def table_clips(ref):
     return _TABLES[g]
 
 
+def quest_name(guid):
+    from sscommon import guidmap
+    path = guidmap().get(guid) if guid else None
+    return os.path.splitext(os.path.basename(path))[0] if path else ''
+
+
 def flatten(t, p):
     """the parameters some actions nest: a method's first argument, a message's name, a fade's alphas"""
     p = dict(p)
@@ -275,6 +291,17 @@ def flatten(t, p):
         p['fn'] = fc.get('function') or ''
         v = fc.get('v')
         p['p_num'] = float(v) if isinstance(v, (int, float)) else float(fc.get('f') or 0)
+    elif t == 'PlayerDataVariableTest':   # ExpectedValue: an FsmVar
+        p['expect'] = p.get('ExpectedValue')
+    elif t == 'RunFSM':
+        p['sub'] = int(p.get('_sub', -1))
+        ins = []
+        for k, v in ((p.get('fsmTemplateControl') or {}).get('inputs') or {}).items():
+            ins += [str(k), v]
+        p['inputs'] = ins
+    elif t == 'CheckQuestState':   # the quest asset's name
+        q = p.get('Quest') or {}
+        p['quest'] = quest_name(q.get('guid')) if isinstance(q, dict) else ''
     elif t == 'FindNamedChild':
         sr = p.get('storeResult')
         p['childName'] = sr.get('var') if isinstance(sr, dict) else ''
@@ -310,6 +337,44 @@ class Strings:
             e = s.encode('utf-8')[:255]
             b += struct.pack('<B', len(e)) + e
         return b
+
+
+_TEMPLATES = {}
+
+
+def expand_templates(romfs, fsms, stats):
+    """RunFSM: each template an FSM runs becomes one more FSM of the same owner, after the room's (its host's index
+    in '_host'; one per host and template), its action told which ('_sub'); the templates' own RunFSMs too"""
+    out = [dict(f) for f in fsms]
+    subs = {}
+    i = 0
+    while i < len(out) and len(out) < 4000:
+        f = out[i]
+        for st in f.get('states', []):
+            for a in st.get('actions', []):
+                if a.get('type', '').split('.')[-1] != 'RunFSM' or a.get('enabled') is False:
+                    continue
+                ctl = (a.get('params') or {}).get('fsmTemplateControl') or {}
+                g = ctl.get('template')
+                if not g:
+                    continue
+                if (i, g) not in subs:
+                    if g not in _TEMPLATES:
+                        tp = os.path.join(romfs, 'fsm', 'templates', g + '.json')
+                        _TEMPLATES[g] = open(tp, encoding='utf-8').read() if os.path.exists(tp) else None
+                    if _TEMPLATES[g] is None:
+                        stats['template missing'] += 1
+                        continue
+                    d = json.loads(_TEMPLATES[g])
+                    d['gid'] = f.get('gid')
+                    d['fsm'] = ctl.get('name') or d.get('fsm') or 'template'
+                    d['_host'] = i
+                    out.append(d)
+                    subs[(i, g)] = len(out) - 1
+                    stats['template FSMs'] += 1
+                a['params'] = dict(a.get('params') or {}, _sub=subs[(i, g)])
+        i += 1
+    return out
 
 
 def compile_room(romfs, scene, out_path):
@@ -352,6 +417,14 @@ def compile_room(romfs, scene, out_path):
                 return struct.pack('<BH', T_VAR, vars_ix.get(v['var'], 0xFFFF))
             if v.get('owner'):
                 return struct.pack('<Bh', T_NODE, N_OWNER)
+            if 'target' in v:          # FsmEventTarget (before 'go': it has one too)
+                g = v.get('go')
+                nd = N_OWNER if (g is None or (isinstance(g, dict) and g.get('owner'))) else \
+                    (node(g['go']) if isinstance(g, dict) and 'go' in g else N_NONE)
+                if isinstance(g, dict) and 'var' in g:   # the object in a variable: -16 - its index
+                    vi = vars_ix.get(g['var'])
+                    nd = -16 - vi if vi is not None and vi < 30000 else N_NONE
+                return struct.pack('<BBhH', T_TARGET, int(v.get('target') or 0), nd, S(v.get('fsmName') or ''))
             if 'go' in v:
                 if isinstance(v['go'], dict):    # FsmOwnerDefault around a reference
                     return val(v['go'], vars_ix)
@@ -360,11 +433,6 @@ def compile_room(romfs, scene, out_path):
                 return struct.pack('<Bh', T_NODE, node(v['go']))
             if 'event' in v:
                 return struct.pack('<BH', T_EVENT, S(v['event']))
-            if 'target' in v:          # FsmEventTarget
-                g = v.get('go')
-                nd = N_OWNER if (g is None or (isinstance(g, dict) and g.get('owner'))) else \
-                    (node(g['go']) if isinstance(g, dict) and 'go' in g else N_NONE)
-                return struct.pack('<BBhH', T_TARGET, int(v.get('target') or 0), nd, S(v.get('fsmName') or ''))
             if set(v) & {'x', 'y', 'z'} and set(v) <= {'x', 'y', 'z', 'w'}:
                 return struct.pack('<B3f', T_VEC, float(v.get('x', 0) or 0), float(v.get('y', 0) or 0),
                                    float(v.get('z', 0) or 0))
@@ -373,22 +441,23 @@ def compile_room(romfs, scene, out_path):
                 if t == '2': return struct.pack('<BB', T_BOOL, int(v.get('b') or 0))
                 if t == '1': return struct.pack('<Bi', T_INT, int(v.get('i') or 0))
                 if t == '0': return struct.pack('<Bf', T_FLOAT, float(v.get('f') or 0))
-                if t == '3': return struct.pack('<BH', T_STR, S(v.get('s')))
+                if t == '4': return struct.pack('<BH', T_STR, S(v.get('s')))   # VariableType.String
+                if t == '14': return struct.pack('<Bi', T_INT, int(v.get('i') or 0))   # Enum
         return struct.pack('<B', T_NONE)
 
     b_fsm = bytearray()
     nf = 0
+    kept = [f for f in fsms if node(f.get('gid')) >= 0]
+    stats['fsm without owner'] += len(fsms) - len(kept)
+    fsms = expand_templates(romfs, kept, stats)
     for f in fsms:
         owner = node(f.get('gid'))
-        if owner < 0:
-            stats['fsm without owner'] += 1
-            continue
         nf += 1
         var_names = list(f.get('variables', {}).keys())
         vars_ix = {n: i for i, n in enumerate(var_names)}
         states = f.get('states', [])
         st_ix = {s['name']: i for i, s in enumerate(states)}
-        b = struct.pack('<hHH', owner, S(f.get('fsm')), st_ix.get(f.get('start'), 0))
+        b = struct.pack('<hHHh', owner, S(f.get('fsm')), st_ix.get(f.get('start'), 0), f.get('_host', -1))
         b += struct.pack('<H', len(var_names))
         for n in var_names:
             v = f['variables'][n]
@@ -427,6 +496,10 @@ def compile_room(romfs, scene, out_path):
                 if a.get('enabled') is False:
                     continue
                 t = a.get('type', '').split('.')[-1]
+                if t == 'GetProperty' and ((a.get('params') or {}).get('targetProperty') or {}).get('property') == 'ShopObject':
+                    # ShopOwnerBase.ShopObject (the shop menu), into the variable the next actions send SHOP UP to
+                    acts.append(('GetShopObject', {'StoreObject': {'var': 'Shop Object'}, 'Target': {'owner': True}}))
+                    continue
                 if t not in OP_ID:
                     stats['skipped ' + t] += 1
                     continue
@@ -544,7 +617,7 @@ def compile_room(romfs, scene, out_path):
         b_pt = bytearray(struct.pack('<H', len(pairs)))
         for i, nd in pairs:
             b_pt += struct.pack('<Hh', i, nd)
-    out = b'SSFM' + struct.pack('<H', 8) + S.blob() + bytes(b_nodes) + struct.pack('<H', nf) + bytes(b_fsm) + bytes(b_dyn) + \
+    out = b'SSFM' + struct.pack('<H', 9) + S.blob() + bytes(b_nodes) + struct.pack('<H', nf) + bytes(b_fsm) + bytes(b_dyn) + \
         bytes(b_en) + bytes(b_st) + bytes(b_pt)
     open(out_path, 'wb').write(out)
     return stats, nf

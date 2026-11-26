@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.15.0 — the game's map on the bottom screen, shops
+
+- The map (tools/build_map.py, from the game's Game_Map_Hornet prefab): once an area's map is bought, the bottom
+  screen shows it, each room's rough outline, the rooms visited drawn in full once mapped (a bench rest with the
+  quill, as GameMap does); rooms map their parts as Hornet goes through them (MapSceneRegion, SetMappedOnStart).
+- Shops (tools/build_shops.py, source/shop.c): the stocks of the game's ShopOwners (31 merchants, 83 items), shown
+  over the top screen as the Shop Menu does: the items still for sale with their icons and prices, their names and
+  descriptions, the purchase confirmed; a purchase takes the rosaries or shards and sets the item's PlayerData (maps,
+  the quill, pins...). The scripts' GetShopObject / ShopObject, ShopHasStock, ShopWasItemPurchased, SHOP CLOSED and
+  SHOP NO STOCK; PlayerDataVariableTest, HasAnyMap, CanUpdateMap.
+- Scripts' events reach the right FSMs: the compiler took an event target for a plain object reference, so events
+  meant for other objects or for every FSM (broadcasts) went back to the sender; and those sent to an object held in
+  a variable (22,671 SendEventByName actions) reached nobody.
+- RunFSM (1,038 in the game): the template FSMs a script runs (fsm/templates) are compiled as sub-FSMs of the same
+  object (format 9), started with their inputs, finished by FinishFSM, stopped when their host leaves the state;
+  events to the host or the sub-FSM. CheckQuestState (no quest taken yet), CheckTrackTriggerCount, LINE_END between
+  a dialogue's lines. Shakra (the map seller) now places herself, talks, opens her shop.
+- The game's text is cached as it is asked for: the menus read a whole language file each frame (the shop fell to
+  5 fps).
+- The menus' own sounds were never converted (the engine plays them by name): tools/build_sfx_missing.py now converts
+  every sound the engine names. tools/build.sh gets its missing steps (prefabs, shops, sfx, zones).
+
 ## 0.14.0 — projectiles, effects and summons; script-driven particles; enemy sounds
 
 - Spawned prefabs, as the game's global pool: tools/build_prefabs.py converts the 242 prefabs the scripts spawn

@@ -189,6 +189,14 @@
 #define OP_StopParticleEmitter            185   // gameObject
 #define OP_SetParticleEmission            186   // gameObject emission
 #define OP_RecycleObject                  187   // gameObject
-#define OP_CheckHeroPerformanceRegion     188   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_CheckHeroPerformanceRegionV2   189   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_COUNT 190
+#define OP_RunFSM                         188   // sub inputs finishEvent
+#define OP_CheckQuestState                189   // quest NotTrackedEvent TrackedEvent CompletedEvent
+#define OP_CheckTrackTriggerCount         190   // target count test successEvent
+#define OP_GetShopObject                  191   // StoreObject Target
+#define OP_ShopHasStock                   192   // Target trueEvent falseEvent storeValue
+#define OP_ShopHasStockNotInfinite        193   // Target trueEvent falseEvent storeValue
+#define OP_ShopWasItemPurchased           194   // Target trueEvent falseEvent storeValue
+#define OP_PlayerDataVariableTest         195   // VariableName expect IsExpectedEvent IsNotExpectedEvent
+#define OP_CheckHeroPerformanceRegion     196   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_CheckHeroPerformanceRegionV2   197   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_COUNT 198

@@ -122,7 +122,12 @@ per shell shard sprite). `sprites/hud_spool.sss`: the spool's rod, cap and bind 
 
 A value is `u8 tag` then: 0 none; 1 `f32`; 2 `s32`; 3 `u8` bool; 4 `u16` string; 5 `u16` variable; 6 `s16` node
 (-2 the owner, -3 Hornet, -1 none); 7 `u16` event; 8 `f32 x, y, z`; 9 `u8 n` + n values; 10 event target: `u8 kind`
-(0 self, 1 the object's FSMs, 2 one of its FSMs, 4 all), `s16 node`, `u16 fsm name`.
+(0 self, 1 the object's FSMs, 2 one of its FSMs, 4 all, 5 the host FSM, 6 the sub-FSM), `s16 node` (-16 - i: the
+object in the FSM's variable i), `u16 fsm name`.
+
+Version 9 adds to each FSM, after its start state, `s16 host`: for a template's FSM (RunFSM, compiled after the
+others with the same owner), the index of the FSM that runs it in this file; -1 for the others. A RunFSM action's
+first parameter is the template FSM's index, its second the inputs (a list of name, value pairs).
 
 ## Hit and death effects: `fx/` (`tools/build_fx.py`)
 

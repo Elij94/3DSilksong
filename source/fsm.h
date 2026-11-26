@@ -41,3 +41,5 @@ int fsm_count(void);                // for the status screen
 int fsm_spawned(void);
 void fsm_spawn_debug(char *out, int cap);
 void fsm_node_pos(int node, float *x, float *y);
+// an event to every FSM (FsmEventTarget BroadcastAll, the event register): the shop's SHOP CLOSED...
+void fsm_broadcast(const char *ev);

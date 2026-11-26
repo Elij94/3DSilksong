@@ -115,7 +115,10 @@ static bool any_map(void) {
     return test_all();
 }
 
+bool map_has_any(void) { map_init(); return any_map(); }
+
 bool map_bench_update(void) {   // GameMap.UpdateGameMap (CanUpdateMap: the quill and a map)
+    map_init();
     if (!has_quill() || !any_map()) return false;
     bool any = false;
     for (int i = 0; i < s_visited.n; i++) {

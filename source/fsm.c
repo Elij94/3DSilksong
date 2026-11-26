@@ -11,11 +11,15 @@
 #include "room.h"
 #include "particles.h"
 #include "currency.h"
+#include "shop.h"
+#include "map.h"
 
 enum { T_NONE, T_FLOAT, T_INT, T_BOOL, T_STR, T_VAR, T_NODE, T_EVENT, T_VEC, T_LIST, T_TARGET };
 #define N_OWNER (-2)
 #define N_HERO  (-3)
 #define N_NONE  (-1)
+#define N_SHOP  (-4)    // the shop menu (GetShopObject)
+#define N_VAR0  (-16)   // event targets: -16 - i is the object in the FSM's variable i
 
 typedef struct Val {
     u8 t;
@@ -61,6 +65,10 @@ typedef struct {
     bool started, stopped, finished_sent;
     int maxact;
     ActRt *rt;
+    int host;              // a template's FSM (RunFSM): the FSM that runs it, -1 for the others
+    bool running;          // a template's FSM: started by its host's RunFSM, until it finishes or the host moves on
+    int sub;               // the template FSM this one runs (RunFSM in its state), -1
+    Val *vars0;            // the variables' first values (a template's FSM starts again from them)
 } Fsm;
 
 typedef struct {
@@ -133,7 +141,11 @@ void pd_clear(void) { s_npd = 0; }
 void pd_clear_semi(void) {   // a bench rest: the semi-persistent kills come back
     for (int i = 0; i < s_npd; i++) if (!strncmp(s_pd[i].name, "semi:", 5)) s_pd[i].v = 0;
 }
-bool pd_bool(const char *name) { PD *p = pd_find(name, false, 0); return p && p->v; }
+bool pd_bool(const char *name) {
+    // PlayerData's computed properties
+    if (!strcmp(name, "HasAnyMap")) return map_has_any();
+    if (!strcmp(name, "CanUpdateMap")) return pd_bool("hasQuill") && map_has_any();
+    PD *p = pd_find(name, false, 0); return p && p->v; }
 void pd_set_bool(const char *name, bool v) { if (name[0]) pd_find(name, true, 0)->v = v; }
 int pd_int(const char *name) { PD *p = pd_find(name, false, 1); return p ? p->v : 0; }
 void pd_set_int(const char *name, int v) { if (name[0]) pd_find(name, true, 1)->v = v; }
@@ -217,6 +229,7 @@ static void free_fsm(Fsm *f) {
     free(f->var_names);
     free(f->glob);
     free(f->rt);
+    free(f->vars0);
     memset(f, 0, sizeof *f);
 }
 
@@ -239,6 +252,15 @@ void fsm_free(void) {
 static int str_find(const char *s) {
     for (int i = 0; i < s_nstr; i++) if (!strcmp(s_str[i], s)) return i;
     return -1;
+}
+
+static char s_scene_name[48];   // the room scene, for its shops
+static void fsm_event(Fsm *f, int ev);
+
+void fsm_broadcast(const char *ev) {
+    int e = str_find(ev);
+    if (e >= 0)
+        for (int k = 0; k < s_nfsm; k++) fsm_event(&s_fsm[k], e);
 }
 
 // room for what the scripts spawn, kept past the room's own so nothing moves while a script runs
@@ -326,6 +348,9 @@ static bool load_ssf(const u8 *data, size_t size, const char *scene, Objects *os
         Fsm *f = &s_fsm[fbase + k];
         if (pack) free_fsm(f);
         f->owner = map_node(rds16(p)); f->name = map_s(rd16(p + 2)); f->start = rd16(p + 4); p += 6;
+        f->host = -1;
+        f->sub = -1;
+        if (ver >= 9) { int h = rds16(p); p += 2; f->host = h >= 0 ? fbase + h : -1; }
         f->nvars = rd16(p); p += 2;
         f->vars = calloc(f->nvars + 1, sizeof(Val));
         f->var_names = calloc(f->nvars + 1, sizeof(u16));
@@ -353,9 +378,15 @@ static bool load_ssf(const u8 *data, size_t size, const char *scene, Objects *os
                 ac->op = p[0]; ac->every = p[1]; ac->nargs = p[2]; p += 3;
                 ac->a = calloc(ac->nargs + 1, sizeof(Val));
                 for (int j = 0; j < ac->nargs; j++) p = rd_val(p, &ac->a[j]);
+                // RunFSM: its template FSM's index, in this file's FSMs
+                if (ac->op == OP_RunFSM && ac->nargs && ac->a[0].t == T_INT && ac->a[0].i >= 0) ac->a[0].i += fbase;
             }
         }
         f->rt = calloc(f->maxact + 1, sizeof(ActRt));
+        if (f->host >= 0) {
+            f->vars0 = malloc(sizeof(Val) * (f->nvars + 1));
+            if (f->vars0) memcpy(f->vars0, f->vars, sizeof(Val) * f->nvars);
+        }
         f->cur = -1;
         f->next = -1;
         // the "Hero" variables (set in the game by GetHero / FindGameObject at start)
@@ -525,6 +556,7 @@ done:
 
 void fsm_load(const char *scene, Objects *os) {
     fsm_free();
+    snprintf(s_scene_name, sizeof s_scene_name, "%s", scene);
     s_os = os;
     for (int i = 0; i < os->n; i++) os->o[i].node = -1;
     static int nofsm = -1;   // testing: SD:/3ds/3dsilksong/nofsm turns the FSMs off
@@ -808,7 +840,22 @@ static void node_event(int node, int fsm_name, int ev) {
 static void send_target(Fsm *f, const Val *target, int ev, float delay) {
     int kind = target->t == T_TARGET ? target->n : 0;
     int node = target->t == T_TARGET ? (target->node == N_OWNER ? f->owner : target->node) : f->owner;
+    if (target->t == T_TARGET && target->node <= N_VAR0) {   // the object in one of the FSM's variables
+        int vi = N_VAR0 - target->node;
+        const Val *v = vi < f->nvars ? &f->vars[vi] : NULL;
+        node = v && v->t == T_NODE ? (v->node == N_OWNER ? f->owner : v->node) : N_NONE;
+        if (node == N_SHOP) { if (kind == 1 && ev >= 0) shop_event(str_at(ev), f->owner); return; }
+    }
     int fname = target->t == T_TARGET && kind == 2 ? target->s : 0;
+    if (kind == 5 || kind == 6) {   // HostFSM: the FSM that runs this template's; SubFSMs: the one this runs
+        int k = kind == 5 ? f->host : f->sub;
+        if (k < 0 || k >= s_nfsm) return;
+        if (delay > 0 && s_ndelayed < 32) {
+            Delayed *d = &s_delayed[s_ndelayed++];
+            d->fsm = k; d->node = N_NONE; d->fsm_name = 0; d->ev = ev; d->t = delay;
+        } else fsm_event(&s_fsm[k], ev);
+        return;
+    }
     if (delay > 0 && s_ndelayed < 32) {
         Delayed *d = &s_delayed[s_ndelayed++];
         d->fsm = kind == 0 ? (int)(f - s_fsm) : -1;
@@ -900,6 +947,13 @@ static void convo_end(void *ctx) {
     if (ev == -2 || ev >= s_nstr) ev = str_find("CONVO_END");
     Fsm *f = ctx;
     if (f >= s_fsm && f < s_fsm + s_nfsm) { fsm_event(f, ev); settle_later(f); }
+}
+
+static void line_end(void *ctx) {   // DialogueBox: a line over (the conversation goes on)
+    static int ev = -2;
+    if (ev == -2 || ev >= s_nstr) ev = str_find("LINE_END");
+    Fsm *f = ctx;
+    if (ev >= 0 && f >= s_fsm && f < s_fsm + s_nfsm) fsm_event(f, ev);
 }
 
 // ------------------------------------------------------------------ enemies: physics and their actions
@@ -1641,6 +1695,84 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         rt->inside = in;
         return false;
     }
+    case OP_RunFSM: {   // the template's FSM from its start, with the inputs; done when it finishes (FinishFSM)
+        int si = a_i(f, ARG(0));
+        if (si < 0 || si >= s_nfsm || s_fsm[si].host != (int)(f - s_fsm)) return true;
+        Fsm *g = &s_fsm[si];
+        if (enter) {
+            if (g->vars0)
+                for (int i = 0; i < g->nvars; i++) {
+                    g->vars[i] = g->vars0[i];
+                }
+            const Val *in = ARG(1);
+            for (int i = 0; in->t == T_LIST && i + 1 < in->n; i += 2) {   // name, value
+                Val *v = fsm_var(g, in->list[i].s);
+                const Val *src = deref(f, &in->list[i + 1]);
+                if (v && src->t != T_LIST && src->t != T_NONE) *v = *src;
+            }
+            g->started = false;
+            g->stopped = false;
+            g->running = true;
+            g->cur = -1;
+            g->next = -1;
+            f->sub = si;
+            return false;
+        }
+        if (!g->stopped) return false;
+        g->running = false;
+        f->sub = -1;
+        if (!a_none(f, ARG(2))) { f->finished_sent = true; send_self(f, ARG(2)); }
+        return true;
+    }
+    case OP_CheckTrackTriggerCount: {   // TrackTriggerObjects: what is in the trigger (here, Hornet: 0 or 1)
+        int nd = a_node(f, ARG(0));
+        if (nd == N_NONE) nd = f->owner;
+        float x0, y0, x1, y1;
+        int c = s_hero && node_box(nd, &x0, &y0, &x1, &y1) &&
+                rects_overlap(s_hero->x - HERO_HW, s_hero->y + HERO_FOOT, 2 * HERO_HW, HERO_HEAD - HERO_FOOT,
+                              x0, y0, x1 - x0, y1 - y0) ? 1 : 0;
+        int want = a_i(f, ARG(1)), t = a_i(f, ARG(2));   // IntTest: = < > <= >=
+        bool ok = t == 0 ? c == want : t == 1 ? c < want : t == 2 ? c > want : t == 3 ? c <= want : c >= want;
+        if (ok) { send_self(f, ARG(3)); return true; }
+        return !ac->every;
+    }
+    case OP_CheckQuestState: {   // QuestManager: no quest taken yet unless PlayerData says ("quest:<name>" 1 taken, 2 done)
+        char k[72];
+        snprintf(k, sizeof k, "quest:%s", str_at(a_str(f, ARG(0))));
+        int q = pd_int(k);
+        send_self(f, ARG(q == 0 ? 1 : q == 2 && !a_none(f, ARG(3)) ? 3 : 2));
+        return true;
+    }
+    case OP_GetShopObject: {   // ShopOwnerBase.ShopObject: the shop menu, with this owner's stock
+        int nd = a_node(f, ARG(1));
+        shop_select(nd >= 0 && nd < s_nnodes ? shop_of(s_scene_name, str_at(s_nodes[nd].name)) : -1);
+        if (autotest_on()) {
+            char m[128];
+            snprintf(m, sizeof m, "shop object of %s in %s: %d", nd >= 0 ? str_at(s_nodes[nd].name) : "?", s_scene_name,
+                     nd >= 0 && nd < s_nnodes ? shop_of(s_scene_name, str_at(s_nodes[nd].name)) : -1);
+            autotest_note(m);
+        }
+        set_node(f, ARG(0), N_SHOP);
+        return true;
+    }
+    case OP_ShopHasStock: case OP_ShopHasStockNotInfinite: case OP_ShopWasItemPurchased: {
+        int nd = a_node(f, ARG(0));
+        int st = nd >= 0 && nd < s_nnodes ? shop_of(s_scene_name, str_at(s_nodes[nd].name)) : -1;
+        bool b = ac->op == OP_ShopWasItemPurchased ? shop_was_purchased()
+                                                   : shop_has_stock(st, ac->op == OP_ShopHasStockNotInfinite);
+        set_i(f, ARG(3), b);
+        send_self(f, ARG(b ? 1 : 2));
+        return true;
+    }
+    case OP_PlayerDataVariableTest: {
+        const char *nm = str_at(a_str(f, ARG(0)));
+        const Val *e = deref(f, ARG(1));
+        bool same = e->t == T_BOOL ? pd_bool(nm) == (e->i != 0)
+                  : e->t == T_FLOAT ? (float)pd_int(nm) == e->f[0]
+                  : e->t == T_INT ? pd_int(nm) == e->i : false;   // strings: not kept in PlayerData here
+        send_self(f, ARG(same ? 2 : 3));
+        return true;
+    }
     case OP_PlayerDataBoolTest: send_self(f, ARG(pd_bool(str_at(a_str(f, ARG(0)))) ? 1 : 2)); return true;
     case OP_SetPlayerDataBool: pd_set_bool(str_at(a_str(f, ARG(0))), a_i(f, ARG(1)) != 0); return true;
     case OP_GetPlayerDataBool: set_i(f, ARG(1), pd_bool(str_at(a_str(f, ARG(0))))); return !ac->every;
@@ -1951,7 +2083,11 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         return true;
     case OP_RunDialogue: case OP_RunDialogueV2: case OP_RunDialogueV3: case OP_RunDialogueV4:
         // the text box; the FSM gets CONVO_END when it closes
-        if (enter) { dlg_open(str_at(a_str(f, ARG(0))), str_at(a_str(f, ARG(1))), convo_end, f); return false; }
+        if (enter) {
+            dlg_open(str_at(a_str(f, ARG(0))), str_at(a_str(f, ARG(1))), convo_end, f);
+            dlg_on_line(line_end);
+            return false;
+        }
         return !dlg_active();
     default: {
         bool handled;
@@ -1968,6 +2104,11 @@ static void enter_state(Fsm *f, int s) {
         snprintf(msg, sizeof msg, "fsm %s/%s -> %s", str_at(s_nodes[f->owner].name), str_at(f->name),
                  str_at(f->states[s].name));
         autotest_note(msg);
+    }
+    if (f->sub >= 0 && f->sub < s_nfsm) {   // RunFSM's FSM stops when its state is left
+        s_fsm[f->sub].running = false;
+        s_fsm[f->sub].stopped = true;
+        f->sub = -1;
     }
     f->cur = s;
     f->finished_sent = false;
@@ -2013,7 +2154,7 @@ void fsm_update(float dt, Hero *h, Objects *os, const Room *r) {
     spawn_update(dt);
     for (int k = 0; k < s_nfsm; k++) {
         Fsm *f = &s_fsm[k];
-        if (f->stopped || !fsm_node_active(f->owner)) continue;
+        if (f->stopped || !fsm_node_active(f->owner) || (f->host >= 0 && !f->running)) continue;
         if (!f->started) { f->started = true; f->next = f->start < f->nstates ? f->start : -1; settle(f); continue; }
         if (f->cur < 0) continue;
         State *st = &f->states[f->cur];

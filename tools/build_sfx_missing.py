@@ -36,6 +36,18 @@ def main():
     want = set()
     for p in glob.glob(os.path.join(a.out, 'fsm', '*.json')):
         refs(json.load(open(p, encoding='utf-8')), want)
+    # the sounds the engine plays by name (sfx_play_name("..."), the shop's: source/shop.c), from the export's clips
+    src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'source')
+    named = set()
+    for c in glob.glob(os.path.join(src_dir, '*.c')):
+        named |= set(re.findall(r'sfx_(?:play|loop)_name\(\s*"([A-Za-z0-9_ ]+)"', open(c, encoding='utf-8').read()))
+    by_name = {}
+    for g, src in gm.items():
+        if src.lower().endswith(('.ogg', '.wav')):
+            by_name.setdefault(os.path.splitext(os.path.basename(src))[0], g)
+    for n in sorted(named):
+        if n in by_name and not os.path.exists(os.path.join(a.out, 'sfx', n + '.pcm')):
+            want.add(by_name[n])
     idx_path = os.path.join(a.out, 'sfx', 'index.txt')
     have = {l.split('\t')[0] for l in open(idx_path, encoding='utf-8')} if os.path.exists(idx_path) else set()
     todo = []

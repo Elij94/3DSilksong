@@ -18,6 +18,7 @@
 #include "menu.h"
 #include "map.h"
 #include "font.h"
+#include "shop.h"
 
 #define FIRST_ROOM "Tut_01"
 #define OLD_SAVE   "sdmc:" SS_DATADIR "save.txt"   // before the 4 slots: becomes slot 1
@@ -418,7 +419,8 @@ static void play(const Input *in_raw, float dt) {
     Hero *h = &s_hero;
     // a dialogue open: it takes the buttons, Hornet stands
     Input none = {0}, *in = (Input *)in_raw;
-    if (dlg_active()) { dlg_update(in_raw->down); in = &none; }
+    if (shop_active()) { shop_update(in_raw->down, in_raw->held, dt); in = &none; }
+    else if (dlg_active()) { dlg_update(in_raw->down); in = &none; }
     else if ((in_raw->down & KEY_UP) && h->ground && h->state == HS_NORMAL &&
              fsm_interact(h->x - HERO_HW, h->y + HERO_FOOT, h->x + HERO_HW, h->y + HERO_HEAD)) in = &none;
     float box[4];
@@ -428,7 +430,8 @@ static void play(const Input *in_raw, float dt) {
     g_where = "objects/enemies";
     objects_update(&s_objs, dt);
     g_where = "fsm_update";
-    fsm_input(in_raw->down, in_raw->held, in_raw->up);
+    if (shop_active()) fsm_input(0, 0, 0);   // the shop menu has the buttons
+    else fsm_input(in_raw->down, in_raw->held, in_raw->up);
     fsm_update(dt, h, &s_objs, &s_room);
     g_where = "play";
     enemies_update(&s_objs, &s_room, h->x, h->y - 0.6f, dt);
@@ -650,9 +653,9 @@ void game_update(const Input *in, float dt) {
         else if (m == MA_TO_TITLE) { game_save(); to_title(); }
         return;
     }
-    if ((in->down & KEY_START) && !s_menu) { s_mode = GS_PAUSE; menu_open_pause(); return; }
+    if ((in->down & KEY_START) && !s_menu && !shop_active()) { s_mode = GS_PAUSE; menu_open_pause(); return; }
     if (s_msg_t > 0) s_msg_t -= dt;
-    if ((in->down & KEY_SELECT) && (menu_debug() || s_menu)) s_menu = !s_menu;
+    if ((in->down & KEY_SELECT) && (menu_debug() || s_menu) && !shop_active()) s_menu = !s_menu;
     if (s_menu) { rooms_update(in); return; }
     if (s_trans.active) {
         s_trans.t += dt;
@@ -886,6 +889,7 @@ static void draw_all(void) {
     gfx_blend(BLEND_NORMAL);
     if (s_mode != GS_TITLE) draw_hud();
     dlg_draw();
+    shop_draw();
     if (s_bench_prompt && s_mode == GS_PLAY) {   // a small arrow over Hornet: Up to sit
         float px = g_view.sw * 0.5f + (s_hero.x - g_view.cx) * g_view.sx;
         float py = g_view.sh * 0.5f - (s_hero.y + 1.9f - g_view.cy) * g_view.sy;

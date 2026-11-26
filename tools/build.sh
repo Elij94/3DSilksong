@@ -15,7 +15,7 @@
 # again carries on from the step that failed. The converted data goes to romfs/, then 3dsilksong.romfs.
 set -o pipefail
 TOP=$(cd "$(dirname "$0")/.." && pwd); T=$TOP/tools; W=$TOP/work; R=$TOP/romfs
-STEPS="check inventory export index rooms fsm sprites items map particles ui fonts music text data compile"
+STEPS="check inventory export index rooms prefabs fsm sprites items map shops particles ui fonts music sfx text zones data compile"
 ONLY=""; FROM=""; ROOMS=$T/data/all_rooms.txt
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -55,6 +55,7 @@ step_rooms() {
   echo "rooms: $ok of $(grep -v '^\s*#' "$ROOMS" | grep -c .) converted" \
     "$([ -s "$W/rooms_failed.txt" ] && echo "(failed: $(sort -u "$W/rooms_failed.txt" | tr '\n' ' '))")"
 }
+step_prefabs()   { (cd "$T" && $PY build_prefabs.py "$R" --jobs "${JOBS:-6}"); }   # what the scripts spawn (rooms/pf_*)
 step_fsm()       { (cd "$T" && $PY build_fsm.py "$R"); }   # the rooms' FSMs for the engine (rooms/*.ssf)
 step_sprites() {
   # tools/data/sprites.txt: one set per line, "<file>|<library>[+<library>...]|<clips, or empty for all>"
@@ -65,6 +66,7 @@ step_sprites() {
   (cd "$T" && $PY build_sprites.py --objects "$R" --jobs "${JOBS:-6}")
 }
 step_map()       { (cd "$T" && $PY build_map.py "$R"); }      # the game's map (ui/map_<zone>.sss, text/map.txt)
+step_shops()     { (cd "$T" && $PY build_shops.py "$R"); }    # the merchants' stock (text/shops.txt, ui/shop_items.sss)
 step_items()     { (cd "$T" && $PY build_items.py "$R"); }   # rosaries, HUD spool pieces, their sounds
 step_particles() { (cd "$T" && $PY build_particles.py "$R"); }
 step_ui()        { (cd "$T" && $PY build_ui.py "$R"); }
@@ -73,7 +75,9 @@ step_music() {
   # the cues as Ogg, then as PCM for the engine (no decoder on the 3DS), and which room plays which
   (cd "$T" && $PY build_music.py "$R" --fsm-sfx && $PY build_music_pcm.py "$R" && $PY music_map.py "$R")
 }
+step_sfx()       { (cd "$T" && $PY build_sfx_missing.py "$R"); }   # the scripts' and the engine's other sounds
 step_text()      { (cd "$T" && $PY build_text.py "$R" ${LANGS:-EN FR}); }
+step_zones()     { (cd "$T" && $PY build_zones.py "$R"); }    # each room's area name (text/zones.txt)
 step_data() {      # the same as "make data", without needing make (it comes with devkitPro)
   sed -n 's/.*SS_VERSION "\(.*\)"/\1/p' "$TOP/source/version.h" > "$R/version.txt"
   local mk=${MKROMFS:-$(command -v mkromfs3ds || echo "$PY $T/mkromfs.py")}

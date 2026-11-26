@@ -16,6 +16,7 @@ static int s_npages, s_cur;
 static bool s_open;
 static float s_t;                   // time on this page: the text appears letter by letter
 static void (*s_done)(void *);
+static void (*s_line)(void *);   // a page over, more to come (LINE_END)
 static void *s_ctx;
 static C2D_TextBuf s_buf;
 
@@ -32,10 +33,37 @@ void dlg_init(void) {
 void text_set_lang(const char *lang) { s_lang = strcmp(lang, "en") ? "fr" : "en"; s_lang_set = true; }
 const char *text_lang(void) { return s_lang; }
 static bool find_line(const char *sheet, const char *key, char *out, size_t cap);
+
+// the lines asked for lately (menus ask every frame; a sheet is read from the card each time otherwise)
+#define TCACHE 32
+static struct { char sheet[32], key[64], lang[4]; char *text; bool found; unsigned age; } s_tc[TCACHE];
+static unsigned s_tc_age;
+
 bool text_line(const char *sheet, const char *key, char *out, size_t cap) {
-    if (find_line(sheet, key, out, cap)) return true;
-    snprintf(out, cap, "%s", key);
-    return false;
+    int old = 0;
+    for (int i = 0; i < TCACHE; i++) {
+        if (s_tc[i].text && !strcmp(s_tc[i].sheet, sheet) && !strcmp(s_tc[i].key, key) && !strcmp(s_tc[i].lang, s_lang)) {
+            s_tc[i].age = ++s_tc_age;
+            snprintf(out, cap, "%s", s_tc[i].text);
+            return s_tc[i].found;
+        }
+        if (s_tc[i].age < s_tc[old].age) old = i;
+    }
+    bool found = find_line(sheet, key, out, cap);
+    if (!found) snprintf(out, cap, "%s", key);
+    if (strlen(sheet) < sizeof s_tc[0].sheet && strlen(key) < sizeof s_tc[0].key) {
+        char *t = strdup(out);
+        if (t) {
+            free(s_tc[old].text);
+            s_tc[old].text = t;
+            snprintf(s_tc[old].sheet, sizeof s_tc[old].sheet, "%s", sheet);
+            snprintf(s_tc[old].key, sizeof s_tc[old].key, "%s", key);
+            snprintf(s_tc[old].lang, sizeof s_tc[old].lang, "%s", s_lang);
+            s_tc[old].found = found;
+            s_tc[old].age = ++s_tc_age;
+        }
+    }
+    return found;
 }
 
 // the line KEY<TAB>text of text/<lang>/<sheet>.txt, unescaped (\n, \f, \\)
@@ -81,13 +109,15 @@ bool dlg_open(const char *sheet, const char *key, void (*done)(void *), void *ct
     s_t = 0;
     s_open = true;
     s_done = done;
+    s_line = NULL;
     s_ctx = ctx;
     return true;
 }
 
 bool dlg_active(void) { return s_open; }
 
-void dlg_close(void) { s_open = false; s_done = NULL; }
+void dlg_close(void) { s_open = false; s_done = NULL; s_line = NULL; }
+void dlg_on_line(void (*line)(void *ctx)) { s_line = line; }
 
 void dlg_update(u32 down) {
     if (!s_open) return;
@@ -95,7 +125,7 @@ void dlg_update(u32 down) {
     if (!(down & (KEY_A | KEY_B | KEY_Y))) return;
     size_t len = strlen(s_page[s_cur]);
     if (s_t * 60 < len) { s_t = 1000; return; }       // first press: the whole page at once
-    if (++s_cur < s_npages) { s_t = 0; return; }
+    if (++s_cur < s_npages) { s_t = 0; if (s_line) s_line(s_ctx); return; }
     s_open = false;
     void (*cb)(void *) = s_done;
     s_done = NULL;
