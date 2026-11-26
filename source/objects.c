@@ -209,11 +209,18 @@ int objects_strike(Objects *os, float x0, float y0, float x1, float y1, int dmg,
     return hits;
 }
 
+// part of an enemy that died (its Damage Collider, its attack's hitboxes: off with the death, as HealthManager does)
+static bool under_dead(const Objects *os, int i) {
+    for (int k = 0, p = os->o[i].parent; p >= 0 && p < os->n && k < 32; k++, p = os->o[p].parent)
+        if (os->o[p].dead) return true;
+    return false;
+}
+
 int objects_touch_damage(const Objects *os, float x0, float y0, float x1, float y1, float *cx) {
     for (int i = 0; i < os->n; i++) {
         const Obj *o = &os->o[i];
         if (!(o->flags & OF_DAMAGE) || o->damage <= 0 || o->rw <= 0 || o->dead || o->nocoll || o->nodamage ||
-            !obj_alive(os, i)) continue;
+            !obj_alive(os, i) || under_dead(os, i)) continue;
         if (!(o->flags & OF_ENEMY) && o->damage > 0 && o->rw * o->rh > 400) continue;   // giant triggers: not contact
         if (rects_overlap(x0, y0, x1 - x0, y1 - y0, o->rx, o->ry, o->rw, o->rh)) {
             if (cx) *cx = o->rx + o->rw * 0.5f;

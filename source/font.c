@@ -114,11 +114,14 @@ static void draw_line(Font *f, const char *s, const char *end, float x, float y,
 
 // the alpha test keeps the inside of the distance field's 0.5 contour
 static float s_depth_was;
-static void sdf_begin(void) {
+static void sdf_begin(float size) {
     s_depth_was = g_draw_depth;
     g_draw_depth = 0.97f;   // over the menus' shading
     C2D_Flush();
-    C3D_AlphaTest(true, GPU_GREATER, 0x7F);
+    // small text: a lower contour, so strokes thinner than a pixel (an E's bars) don't vanish from the letters
+    int ref = size >= 22 ? 0x7F : 0x7F - (int)((22 - size) * 6);
+    if (ref < 0x50) ref = 0x50;
+    C3D_AlphaTest(true, GPU_GREATER, ref);
 }
 
 static void sdf_end(void) {
@@ -129,7 +132,7 @@ static void sdf_end(void) {
 
 void font_draw(Font *f, const char *s, float x, float y, float size, u32 color, int align) {
     if (!f || !s) return;
-    sdf_begin();
+    sdf_begin(size);
     float lh = f->line * k_of(f, size);
     while (*s) {
         const char *e = strchr(s, '\n');
@@ -153,7 +156,7 @@ float font_draw_wrapped(Font *f, const char *s, float x, float y, float size, u3
     char line[256];
     size_t ln = 0;
     const char *p = s;
-    sdf_begin();
+    sdf_begin(size);
     while (1) {
         // the next word (with its leading spaces)
         const char *w0 = p;

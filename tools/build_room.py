@@ -244,6 +244,11 @@ def gather(sc, scripts):
             p_ = sc.world(gid)[:2, 3]
             triggers.append(dict(kind='mapstart', name=str(monos['SetMappedOnStart']['sceneName']),
                                  rect=[float(p_[0]), float(p_[1]), 0, 0]))
+        if 'SurfaceWaterRegion' in monos and trig:
+            # water Hornet swims in, at its top (HeroWaterController): its flow, the spa's animations
+            mv = monos['SurfaceWaterRegion']
+            triggers.append(dict(kind='water', name=sc.name(gid), rect=rect_of(trig),
+                                 water=[f(mv.get('flowSpeed')), float(int(f(mv.get('useSpaAnims') or 0))), 0, 0]))
         if 'CameraLockArea' in monos and trig:
             mv = monos['CameraLockArea']
             triggers.append(dict(kind='camlock', name=sc.name(gid), rect=rect_of(trig),
@@ -364,6 +369,15 @@ def blend_of(v):
     return material_blend(g) if g else BLEND_NORMAL
 
 
+def is_cutout(v):
+    """a renderer that only cuts the darkness vignette (Sprites-Darkness-Cutout: its colour is a mask, pure red or
+    black): never drawn as a picture"""
+    ms = v.get('m_Materials') or []
+    g = (ms[0] or {}).get('guid') if ms else None
+    p = guidmap().get(g) if g else None
+    return bool(p) and 'darkness-cutout' in os.path.basename(p).lower()
+
+
 MASK_SCRIPTS = {'Unmasker', 'Remasker'}
 
 
@@ -385,10 +399,64 @@ def under_unmasker(sc, scripts, gid):
     return False
 
 
+def _fresh_test(groups):
+    """a PlayerDataTest as a new game finds it (every bool false, every number 0): any group whose tests all pass"""
+    if not groups:
+        return True
+    for grp in groups:
+        ok = True
+        for t in grp.get('Tests') or []:
+            typ, num = int(f(t.get('Type'))), int(f(t.get('NumType')))
+            if typ == 0:
+                ok = ok and not int(f(t.get('BoolValue')))
+            elif typ in (1, 2, 3):
+                v = f(t.get('FloatValue')) if typ == 2 else int(f(t.get('IntValue')))
+                ok = ok and (0 == v if num == 0 else 0 != v if num == 1 else 0 < v if num == 2 else 0 > v)
+            else:
+                ok = False
+        if ok:
+            return True
+    return False
+
+
+def hidden_at_start(sc, scripts):
+    """objects a component switches off from the start of a new game (DeactivateIfPlayerdataFalse, the side of a
+    TestGameObjectActivator its test leaves off): left out of the baked scenery (else both a place's states show,
+    one over the other, and only one has its walls)"""
+    out = set()
+    for gid, comps in sc.comps.items():
+        for t, v in comps:
+            if t != 'MonoBehaviour':
+                continue
+            n = scripts.get((v.get('m_Script') or {}).get('guid'), '')
+            if n == 'DeactivateIfPlayerdataFalse' and v.get('boolName'):
+                out.add(gid)
+            elif n == 'TestGameObjectActivator':
+                ok = _fresh_test((v.get('playerDataTest') or {}).get('TestGroups'))
+                off = (v.get('deactivateGameObject') if ok else v.get('activateGameObject')) or {}
+                comp = sc.objs.get(off.get('fileID'))
+                if comp and isinstance(comp[1], dict) and 'm_GameObject' in comp[1]:
+                    out.add(comp[1]['m_GameObject']['fileID'])
+                elif off.get('fileID') in sc.go:
+                    out.add(off['fileID'])
+    return out
+
+
 def renderables(sc, scripts, sorting):
     out = []
+    hidden = hidden_at_start(sc, scripts)
+
+    def under_hidden(g):
+        for _ in range(64):
+            if g is None:
+                return False
+            if g in hidden:
+                return True
+            g = parent_gid(sc, g)
+        return False
+
     for gid, comps in sc.comps.items():
-        if not sc.active(gid):
+        if not sc.active(gid) or (hidden and under_hidden(gid)):
             continue
         # hidden areas' masks are left out: the engine doesn't run the Unmasker that fades them yet, and a black
         # mask over a room is worse than a secret shown
@@ -406,7 +474,7 @@ def renderables(sc, scripts, sorting):
                 continue
             if t == 'SpriteRenderer':
                 sp = v.get('m_Sprite') or {}
-                if not sp.get('guid'):
+                if not sp.get('guid') or is_cutout(v):
                     continue
                 c = v.get('m_Color') or {}
                 col = [f(c.get(k, 1)) for k in 'rgba']
@@ -720,9 +788,9 @@ def build(name, out, a, scripts, sorting, path=None, prefab=False):
     for g in gates:
         b += s(g['name'], 16) + s(g['target'], 32) + s(g['entry'], 16) + struct.pack('<6fBB2x', *g['rect'], *g['offset'],
                                                                                     g['enter_left'], g['enter_right'])
-    KIND = {'respawn': 1, 'hazard': 2, 'camlock': 3, 'mapregion': 4, 'mapstart': 5}
+    KIND = {'respawn': 1, 'hazard': 2, 'camlock': 3, 'mapregion': 4, 'mapstart': 5, 'water': 6}
     for t in triggers:
-        extra = t.get('cam') or [float(t.get('damage', 0)), float(t.get('hazard', 0)), 0, 0]
+        extra = t.get('cam') or t.get('water') or [float(t.get('damage', 0)), float(t.get('hazard', 0)), 0, 0]
         b += struct.pack('<B3x4f4f', KIND[t['kind']], *t['rect'], *extra) + s(t['name'], 32)
     data, off = bytearray(), 0
     for L in layers:
@@ -773,7 +841,7 @@ def preview(info, grid, path, scale=6):
         tw = 256 / L['ppu']
         d.rectangle([X(x0), Y(y0), X(x0 + L['ntx'] * tw), Y(y0 - L['nty'] * tw)], outline=(150, 150, 255))
     colors = {'hazard': (220, 40, 40), 'respawn': (40, 180, 40), 'camlock': (220, 200, 0), 'mapregion': (60, 120, 220),
-              'mapstart': (60, 120, 220)}
+              'mapstart': (60, 120, 220), 'water': (40, 160, 255)}
     for t in info['triggers']:
         x, y, w, h = t['rect']
         d.rectangle([X(x), Y(y + h), X(x + w), Y(y)], outline=colors[t['kind']], width=2)

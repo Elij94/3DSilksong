@@ -67,6 +67,9 @@ corner), `f32 entry_dx, entry_dy` (`entryOffset`), `u8 always_enter_left, always
 - `1`: respawn point (`HazardRespawnMarker`), an empty rectangle at its position;
 - `2`: hazard (`DamageHero`), `extra` = damage, hazard type;
 - `3`: camera lock (`CameraLockArea`), `extra` = `cameraXMin, cameraXMax, cameraYMin, cameraYMax`.
+- `4`: a part of the room on the map (`MapSceneRegion`), `name` = its map scene;
+- `5`: mapped when the room loads (`SetMappedOnStart`), `name` = the scene;
+- `6`: water Hornet swims in (`SurfaceWaterRegion`), `extra` = flow speed, spa animations (0/1).
 
 **The scenery layers**, 40 bytes each, each followed by its tile table:
 `char name[8]`, `f32 z`, `f32 parallax`, `f32 ox, oy`, `f32 ppu`, `u16 tile`, `u16 ntx, nty`, `u16 n_tiles`,

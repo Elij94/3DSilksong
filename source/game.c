@@ -346,6 +346,7 @@ static bool load_slot(int slot) {
     if (!saved || !room_exists(scene)) { strcpy(scene, FIRST_ROOM); saved = false; }
     if (!room_exists(scene) && s_nrooms) snprintf(scene, sizeof scene, "%s", s_rooms[0]), saved = false;
     hero_init(&s_hero);
+    if (pd_int("maxHealth") > s_hero.maxhp && pd_int("maxHealth") <= 10) s_hero.maxhp = s_hero.hp = pd_int("maxHealth");
     go(scene, NULL);
     if (!s_loaded) return false;
     if (saved) {
@@ -353,6 +354,7 @@ static bool load_slot(int slot) {
         hero_settle(&s_hero, &s_room, 3);
         if (hp > 0 && hp <= s_hero.maxhp) s_hero.hp = hp;
         camera_snap();
+        room_preload_view(&s_room);   // where she really is (go() preloaded the room's entry)
     }
     for (int i = 0; i < s_nrooms; i++)
         if (!strcmp(s_rooms[i], s_room.scene)) s_menu_sel = i;
@@ -579,6 +581,9 @@ static void log_state(void) {
     snprintf(clip, sizeof clip, "%s hp=%d enemies=%d/%d parts=%d/%d cur=%d geo=%d sh=%d sp=%d",
              h->body.set && h->body.clip >= 0 ? h->body.set->clips[h->body.clip].name : "-", h->hp, live, dead,
              particles_count(), particles_emitters(), currency_count(), pd_int("geo"), pd_int("ShellShards"), fsm_spawned());
+    { char mi[64]; int cs, cu, cb;
+      room_cache_stats(&cs, &cu, &cb);
+      snprintf(mi, sizeof mi, " miss=%d c=%d/%d/%d", room_missing(), cs, cu, cb); strncat(clip, mi, sizeof clip - strlen(clip) - 1); }
     { char cd[64]; currency_debug(cd, sizeof cd); strncat(clip, cd, sizeof clip - strlen(clip) - 1); }
     { char sd[96]; fsm_spawn_debug(sd, sizeof sd); strncat(clip, sd, sizeof clip - strlen(clip) - 1); }
     // the nearest enemy: where, its hp, its clip
@@ -651,6 +656,11 @@ void game_update(const Input *in, float dt) {
         else if (m == MA_NEW) { s_slot = slot; new_game(); s_mode = GS_PLAY; game_save(); }
         else if (m == MA_RESUME) s_mode = GS_PLAY;
         else if (m == MA_ROOMS) { s_mode = GS_PLAY; s_menu = true; }
+        else if (m == MA_TEST) {   // the test menu: Hornet's health and silk (PlayerData maxHealth kept with the save)
+            if (slot == TEST_MASK && s_hero.maxhp < 10) { s_hero.maxhp++; pd_set_int("maxHealth", s_hero.maxhp); }
+            s_hero.hp = s_hero.maxhp;
+            s_hero.silk = SILK_MAX;
+        }
         else if (m == MA_TO_TITLE) { game_save(); to_title(); }
         return;
     }
@@ -894,6 +904,7 @@ static void draw_all(void) {
     if (s_mode != GS_TITLE) draw_hud();
     dlg_draw();
     shop_draw();
+    inv_draw_top();
     if (s_bench_prompt && s_mode == GS_PLAY) {   // a small arrow over Hornet: Up to sit
         float px = g_view.sw * 0.5f + (s_hero.x - g_view.cx) * g_view.sx;
         float py = g_view.sh * 0.5f - (s_hero.y + 1.9f - g_view.cy) * g_view.sy;

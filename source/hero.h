@@ -10,7 +10,7 @@
 #define HERO_HEAD 0.30f
 
 enum { HS_NORMAL, HS_DASH, HS_HURT, HS_RESPAWN, HS_DEAD, HS_SIT, HS_BIND, HS_MANTLE, HS_SPIKE, HS_WALL, HS_HARPOON,
-       HS_SOAR, HS_NEEDOLIN };
+       HS_SOAR, HS_NEEDOLIN, HS_SWIM };
 #define SILK_MAX  9       // the spool, and what a bind costs
 #define BIND_HEAL 3
 enum { ATK_NONE, ATK_SIDE, ATK_UP, ATK_DOWN, ATK_HARPOON };
@@ -44,6 +44,9 @@ typedef struct {
     float recoil_t, recoil_v;   // pushed back by a needle hit
     float spike_rec;        // after a down spike: no attack yet
     int phase;              // HS_MANTLE / HS_SPIKE steps
+    float swim_top, swim_x0, swim_x1, swim_flow;   // HS_SWIM: the water's top, its sides, its flow
+    bool swim_spa;
+    int swim_loop;          // the swimming sound's voice, -1
     bool queued_jump;
     // the abilities found later in the game, all unlocked here
     bool djump_used;        // Faydown Cloak: the double jump, once per jump

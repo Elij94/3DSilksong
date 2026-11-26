@@ -109,6 +109,7 @@ static int s_ne, s_sel, s_scroll;   // s_scroll: the first row of collectables s
 #define GRID_Y 34
 #define CELL 30
 #define COLS 6
+#define ROWS 6   // rows of collectables shown at a time (the description is on the top screen)
 
 static void build(void) {
     s_ne = 0;
@@ -192,6 +193,43 @@ static void text_of(const char *sheet, const char *key, char *out, size_t cap) {
     for (char *p = out; *p; p++) if (*p == '\f') *p = ' ';
 }
 
+// the selection's name and description (sheet, key pairs)
+static void sel_text(const char **sh, const char **nm, const char **dsh, const char **ds) {
+    *sh = *nm = *dsh = *ds = "";
+    if (!s_ne) return;
+    const Entry *e = &s_e[s_sel];
+    int nail = pd_int("nailUpgrades");
+    nail = nail < 0 ? 0 : nail > 4 ? 4 : nail;
+    const Disp *d = NULL;
+    if (e->kind == E_NAIL) d = disp("nail", nail);
+    else if (e->kind == E_HEART) d = disp("heart", pd_int("heartPieces") % 4);
+    else if (e->kind == E_SPOOLP) d = disp("spool_piece", pd_int("silkSpoolParts") % 2);
+    else if (e->kind == E_THREAD) d = disp("thread", 0);
+    if (d) { *sh = d->sheet; *nm = d->name; *dsh = d->dsheet; *ds = d->desc; }
+    else if (e->kind == E_SKILL) { const Skill *k = &s_sk[e->i]; *sh = k->sheet; *nm = k->name; *dsh = k->dsheet; *ds = k->desc; }
+    else if (e->kind == E_COLL) {
+        const Coll *cl = &s_c[e->i];
+        int st = coll_state(cl);
+        const CState *c = &s_cs[cl->first + (st < 0 ? 0 : st)];
+        *sh = c->sheet; *nm = c->name; *dsh = c->dsheet; *ds = c->desc;
+    }
+}
+
+// the top screen while it is open: the game dimmed, the selection's name and description in large letters
+void inv_draw_top(void) {
+    if (!s_open) return;
+    const char *sh, *nm, *dsh, *ds;
+    sel_text(&sh, &nm, &dsh, &ds);
+    float ax = g_view.sx / g_view.sy, cx = g_view.sw * 0.5f;
+    C2D_DrawRectSolid(0, 0, 0.9f, g_view.sw, g_view.sh, C2D_Color32(0, 0, 0, 170));
+    char t[512];
+    text_of(sh, nm, t, sizeof t);
+    font_draw(title_font(), t, cx, 34, 20, C2D_Color32(240, 236, 228, 255), FONT_CENTER);
+    C2D_DrawRectSolid(cx - 120 * ax, 64, 0.95f, 240 * ax, 1, C2D_Color32(150, 146, 140, 255));
+    text_of(dsh, ds, t, sizeof t);
+    font_draw_wrapped(body_font(), t, cx - 170 * ax, 78, 16, C2D_Color32(214, 210, 204, 255), 340 * ax, FONT_LEFT);
+}
+
 void inv_draw(void) {
     if (!s_open) return;
     build();   // what she holds can't change while it is open, but the list is cheap
@@ -200,7 +238,7 @@ void inv_draw(void) {
     C2D_DrawRectSolid(0, 0, 0.5f, 320, 240, C2D_Color32(6, 5, 8, 255));
     text_line("UI", "PANE_INVENTORY", t, sizeof t);
     font_draw(title_font(), t, 160, 6, 13, white, FONT_CENTER);
-    C2D_DrawRectSolid(124, 30, 0.6f, 1, 128, C2D_Color32(120, 116, 110, 255));   // the divider
+    C2D_DrawRectSolid(124, 30, 0.6f, 1, 196, C2D_Color32(120, 116, 110, 255));   // the divider
     // the needle (PlayerData nailUpgrades), the silk spool, the heart and spool pieces
     int nail = pd_int("nailUpgrades");
     if (nail < 0) nail = 0;
@@ -224,18 +262,18 @@ void inv_draw(void) {
     font_draw(title_font(), num, 100, 102, 10, white, FONT_LEFT);
     snprintf(num, sizeof num, "%d", pd_int("ShellShards"));
     font_draw(title_font(), num, 100, 118, 10, white, FONT_LEFT);
-    // the skills, the collectables (4 rows of them at a time)
+    // the skills, the collectables (ROWS rows of them at a time)
     if (s_ne && s_e[s_sel].kind == E_COLL) {
         int row = (int)((s_e[s_sel].y - GRID_Y - 12) / CELL + 0.5f);
         if (row < s_scroll) s_scroll = row;
-        if (row > s_scroll + 3) s_scroll = row - 3;
+        if (row > s_scroll + ROWS - 1) s_scroll = row - ROWS + 1;
     }
     for (int i = 0; i < s_ne; i++) {
         Entry ed = s_e[i];
         const Entry *e = &ed;
         if (e->kind == E_COLL) {
             ed.y -= s_scroll * CELL;
-            if (ed.y < GRID_Y || ed.y > GRID_Y + 4 * CELL) continue;
+            if (ed.y < GRID_Y || ed.y > GRID_Y + ROWS * CELL) continue;
         }
         if (e->kind == E_SKILL) pic(s_sk[e->i].clip, e->x, e->y, 22, NULL);
         else if (e->kind == E_COLL) {
@@ -261,24 +299,5 @@ void inv_draw(void) {
         C2D_DrawRectSolid(e->x - r, e->y + r, 0.7f, 2 * r, 1, c);
         C2D_DrawRectSolid(e->x - r, e->y - r, 0.7f, 1, 2 * r, c);
         C2D_DrawRectSolid(e->x + r, e->y - r, 0.7f, 1, 2 * r + 1, c);
-        const char *sh = "", *nm = "", *dsh = "", *ds = "";
-        const Disp *d = NULL;
-        if (e->kind == E_NAIL) d = disp("nail", nail);
-        else if (e->kind == E_HEART) d = disp("heart", hp);
-        else if (e->kind == E_SPOOLP) d = disp("spool_piece", sp);
-        else if (e->kind == E_THREAD) d = disp("thread", 0);
-        if (d) { sh = d->sheet; nm = d->name; dsh = d->dsheet; ds = d->desc; }
-        else if (e->kind == E_SKILL) { const Skill *k = &s_sk[e->i]; sh = k->sheet; nm = k->name; dsh = k->dsheet; ds = k->desc; }
-        else if (e->kind == E_COLL) {
-            const Coll *cl = &s_c[e->i];
-            int s = coll_state(cl);
-            const CState *st = &s_cs[cl->first + (s < 0 ? 0 : s)];
-            sh = st->sheet; nm = st->name; dsh = st->dsheet; ds = st->desc;
-        }
-        C2D_DrawRectSolid(8, 166, 0.6f, 304, 1, C2D_Color32(120, 116, 110, 255));
-        text_of(sh, nm, t, sizeof t);
-        font_draw(title_font(), t, 160, 172, 11, white, FONT_CENTER);
-        text_of(dsh, ds, t, sizeof t);
-        font_draw_wrapped(body_font(), t, 12, 188, 11, grey, 296, FONT_LEFT);
     }
 }

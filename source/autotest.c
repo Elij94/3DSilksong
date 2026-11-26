@@ -3,6 +3,7 @@
 //   <t0> <t1> KEY [KEY...]   hold these keys from t0 to t1 (A B X Y L R ZR UP DOWN LEFT RIGHT SELECT START)
 //   <t> warp <Scene> <x> <y> put Hornet there
 //   <t> quit                 save the log and leave
+//   <t> shot <name>          the top screen as it is shown (800 or 400 wide) into SD:/3ds/3dsilksong/<name>.ppm
 // Meanwhile SD:/3ds/3dsilksong/log.txt gets Hornet's state 20 times a second. Without the file nothing changes.
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,6 +49,7 @@ bool autotest_init(void) {
         if (n < 2 || w[0][0] == '#') continue;
         c->t0 = atof(w[0]);
         if (!strcasecmp(w[1], "quit")) c->kind = 2;
+        else if (!strcasecmp(w[1], "shot") && n >= 3) { c->kind = 3; snprintf(c->scene, sizeof c->scene, "%s", w[2]); }
         else if (!strcasecmp(w[1], "warp") && n >= 5) {
             c->kind = 1;
             snprintf(c->scene, sizeof c->scene, "%s", w[2]);
@@ -83,6 +85,7 @@ int autotest_step(float dt, Input *in, char *warp_scene, float *wx, float *wy) {
         } else if (!c->done && s_t >= c->t0) {
             c->done = true;
             if (c->kind == 2) r = 2;
+            else if (c->kind == 3 && !r) { strcpy(warp_scene, c->scene); r = 3; }
             else if (c->kind == 1 && !r) {
                 strcpy(warp_scene, c->scene);
                 *wx = c->x;

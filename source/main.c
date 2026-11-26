@@ -146,6 +146,8 @@ int main(void) {
     if (autotest_on()) threadOnException(on_exception, s_exc_stack + sizeof s_exc_stack, WRITE_DATA_TO_HANDLER_STACK);
     u64 last = osGetTime();
     float fps = 60, ms = 0;
+    char shot[48] = "";
+    int shot_in = 0;   // frames until a test screenshot is taken
     u32 clear = C2D_Color32(0x08, 0x06, 0x08, 0xff);
     Input in = {0};
     while (aptMainLoop()) {
@@ -168,6 +170,26 @@ int main(void) {
             int r = autotest_step(dt, &in, sc, &wx, &wy);
             if (r == 2) break;
             if (r == 1) game_warp(sc, wx, wy);
+            if (r == 3) snprintf(shot, sizeof shot, "%s", sc), shot_in = 2;
+        }
+        if (shot_in && --shot_in == 0) {   // the frame drawn before, as the screen shows it
+            u16 fw, fh;
+            u8 *fb = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, &fw, &fh);   // fw 240, fh 400 or 800 (turned)
+            char path[96];
+            snprintf(path, sizeof path, "sdmc:/3ds/3dsilksong/%s.ppm", shot);
+            FILE *pf = fb ? fopen(path, "wb") : NULL;
+            if (pf) {
+                fprintf(pf, "P6\n%d %d\n255\n", fh, fw);
+                u8 row[800 * 3];
+                for (int y = 0; y < fw; y++) {
+                    for (int x = 0; x < fh; x++) {
+                        const u8 *p = fb + (x * fw + (fw - 1 - y)) * 3;   // BGR
+                        row[x * 3] = p[2]; row[x * 3 + 1] = p[1]; row[x * 3 + 2] = p[0];
+                    }
+                    fwrite(row, 3, fh, pf);
+                }
+                fclose(pf);
+            }
         }
 
         s_beat++;

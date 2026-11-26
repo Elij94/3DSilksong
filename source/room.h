@@ -11,7 +11,8 @@ typedef struct {
     u8 enter_left, enter_right;
 } Gate;
 
-enum { TRIG_RESPAWN = 1, TRIG_HAZARD = 2, TRIG_CAMLOCK = 3, TRIG_MAPREGION = 4, TRIG_MAPSTART = 5 };
+enum { TRIG_RESPAWN = 1, TRIG_HAZARD = 2, TRIG_CAMLOCK = 3, TRIG_MAPREGION = 4, TRIG_MAPSTART = 5,
+       TRIG_WATER = 6 };   // water: extra[0] its flow speed, extra[1] the spa's animations
 
 typedef struct {
     u8 kind;
@@ -26,6 +27,8 @@ typedef struct {
     s16 slot;              // texture cache slot, -1 if not loaded
     u8 pending;            // queued for the loader thread
     u8 fmt;                // its texture format: the layer's, or RGB565 for a tile with no transparency
+    u32 retry;             // asked ahead but the cache was full: not before this frame
+    u32 asked;             // the frame it was queued
 } RTile;
 
 typedef struct {
@@ -64,6 +67,8 @@ bool room_box_solid(const Room *r, float x0, float y0, float x1, float y1);
 void room_draw_layer(Room *r, int i, bool all);
 // loads a few of the tiles just outside the view, ahead of the camera
 void room_prefetch(Room *r);
+int room_missing(void);
+void room_cache_stats(int *slots, int *used_kb, int *budget_kb);          // the view's tiles not there yet this frame (pop-in)
 // loads every tile the view shows now (after a room change)
 void room_preload_view(Room *r);
 void room_frame_begin(void);

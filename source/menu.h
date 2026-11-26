@@ -4,7 +4,9 @@
 // Settings in SD:/3ds/3dsilksong/settings.txt.
 #include "hero.h"
 
-typedef enum { MA_NONE, MA_RESUME, MA_LOAD, MA_NEW, MA_TO_TITLE, MA_QUIT, MA_ROOMS } MenuAction;
+typedef enum { MA_NONE, MA_RESUME, MA_LOAD, MA_NEW, MA_TO_TITLE, MA_QUIT, MA_ROOMS, MA_TEST } MenuAction;
+// MA_TEST: a test menu choice for the game to apply (in *slot): 0 health and silk full, 1 one more mask
+enum { TEST_REFILL, TEST_MASK };
 
 void menu_init(void);                 // reads and applies the settings
 void menu_open_title(void);

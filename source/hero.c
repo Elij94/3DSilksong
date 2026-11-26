@@ -102,6 +102,7 @@ bool hero_init(Hero *h) {
     h->body.clip = h->fx.clip = h->bsilk.clip = h->heal.clip = -1;
     h->bind_loop = h->needolin_loop = -1;
     h->maxhp = h->hp = 5;
+    h->swim_loop = -1;
     h->face = 1;
     anim_play_name(&h->body, "Idle", true);
     return s_set != NULL;
@@ -333,6 +334,7 @@ static bool touching_wall(const Hero *h, const Room *r, int side) {
 }
 
 static void to_normal(Hero *h) {
+    if (h->state == HS_SWIM && h->swim_loop >= 0) { sfx_stop(h->swim_loop); h->swim_loop = -1; }
     h->state = HS_NORMAL;
     h->st = 0;
     h->silk_on = false;
@@ -401,6 +403,7 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
     if (h->spike_rec > 0) h->spike_rec -= dt;
     if (h->recoil_t > 0) h->recoil_t -= dt;
     h->was_ground = h->ground;
+    if (h->state != HS_SWIM && h->swim_loop >= 0) { sfx_stop(h->swim_loop); h->swim_loop = -1; }   // out another way
 
     switch (h->state) {
     case HS_DEAD:
@@ -453,6 +456,51 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
             h->phase = 3;
             body(h, "Get Off", true);
         }
+        return false;
+    }
+    case HS_SWIM: {
+        // HeroWaterController: afloat at the water's top, no gravity; Left/Right swim (ZR held: faster, with the
+        // dash), B jumps out, out of the water's sides she falls
+        anim_update(&h->body, dt);
+        char clip[40];
+        const char *pre = h->swim_spa ? "Spa " : "";
+        if (h->phase == 0) {   // Surface In, then InToIdle
+            if (h->body.done) { h->phase = 1; snprintf(clip, sizeof clip, "%sSurface InToIdle", pre); body(h, clip, true); }
+            h->vx = h->swim_flow;
+        } else {
+            if (h->phase == 1 && h->body.done) { h->phase = 2; snprintf(clip, sizeof clip, "%sSurface Idle", pre); body(h, clip, true); }
+            bool fast = dash_held;
+            float sp = fast ? 8.0f : 5.0f;    // swimSpeed, sprintSwimSpeed
+            h->vx = dir * sp + h->swim_flow;
+            if (dir && dir != h->face) {
+                h->face = dir;
+                snprintf(clip, sizeof clip, "%sSurface TurnToSwim", pre);
+                body(h, clip, true);
+                h->phase = 3;
+            } else if (dir && h->phase == 2) {
+                snprintf(clip, sizeof clip, "%sSurface IdleToSwim", pre);
+                body(h, clip, true);
+                h->phase = 3;
+            } else if (!dir && h->phase == 3) {
+                snprintf(clip, sizeof clip, "%sSurface Idle", pre);
+                body(h, clip, true);
+                h->phase = 2;
+            } else if (h->phase == 3 && h->body.done) {
+                snprintf(clip, sizeof clip, "%sSurface IdleToSwim", pre);
+                body(h, clip, true);
+            }
+            if (jump_down) {   // out of the water: a jump from its top
+                to_normal(h);
+                h->ground = true;
+                h->was_ground = true;
+                h->coyote = COYOTE;
+                break;
+            }
+        }
+        move_x(h, r, h->vx * dt);
+        h->vy = 0;
+        h->y = h->swim_top - HERO_FOOT - 0.1f;
+        if (h->x < h->swim_x0 || h->x > h->swim_x1) { to_normal(h); body(h, "Fall", true); }
         return false;
     }
     case HS_RESPAWN:
@@ -954,6 +1002,33 @@ bool hero_update(Hero *h, Room *r, const Input *in, float dt, float box[4]) {
         h->wj_t = -1;
         if (h->vy < 0) h->vy = 0;
     } else if (h->coyote > 0) h->coyote -= dt;
+
+    // into water from above (HeroWaterController.EnteredWater): she stops there, afloat, and swims
+    if (!h->ground && h->vy <= 0 && (h->state == HS_NORMAL || h->state == HS_DASH || h->state == HS_SPIKE)) {
+        float feet = h->y + HERO_FOOT;
+        for (int i = 0; i < r->ntrig; i++) {
+            const Trigger *w = &r->trig[i];
+            if (w->kind != TRIG_WATER || h->x < w->x || h->x > w->x + w->w) continue;
+            float top = w->y + w->h;
+            if (feet > top || feet < top - 2.0f) continue;
+            h->state = HS_SWIM;
+            h->st = 0;
+            h->phase = 0;
+            h->attack = ATK_NONE;
+            h->vx = h->vy = 0;
+            h->sprint = h->jumping = h->floating = false;
+            h->swim_top = top;
+            h->swim_x0 = w->x;
+            h->swim_x1 = w->x + w->w;
+            h->swim_flow = w->extra[0];
+            h->swim_spa = w->extra[1] != 0;
+            h->y = top - HERO_FOOT - 0.1f;
+            body(h, h->swim_spa ? "Spa Surface In" : "Surface In", true);
+            sfx_play_name("hornet_water_enter", 0.8f, 0);
+            if (h->swim_loop < 0) h->swim_loop = sfx_loop_name("hornet_swimming", 0.5f);
+            break;
+        }
+    }
 
     // ---- against a wall in the air: a ledge within reach to hang on, else cling to the wall
     if (h->state == HS_NORMAL && !h->ground && h->attack == ATK_NONE && dir && dir == h->face &&

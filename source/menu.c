@@ -4,6 +4,8 @@
 #include "dialogue.h"
 #include "audio.h"
 #include "version.h"
+#include "fsm.h"
+#include "map.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,7 +13,17 @@
 
 #define SETTINGS_PATH "sdmc:" SS_DATADIR "settings.txt"
 
-enum { SCR_NONE, SCR_TITLE, SCR_PROFILES, SCR_OPTIONS, SCR_PAUSE, SCR_CONFIRM };
+enum { SCR_NONE, SCR_TITLE, SCR_PROFILES, SCR_OPTIONS, SCR_PAUSE, SCR_CONFIRM, SCR_TESTS };
+
+// the test menu (pause): abilities switched on and off (their PlayerData), rosaries, shards, maps, health
+static const struct { const char *pd, *fr, *en; } TEST_ABIL[] = {
+    {"hasDash", "Sprint", "Sprint"}, {"hasWalljump", "Accroche aux murs", "Cling grip"},
+    {"hasHarpoonDash", "Griffe (Clawline)", "Clawline"}, {"hasDoubleJump", "Double saut", "Double jump"},
+    {"hasBrolly", "Planeur", "Drifter's cloak"}, {"hasSuperJump", "Envol de soie", "Silk Soar"},
+    {"hasNeedolin", "Needolin", "Needolin"}, {"hasChargeSlash", "Frappe charg\xc3\xa9" "e", "Charge slash"},
+};
+#define N_ABIL (int)(sizeof TEST_ABIL / sizeof *TEST_ABIL)
+enum { T_GEO = N_ABIL, T_SHARDS, T_MAPS, T_REFILL, T_MASK, T_BACK, T_COUNT };
 
 static int s_scr, s_back;          // the screen shown, and the one Retour goes back to
 static int s_sel;
@@ -129,7 +141,8 @@ static int n_items(void) {
     case SCR_TITLE: return 3;
     case SCR_PROFILES: return 5;
     case SCR_OPTIONS: return 5;
-    case SCR_PAUSE: return s_debug ? 4 : 3;
+    case SCR_PAUSE: return s_debug ? 5 : 4;
+    case SCR_TESTS: return T_COUNT;
     case SCR_CONFIRM: return 2;
     }
     return 0;
@@ -188,7 +201,20 @@ MenuAction menu_update(const Input *in, int *slot) {
             if (s_sel == 0) { s_scr = SCR_NONE; return MA_RESUME; }
             if (s_sel == 1) { s_back = SCR_PAUSE; open(SCR_OPTIONS, 0); }
             else if (s_sel == 2) { read_slots(); open(SCR_TITLE, 0); return MA_TO_TITLE; }
+            else if (s_sel == 3) open(SCR_TESTS, 0);
             else { s_scr = SCR_NONE; return MA_ROOMS; }
+        }
+        break;
+    case SCR_TESTS:
+        if (b || (a && s_sel == T_BACK)) { open(SCR_PAUSE, 3); break; }
+        if (a) {
+            ok_snd();
+            if (s_sel < N_ABIL) pd_set_bool(TEST_ABIL[s_sel].pd, !pd_bool(TEST_ABIL[s_sel].pd));
+            else if (s_sel == T_GEO) pd_set_int("geo", pd_int("geo") + 1000);
+            else if (s_sel == T_SHARDS) pd_set_int("ShellShards", pd_int("ShellShards") + 100);
+            else if (s_sel == T_MAPS) map_give_all();
+            else if (s_sel == T_REFILL) { *slot = TEST_REFILL; return MA_TEST; }
+            else if (s_sel == T_MASK) { *slot = TEST_MASK; return MA_TEST; }
         }
         break;
     }
@@ -316,11 +342,31 @@ void menu_draw(void) {
         item("PAUSE_CONTINUE", 0, 90);
         item("PAUSE_OPTIONS", 1, 114);
         item("PAUSE_MAIN", 2, 138);
-        if (s_debug) {
-            float y = 162;
-            font_draw(title_font(), strcmp(text_lang(), "fr") ? "Rooms" : "Salles", cx, y, 15, s_sel == 3 ? C_ON : C_OFF,
+        font_draw(title_font(), "Tests", cx, 162, 15, s_sel == 3 ? C_ON : C_OFF, FONT_CENTER);
+        if (s_debug)
+            font_draw(title_font(), strcmp(text_lang(), "fr") ? "Rooms" : "Salles", cx, 186, 15, s_sel == 4 ? C_ON : C_OFF,
                       FONT_CENTER);
+        break;
+    case SCR_TESTS: {
+        shade(190);
+        bool fr = !strcmp(text_lang(), "fr");
+        font_draw(title_font(), "Tests", cx, 6, 16, C_ON, FONT_CENTER);
+        for (int i = 0; i < T_COUNT; i++) {
+            const char *lab;
+            char buf[64];
+            if (i < N_ABIL) {
+                snprintf(buf, sizeof buf, "%s : %s", fr ? TEST_ABIL[i].fr : TEST_ABIL[i].en,
+                         pd_bool(TEST_ABIL[i].pd) ? (fr ? "oui" : "on") : (fr ? "non" : "off"));
+                lab = buf;
+            } else if (i == T_GEO) lab = fr ? "+1000 chapelets" : "+1000 rosaries";
+            else if (i == T_SHARDS) lab = fr ? "+100 fragments de coquille" : "+100 shell shards";
+            else if (i == T_MAPS) lab = fr ? "Toutes les cartes et la plume" : "Every map and the quill";
+            else if (i == T_REFILL) lab = fr ? "Vie et soie au maximum" : "Full health and silk";
+            else if (i == T_MASK) lab = fr ? "Un masque de plus" : "One more mask";
+            else lab = fr ? "Retour" : "Back";
+            font_draw(title_font(), lab, cx, 28 + i * 14.5f, 11, i == s_sel ? C_ON : C_OFF, FONT_CENTER);
         }
         break;
+    }
     }
 }

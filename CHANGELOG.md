@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.17.0 — from the console test: scenery streaming, lights, menus, swimming, a test menu
+
+- Scenery streaming: a room's tile file is read into memory when it is entered (no card reads while walking), the
+  tiles the view shows are decoded before the ones asked ahead, further ahead the way the camera goes, by two loader
+  threads (the New 3DS's spare core and part of the system core), and the game thread decodes a visible tile still
+  waiting after two frames. In the emulator's test run, missing tiles went from 445 to 46.
+- Red halos and black rectangles: the "Vignette Cutout" sprites (Sprites-Darkness-Cutout) only cut holes in the
+  game's darkness vignette, their colour is a mask; they were baked as pictures. Left out now.
+- Scenery shown twice: the variants a new game starts without (DeactivateIfPlayerdataFalse, the side of a
+  TestGameObjectActivator its test leaves off: an opened door, the Act 3 threads...) are left out of the bake.
+- Menus: thin strokes of small letters vanished (an E's bars): small text keeps a lower distance-field contour.
+- Swimming (HeroWaterController): water regions (SurfaceWaterRegion) are converted; Hornet floats at the top, swims
+  (faster with ZR), jumps out, with the game's Surface animations and sounds. Greymoor's pools no longer drop her
+  out of the room.
+- Dead enemies' attack hitboxes and damage colliders no longer hurt.
+- Inventory: the selection's name and description on the top screen, in large letters; 6 rows of items below.
+- A "Tests" menu in the pause menu: abilities on and off one by one, +1000 rosaries, +100 shell shards, every map
+  and the quill, health and silk full, one more mask (PlayerData maxHealth, kept with the save).
+- Tests: `<t> shot <name>` in autotest.txt saves the top screen as shown (800 or 400 wide) to the SD card.
+
 ## 0.16.0 — the inventory on the bottom screen
 
 - SELECT opens the inventory's Inv pane on the bottom screen while the game waits (tools/build_inventory.py,

@@ -10,3 +10,4 @@ void inv_close(void);
 bool inv_active(void);
 void inv_update(u32 down);
 void inv_draw(void);            // into the bottom screen (320 x 240)
+void inv_draw_top(void);        // over the top screen: the selection's name and description

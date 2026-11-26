@@ -83,7 +83,7 @@ Controls (the Switch version's): pad or Circle Pad to move (and look up/down), B
 the air), ZR dash (held on: sprint), ZL Clawline, X Needolin, A bind, Up for doors, benches, NPCs and shops (A: next
 line, buy; B: leave), SELECT inventory (on the bottom screen), START pause. Abilities come as the game gives them.
 
-Testing switches on the SD card, in `SD:/3ds/3dsilksong/`: `allabilities`, `allmaps`, `nowide`, `nofsm`,
+The pause menu's "Tests" gives abilities, rosaries, shards, maps, health. Testing switches on the SD card, in `SD:/3ds/3dsilksong/`: `allabilities`, `allmaps`, `nowide`, `nofsm`,
 `autotest.txt` (scripted input, see `source/autotest.c`).
 
 Not there yet: tools and crests, picking up items in the rooms, map pins and markers, bosses' special parts, cutscenes.

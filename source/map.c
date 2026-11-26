@@ -117,6 +117,13 @@ static bool any_map(void) {
 
 bool map_has_any(void) { map_init(); return any_map(); }
 
+void map_give_all(void) {
+    map_init();
+    for (int i = 0; i < s_nz; i++) if (strcmp(s_z[i].pd, "-")) pd_set_bool(s_z[i].pd, true);
+    pd_set_bool("hasQuill", true);
+    s_dirty = true;
+}
+
 bool map_bench_update(void) {   // GameMap.UpdateGameMap (CanUpdateMap: the quill and a map)
     map_init();
     if (!has_quill() || !any_map()) return false;
