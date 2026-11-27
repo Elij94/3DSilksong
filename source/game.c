@@ -943,11 +943,11 @@ static void draw_hud(void) {
             if (!th[i].set) break;
             int c = sprite_clip(th[i].set, th[i].clip);
             if (c < 0 || !th[i].set->clips[c].n) continue;
-            float x = HUD_X(-12.6f + 1.25f * i), y = HUD_Y(4.75f);
-            sprite_draw_screen(th[i].set, rds16((const u8 *)&th[i].set->clips[c].frames[0]), x, y, HUD_K * 0.5f, NULL);
+            float x = HUD_X(-12.4f + 1.7f * i), y = HUD_Y(4.55f);
+            sprite_draw_screen(th[i].set, rds16((const u8 *)&th[i].set->clips[c].frames[0]), x, y, HUD_K * 1.3f, NULL);
             char num[8];
             snprintf(num, sizeof num, "%d", th[i].uses);
-            hud_text(num, x + HUD_K * 0.25f, y + HUD_K * 0.2f, 0.3f, C2D_Color32(255, 255, 255, 230));
+            hud_text(num, x + HUD_K * 0.45f, y + HUD_K * 0.1f, 0.42f, C2D_Color32(255, 255, 255, 235));
         }
     }
     // the counters, a few seconds after a pickup: rosaries, then shell shards one unit lower

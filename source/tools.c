@@ -142,6 +142,14 @@ void tools_sync(void) {
     }
 }
 
+void tools_give_all(void) {   // the test menu
+    tools_init();
+    char k[64];
+    for (int t = 0; t < s_ntools; t++) { snprintf(k, sizeof k, "tool:%s", s_tool[t].name); pd_set_bool(k, true); }
+    tools_sync();
+    tools_refill();
+}
+
 void tools_refill(void) {
     tools_init();
     for (int t = 0; t < s_ntools; t++)

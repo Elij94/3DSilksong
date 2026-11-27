@@ -6,6 +6,7 @@
 #include "version.h"
 #include "fsm.h"
 #include "map.h"
+#include "tools.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,7 +24,7 @@ static const struct { const char *pd, *fr, *en; } TEST_ABIL[] = {
     {"hasNeedolin", "Needolin", "Needolin"}, {"hasChargeSlash", "Frappe charg\xc3\xa9" "e", "Charge slash"},
 };
 #define N_ABIL (int)(sizeof TEST_ABIL / sizeof *TEST_ABIL)
-enum { T_GEO = N_ABIL, T_SHARDS, T_MAPS, T_REFILL, T_MASK, T_BACK, T_COUNT };
+enum { T_GEO = N_ABIL, T_SHARDS, T_MAPS, T_TOOLS, T_REFILL, T_MASK, T_BACK, T_COUNT };
 
 static int s_scr, s_back;          // the screen shown, and the one Retour goes back to
 static int s_sel;
@@ -229,6 +230,7 @@ MenuAction menu_update(const Input *in, int *slot) {
             else if (s_sel == T_GEO) pd_set_int("geo", pd_int("geo") + 1000);
             else if (s_sel == T_SHARDS) pd_set_int("ShellShards", pd_int("ShellShards") + 100);
             else if (s_sel == T_MAPS) map_give_all();
+            else if (s_sel == T_TOOLS) tools_give_all();
             else if (s_sel == T_REFILL) { *slot = TEST_REFILL; return MA_TEST; }
             else if (s_sel == T_MASK) { *slot = TEST_MASK; return MA_TEST; }
         }
@@ -462,6 +464,7 @@ void menu_draw(void) {
             } else if (i == T_GEO) lab = fr ? "+1000 chapelets" : "+1000 rosaries";
             else if (i == T_SHARDS) lab = fr ? "+100 fragments de coquille" : "+100 shell shards";
             else if (i == T_MAPS) lab = fr ? "Toutes les cartes et la plume" : "Every map and the quill";
+            else if (i == T_TOOLS) lab = fr ? "Tous les outils" : "Every tool";
             else if (i == T_REFILL) lab = fr ? "Vie et soie au maximum" : "Full health and silk";
             else if (i == T_MASK) lab = fr ? "Un masque de plus" : "One more mask";
             else lab = fr ? "Retour" : "Back";

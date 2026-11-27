@@ -9,6 +9,7 @@ void tools_init(void);
 void tools_sync(void);
 // at a bench: the red tools' stock full again
 void tools_refill(void);
+void tools_give_all(void);   // the test menu
 // R with dir +1 up, -1 down, 0 neutral: the red tool bound there thrown from (x, y); false if none could be
 bool tools_use(float x, float y, int face, int dir);
 void tools_update(float dt);

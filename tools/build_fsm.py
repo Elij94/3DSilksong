@@ -250,6 +250,7 @@ OPS = [
     ('GetPosition2dAs3d', 'SourceXY SourceZ StoreVector'),
     ('FindClosest', 'gameObject withTag ignoreOwner mustBeVisible storeObject storeDistance'),
     ('GetTag', 'gameObject storeResult'),
+    ('GetDefaultTk2dClipName', 'gameObject storeName'),
     ('GameObjectCompareTag', 'gameObject tag trueEvent falseEvent storeResult'),
     ('GetColliderRange', 'gameObject minX maxX minY maxY'),
     ('DistanceBetweenPoints', 'distanceResult point1 point2 ignoreX ignoreY'),

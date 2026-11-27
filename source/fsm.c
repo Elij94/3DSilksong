@@ -1384,7 +1384,14 @@ static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) 
             o->anim.t = a_i(f, ARG(1)) / fmaxf(1, o->anim.set->clips[o->anim.clip].fps);
         return true;
     }
-    case OP_SetIsKinematic2d: { int nd = a_node(f, ARG(0)); if (nd >= 0) s_nodes[nd].kin = a_i(f, ARG(1)) != 0; return true; }
+    case OP_SetIsKinematic2d: {   // Unity's isKinematic: false makes a kinematic body dynamic (gravity, collisions)
+        int nd = a_node(f, ARG(0));
+        if (nd >= 0) {
+            s_nodes[nd].kin = a_i(f, ARG(1)) != 0;
+            if (!s_nodes[nd].kin && s_nodes[nd].body == 1) s_nodes[nd].body = 0;
+        }
+        return true;
+    }
     case OP_SetInvincible: { Obj *o = node_obj(a_node(f, ARG(0))); if (o) o->invincible = a_i(f, ARG(1)) != 0; return true; }
     case OP_SetRecoilSpeed: { Obj *o = node_obj(a_node(f, ARG(0))); if (o) o->recoil_v = a_f(f, ARG(1)); return true; }
     case OP_DoCameraShake: fx_shake(0.15f); return true;
@@ -1635,6 +1642,15 @@ static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) 
         set_node(f, ARG(4), best);
         if (best != N_NONE) set_f(f, ARG(5), bd);
         return !ac->every;
+    }
+    case OP_GetDefaultTk2dClipName: {   // the clip its animator starts with (the object's own, as baked)
+        Obj *o = node_obj(a_node(f, ARG(0)));
+        Val *v = var_of(f, ARG(1));
+        if (o && v) {
+            int s = str_find(o->clip);
+            if (s >= 0) { v->t = T_STR; v->s = s; }
+        }
+        return true;
     }
     case OP_GetTag: {
         int nd = a_node(f, ARG(0));
