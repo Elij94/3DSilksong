@@ -54,6 +54,10 @@ def main():
     for p in glob.glob(os.path.join(a.out, 'fsm', '*.json')):
         if not os.path.basename(p).startswith('pf_'):
             todo |= spawned(json.load(open(p, encoding='utf-8')))
+    # the tools Hornet throws (tools/build_tools.py)
+    tp = os.path.join(WORK, 'tool_prefabs.txt')
+    if os.path.exists(tp):
+        todo |= {l.strip() for l in open(tp) if l.strip()}
     done, names = set(), {}
     while todo:
         jobs = []

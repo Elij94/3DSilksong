@@ -7,7 +7,7 @@ struct Room_;
 
 enum { EF_LOW_ARC = 1, EF_FACES_RIGHT = 2, EF_NO_CORPSE = 4, EF_FREEZE = 8, EF_RECOIL = 16 };
 enum {
-    OF_ENEMY = 1, OF_BREAKABLE = 2, OF_INTERACT = 4, OF_ANIMATED = 8, OF_FSM = 16, OF_DAMAGE = 32, OF_INACTIVE = 64
+    OF_ENEMY = 1, OF_BREAKABLE = 2, OF_INTERACT = 4, OF_ANIMATED = 8, OF_FSM = 16, OF_DAMAGE = 32, OF_INACTIVE = 64, OF_HURTS = 128
 };
 
 typedef struct {
@@ -16,6 +16,7 @@ typedef struct {
     float x, y, z, scx, scy;
     float rx, ry, rw, rh;
     int hp, damage;
+    int hurt;              // DamageEnemies: what it does to the enemies it touches (OF_HURTS)
     char name[33], sprite_set[33], clip[33];
     Anim anim;
     float par;
@@ -73,6 +74,8 @@ void objects_sorted(Objects *os);
 
 void objects_load(Objects *os, const char *scene);
 void objects_free(Objects *os);
+// what the objects that hurt enemies touch takes their damage (OF_HURTS)
+void objects_hurt_enemies(Objects *os);
 void objects_update(Objects *os, float dt);
 // moves object i and the objects attached under it
 void obj_move(Objects *os, int i, float dx, float dy);

@@ -21,6 +21,7 @@
 #include "shop.h"
 #include "inventory.h"
 #include "pickups.h"
+#include "tools.h"
 
 #define FIRST_ROOM "Tut_01"
 #define OLD_SAVE   "sdmc:" SS_DATADIR "save.txt"   // before the 4 slots: becomes slot 1
@@ -159,6 +160,7 @@ static bool enter(const char *scene) {
     fsm_load(scene, &s_objs);
     load_additive(scene);
     pickups_load(scene);
+    tools_sync();
     room_dyn_solid = fsm_solid;
     enemies_init(&s_objs, &s_room);
     room_music(scene);
@@ -506,12 +508,16 @@ static void play(const Input *in_raw, float dt) {
     else if (dlg_active()) { dlg_update(in_raw->down); in = &none; }
     else if ((in_raw->down & KEY_UP) && h->ground && h->state == HS_NORMAL &&
              fsm_interact(h->x - HERO_HW, h->y + HERO_FOOT, h->x + HERO_HW, h->y + HERO_HEAD)) in = &none;
+    tools_update(dt);
+    if ((in->down & KEY_R) && h->state == HS_NORMAL)
+        tools_use(h->x, h->y, h->face, (in->held & KEY_UP) ? 1 : (in->held & KEY_DOWN) ? -1 : 0);
     float box[4];
     hero_probe = probe_enemy;
     g_where = "hero_update";
     bool hitting = hero_update(h, &s_room, in, dt, box);
     g_where = "objects/enemies";
     objects_update(&s_objs, dt);
+    objects_hurt_enemies(&s_objs);
     g_where = "fsm_update";
     if (shop_active()) fsm_input(0, 0, 0);   // the shop menu has the buttons
     else fsm_input(in_raw->down, in_raw->held, in_raw->up);
@@ -591,6 +597,7 @@ static void play(const Input *in_raw, float dt) {
                 pd_clear_semi();      // and the enemies come back
                 map_bench_update();   // with the quill, the visited rooms of the areas she has the map of
                 h->hp = h->maxhp;
+                tools_refill();       // the red tools' stock full again
                 snprintf(s_bench_scene, sizeof s_bench_scene, "%s", s_room.scene);
                 s_bench_x = h->sit_x1;
                 s_bench_y = h->y;
@@ -772,7 +779,7 @@ void game_update(const Input *in, float dt) {
     if ((in->down & KEY_START) && !s_menu && !shop_active()) { s_mode = GS_PAUSE; menu_open_pause(); return; }
     if (s_msg_t > 0) s_msg_t -= dt;
     // SELECT: the inventory on the bottom screen (the game waits); the room list is in the pause menu
-    if (inv_active()) { inv_update(in->down); return; }
+    if (inv_active()) { g_tools_at_bench = s_hero.state == HS_SIT; inv_update(in->down); return; }
     if ((in->down & KEY_SELECT) && s_menu) s_menu = false;
     else if ((in->down & KEY_SELECT) && !shop_active() && !dlg_active() && !s_trans.active) { inv_open(); return; }
     if (s_menu) { rooms_update(in); return; }
@@ -928,6 +935,20 @@ static void draw_hud(void) {
         snprintf(name, sizeof name, glow ? "SilkChunk Glow %d" : "SilkChunk Idle %d", 1 + i % 3);
         sprite_draw_screen(s_hud, hud_frame(name, s_hud_t + i * 0.17f, true), HUD_X(tx + 0.085f + 0.18f * i), HUD_Y(ty), K,
                            NULL);
+    }
+    {
+        ToolHud th[4];
+        int nt = tools_hud(th, 4);
+        for (int i = 0; i < nt; i++) {
+            if (!th[i].set) break;
+            int c = sprite_clip(th[i].set, th[i].clip);
+            if (c < 0 || !th[i].set->clips[c].n) continue;
+            float x = HUD_X(-12.6f + 1.25f * i), y = HUD_Y(4.75f);
+            sprite_draw_screen(th[i].set, rds16((const u8 *)&th[i].set->clips[c].frames[0]), x, y, HUD_K * 0.5f, NULL);
+            char num[8];
+            snprintf(num, sizeof num, "%d", th[i].uses);
+            hud_text(num, x + HUD_K * 0.25f, y + HUD_K * 0.2f, 0.3f, C2D_Color32(255, 255, 255, 230));
+        }
     }
     // the counters, a few seconds after a pickup: rosaries, then shell shards one unit lower
     int geo, shards;

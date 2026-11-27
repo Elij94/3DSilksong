@@ -703,6 +703,17 @@ bool fsm_load_additive(const char *scene) {
     return true;
 }
 
+static float node_scale(int node);
+static void node_set_scale(int node, float sx);
+int fsm_spawn(const char *pack, float x, float y, float vx, float vy, int face) {
+    int root = spawn_pack(pack, x, y);
+    if (root == N_NONE) return -1;
+    s_nodes[root].vx = vx;
+    s_nodes[root].vy = vy;
+    if (face < 0) node_set_scale(root, -fabsf(node_scale(root)));
+    return root;
+}
+
 // the instance a node belongs to, -1 if it is the room's own
 static int inst_of(int node) {
     for (int i = 0; i < s_ninst; i++)

@@ -10,6 +10,8 @@ void fsm_load(const char *scene, Objects *os);
 // a scene the game loads on top of the room (SceneAdditiveLoadConditional: a boss arena...): its objects and FSMs, in
 // place, after fsm_load. False if it doesn't fit or is missing.
 bool fsm_load_additive(const char *scene);
+// a pack (rooms/pf_<name>.*) put at (x, y) moving at (vx, vy), turned left when face < 0: its root node, -1
+int fsm_spawn(const char *pack, float x, float y, float vx, float vy, int face);
 void fsm_free(void);
 // one frame: the FSMs of active nodes, hero triggers, timers
 void fsm_update(float dt, Hero *h, Objects *os, const struct Room_ *r);

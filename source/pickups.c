@@ -12,6 +12,7 @@
 #include "font.h"
 #include "audio.h"
 #include "dialogue.h"
+#include "tools.h"
 
 #define MAX_PICKUPS 16
 
@@ -74,6 +75,7 @@ static void give(const Pickup *p) {
         pd_set_int(k, pd_int(k) + 1);
     }
     if (strcmp(p->pd, "-")) pd_set_bool(p->pd, true);
+    tools_sync();   // a tool: into a free slot of its colour
     flag_name(k, sizeof k, p->index);
     pd_set_bool(k, true);
     // the popup: its name (the text sheets), else the asset's name

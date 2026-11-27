@@ -3,6 +3,7 @@
 #include "shop.h"
 #include "font.h"
 #include "sprite.h"
+#include "tools.h"
 #include "audio.h"
 #include "dialogue.h"
 #include <stdio.h>
@@ -23,6 +24,7 @@ static int s_ncs;
 static Coll s_c[128];
 static int s_nc;
 static bool s_loaded, s_open;
+static int s_tab;   // 0 the Inventory, 1 the Tools (L, R)
 static SpriteSet *s_set, *s_hud;
 
 static void unspace(char *s) { for (; *s; s++) if (*s == 0x1f) *s = ' '; }
@@ -151,6 +153,8 @@ bool inv_active(void) { return s_open; }
 void inv_update(u32 down) {
     if (!s_open) return;
     if (down & (KEY_SELECT | KEY_B | KEY_START)) { inv_close(); return; }
+    if (down & (KEY_L | KEY_R)) { s_tab ^= 1; sfx_play_name("ui_change_selection", 0.6f, 0); return; }   // Inventory / Tools
+    if (s_tab) { tools_ui_update(down); return; }
     int dx = (down & KEY_RIGHT) ? 1 : (down & KEY_LEFT) ? -1 : 0;
     int dy = (down & KEY_DOWN) ? 1 : (down & KEY_UP) ? -1 : 0;
     if (!dx && !dy) return;
@@ -219,7 +223,8 @@ static void sel_text(const char **sh, const char **nm, const char **dsh, const c
 void inv_draw_top(void) {
     if (!s_open) return;
     const char *sh, *nm, *dsh, *ds;
-    sel_text(&sh, &nm, &dsh, &ds);
+    if (s_tab) tools_ui_text(&sh, &nm, &dsh, &ds);
+    else sel_text(&sh, &nm, &dsh, &ds);
     float ax = g_view.sx / g_view.sy, cx = g_view.sw * 0.5f;
     C2D_DrawRectSolid(0, 0, 0.9f, g_view.sw, g_view.sh, C2D_Color32(0, 0, 0, 170));
     char t[512];
@@ -236,8 +241,11 @@ void inv_draw(void) {
     u32 white = C2D_Color32(240, 236, 228, 255), grey = C2D_Color32(160, 156, 150, 255);
     char t[512], num[16];
     C2D_DrawRectSolid(0, 0, 0.5f, 320, 240, C2D_Color32(6, 5, 8, 255));
-    text_line("UI", "PANE_INVENTORY", t, sizeof t);
+    text_line("UI", s_tab ? "PANE_TOOLS" : "PANE_INVENTORY", t, sizeof t);
     font_draw(title_font(), t, 160, 6, 13, white, FONT_CENTER);
+    font_draw(title_font(), "L", 12, 6, 11, grey, FONT_LEFT);
+    font_draw(title_font(), "R", 308, 6, 11, grey, FONT_RIGHT);
+    if (s_tab) { tools_ui_draw(); return; }
     C2D_DrawRectSolid(124, 30, 0.6f, 1, 196, C2D_Color32(120, 116, 110, 255));   // the divider
     // the needle (PlayerData nailUpgrades), the silk spool, the heart and spool pieces
     int nail = pd_int("nailUpgrades");

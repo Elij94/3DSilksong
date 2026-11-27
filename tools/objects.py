@@ -6,7 +6,7 @@ import numpy as np
 from sscommon import guidmap, f
 import tk2d
 
-ENEMY, BREAKABLE, INTERACT, ANIMATED, FSM, HAZARD, INACTIVE = 1, 2, 4, 8, 16, 32, 64
+ENEMY, BREAKABLE, INTERACT, ANIMATED, FSM, HAZARD, INACTIVE, HURTS = 1, 2, 4, 8, 16, 32, 64, 128
 INTERACT_RE = re.compile(r'NPC|Interact|Bench|Lever|Door|Gate|Collectable|Pickup|Shop|Chest|Switch|Toll|Item', re.I)
 
 
@@ -122,6 +122,9 @@ def gather_objects(sc, scripts, collider_shapes, rect_of):
                                                            'largeSmoothGeoDrops', 'shellShardDrops')] +                                [int(f(v.get('megaFlingGeo')))]
             elif n == 'Breakable':
                 flags |= BREAKABLE
+            elif n == 'DamageEnemies':   # hurts enemies (Hornet's thrown tools...): its damage
+                flags |= HURTS
+                enemy['hurt'] = int(f(v.get('damageDealt')))
             elif n == 'DamageHero':
                 flags |= HAZARD
                 dmg = int(f(v.get('damageDealt')))
@@ -140,7 +143,7 @@ def gather_objects(sc, scripts, collider_shapes, rect_of):
                     tk_col = c['sprites'][sid].get('col')
             if INTERACT_RE.search(n):
                 flags |= INTERACT
-        if not flags & (ENEMY | BREAKABLE | INTERACT | ANIMATED | FSM | HAZARD) and not state:
+        if not flags & (ENEMY | BREAKABLE | INTERACT | ANIMATED | FSM | HAZARD | HURTS) and not state:
             continue
         if not sc.active(gid):
             flags |= INACTIVE
@@ -184,8 +187,9 @@ def s(txt, n):
 def write(path, objs):
     b = bytearray(b'SSOB' + struct.pack('<HH', 1, len(objs)))
     for o in objs:
-        b += struct.pack('<HhfffffffffiiH2x', o['flags'], o['parent'], *o['pos'], *o['scale'], *o['rect'],
-                         o['hp'], o['damage'], max(0, o['sprite_id']) if o['sprite_id'] >= 0 else 0xFFFF)
+        b += struct.pack('<HhfffffffffiiHH', o['flags'], o['parent'], *o['pos'], *o['scale'], *o['rect'],
+                         o['hp'], o['damage'], max(0, o['sprite_id']) if o['sprite_id'] >= 0 else 0xFFFF,
+                         min(0xFFFF, max(0, (o.get('enemy') or {}).get('hurt', 0))))
         b += s(o['name'], 32) + s(o['sprite_set'], 32) + s(o['clip'], 32) + s(o['collection'], 32) + \
             s(','.join(o['fsms']), 64)
     with open(path, 'wb') as fh:

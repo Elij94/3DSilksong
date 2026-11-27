@@ -52,6 +52,7 @@ static void obj_parse(Obj *o, const u8 *p, int i, int base, float dx, float dy) 
     o->scx = rdf(p + 16); o->scy = rdf(p + 20);
     o->rx = rdf(p + 24) + dx; o->ry = rdf(p + 28) + dy; o->rw = rdf(p + 32); o->rh = rdf(p + 36);
     o->hp = (int)rd32(p + 40); o->damage = (int)rd32(p + 44);
+    o->hurt = rd16(p + 50);
     rdstr(o->name, p + 52, 32);
     rdstr(o->sprite_set, p + 84, 32);
     rdstr(o->clip, p + 116, 32);
@@ -214,6 +215,18 @@ static bool under_dead(const Objects *os, int i) {
     for (int k = 0, p = os->o[i].parent; p >= 0 && p < os->n && k < 32; k++, p = os->o[p].parent)
         if (os->o[p].dead) return true;
     return false;
+}
+
+// the objects that hurt enemies (DamageEnemies: Hornet's thrown tools...): what they touch takes their damage
+void objects_hurt_enemies(Objects *os) {
+    for (int i = 0; i < os->n; i++) {
+        Obj *o = &os->o[i];
+        if (!(o->flags & OF_HURTS) || o->hurt <= 0 || o->dead || o->rw <= 0 || !obj_alive(os, i)) continue;
+        float vx = 0, vy = 0;
+        if (o->node >= 0) fsm_node_velocity(o->node, &vx, &vy, false);
+        int dir = fabsf(vx) >= fabsf(vy) ? (vx >= 0 ? 0 : 2) : (vy >= 0 ? 1 : 3);
+        objects_strike(os, o->rx, o->ry, o->rx + o->rw, o->ry + o->rh, o->hurt, o->rx + o->rw * 0.5f - (vx >= 0 ? 1 : -1), dir);
+    }
 }
 
 int objects_touch_damage(const Objects *os, float x0, float y0, float x1, float y1, float *cx) {
