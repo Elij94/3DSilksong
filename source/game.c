@@ -141,6 +141,7 @@ static bool room_exists(const char *scene) {
 
 static void camera_snap(void);
 
+static void load_additive(const char *scene);
 static bool enter(const char *scene) {
     unload();
     g_fsm_fade = 0;   // a script's fade ends with its room
@@ -155,6 +156,7 @@ static bool enter(const char *scene) {
     particles_node_on = fsm_node_active;
     particles_node_pos = fsm_node_pos;
     fsm_load(scene, &s_objs);
+    load_additive(scene);
     room_dyn_solid = fsm_solid;
     enemies_init(&s_objs, &s_room);
     room_music(scene);
@@ -164,6 +166,37 @@ static bool enter(const char *scene) {
     qsort(s_order, s_norder, sizeof(s16), cmp_layers);
     s_loaded = true;
     return true;
+}
+
+// the scenes the game loads with this room when their PlayerData tests pass (text/additive.txt, from
+// tools/build_additive.py: "<room> <scene> pd:<bool>=<0|1> pd:<int><op><n> ...")
+static bool additive_test(const char *t) {
+    if (strncmp(t, "pd:", 3)) return true;
+    char name[64];
+    int i = 0;
+    for (t += 3; *t && !strchr("=!<>", *t) && i < 63; t++) name[i++] = *t;
+    name[i] = 0;
+    char op = *t ? *t++ : '=';
+    int want = atoi(t);
+    if (op == '=' && pd_int(name) == 0 && !pd_bool(name) && want == 0) return true;
+    int v = pd_bool(name) ? 1 : pd_int(name);
+    return op == '=' ? v == want : op == '!' ? v != want : op == '<' ? v < want : v > want;
+}
+
+static void load_additive(const char *scene) {
+    size_t n = 0;
+    char *txt = file_load(data_path("text/additive.txt"), &n);
+    if (!txt) return;
+    char *save = NULL;
+    for (char *line = strtok_r(txt, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+        char *s2 = NULL, *room = strtok_r(line, " \r", &s2), *sub = strtok_r(NULL, " \r", &s2);
+        if (!room || !sub || strcmp(room, scene)) continue;
+        bool ok = true;
+        for (char *t = strtok_r(NULL, " \r", &s2); t && ok; t = strtok_r(NULL, " \r", &s2)) ok = additive_test(t);
+        if (ok && !fsm_load_additive(sub)) autotest_note("additive scene didn't fit");
+        else if (ok) autotest_note("additive scene loaded");
+    }
+    free(txt);
 }
 
 // places Hornet at the entry gate 'entry' of the new room (the spawn point if there is none)
@@ -937,6 +970,28 @@ void game_draw(void) {
     g_view.cy -= s_shake_y;
 }
 
+// a boss's name as the game shows it at the start of its fight (DisplayBossTitle): Titles.txt's <key>_SUPER, _MAIN
+// and _SUB, low on one side, fading in and out
+static void draw_boss_title(void) {
+    g_boss_title_t += 1.0f / 60;
+    float t = g_boss_title_t, a = t < 0.6f ? t / 0.6f : t < 4.0f ? 1 : 1 - (t - 4.0f) / 1.2f;
+    if (a <= 0) { g_boss_title[0] = 0; return; }
+    Font *f = font_get("trajanpro_bold_sdf");
+    if (!f) f = font_get("trajan_bold_tmpro");
+    if (!f) return;
+    char key[56], sup[64] = "", main_[64] = "", sub[64] = "";
+    snprintf(key, sizeof key, "%s_SUPER", g_boss_title); text_line("Titles", key, sup, sizeof sup);
+    snprintf(key, sizeof key, "%s_MAIN", g_boss_title); text_line("Titles", key, main_, sizeof main_);
+    snprintf(key, sizeof key, "%s_SUB", g_boss_title); text_line("Titles", key, sub, sizeof sub);
+    if (!main_[0]) return;
+    float W = g_view.sw, H = g_view.sh, x = g_boss_title_right ? W * 0.94f : W * 0.06f;
+    int al = g_boss_title_right ? FONT_RIGHT : FONT_LEFT;
+    u32 c = C2D_Color32(236, 230, 218, (u8)(clampf(a, 0, 1) * 255));
+    if (sup[0]) font_draw(f, sup, x, H * 0.66f, 11, c, al);
+    font_draw(f, main_, x, H * 0.72f, 26, c, al);
+    if (sub[0]) font_draw(f, sub, x, H * 0.86f, 11, c, al);
+}
+
 static void draw_all(void) {
     if (!s_loaded) return;
     room_frame_begin();
@@ -998,6 +1053,7 @@ static void draw_all(void) {
     float fade = s_fade > g_fsm_fade ? s_fade : g_fsm_fade;   // the room's fade in, or a script's ScreenFader
     if (fade > 0)
         C2D_DrawRectSolid(0, 0, 0.9f, g_view.sw, g_view.sh, C2D_Color32(0, 0, 0, (u8)(clampf(fade, 0, 1) * 255)));
+    if (g_boss_title[0] && s_mode == GS_PLAY) draw_boss_title();
     if (s_mode == GS_TITLE || s_mode == GS_PAUSE) menu_draw();
 }
 

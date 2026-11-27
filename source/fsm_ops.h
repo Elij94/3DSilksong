@@ -259,6 +259,17 @@
 #define OP_SendRandomEventV2              255   // events weights
 #define OP_MultiplyGravity                256   // gameObject multiplyBy
 #define OP_EnableFsmSelf                  257   // SetEnabled
-#define OP_CheckHeroPerformanceRegion     258   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_CheckHeroPerformanceRegionV2   259   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_COUNT 260
+#define OP_KeepFloatPositive              258   // floatVariable
+#define OP_DisplayBossTitle               259   // areaTitleObject displayRight bossTitle
+#define OP_MultiplyIntByFloat             260   // integer multiplyFloat storeResult forceRoundUp
+#define OP_CompareHP                      261   // enemy integer2 equal lessThan greaterThan
+#define OP_SendEventByNameV3              262   // eventTarget sendEvent delay activeBool
+#define OP_SetPolygonCollider             263   // gameObject active
+#define OP_SubtractHP                     264   // target amount
+#define OP_Vector2AddXY                   265   // vector2Variable addX addY perSecond
+#define OP_IntTestToBool                  266   // int1 int2 equalBool lessThanBool greaterThanBool
+#define OP_ObjectJitter                   267   // gameObject x y allowMovement
+#define OP_SetRecoilBlocked               268   // Target IsUpBlocked IsDownBlocked IsLeftBlocked IsRightBlocked
+#define OP_CheckHeroPerformanceRegion     269   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_CheckHeroPerformanceRegionV2   270   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_COUNT 271

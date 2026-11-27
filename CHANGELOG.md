@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.19.0 — enemies everywhere, the title screen as the game's, the first bosses
+
+- PlayMaker's global "Hero" variable (45 500 uses in the rooms' scripts) now points at Hornet: enemies face her, chase
+  her, leap and swoop at her instead of at the room's corner.
+- Greymoor_12: the Mitefly's sprite took its local position for a world one and crossed the room; the Mites stood
+  still (WalkLeftRight unknown). Both as the game's now.
+- About 60 more script actions: WalkLeftRight, DistanceFlyV2, Check X/Y Position, CheckPassedTarget, ChaseObjectVertical,
+  IdleBuzzV2, FaceObjectV3, Decelerate, AddForce2d, ShoveFromWall, ClampSpeed, ClampVelocity2D, MatchScaleSign,
+  TranslateRandom, ObjectJitter, SetRecoilBlocked, CompareHP, MultiplyIntByFloat, SendEventByNameV3, SetHP/GetHP/AddHP/
+  SubtractHP, InstaDeath, TimeLimitSet/Check, random and float/int/vector helpers... (906 000 → 917 000 kept).
+- tk2d animation trigger frames: the events scripts wait for on an attack's frame now come (Mitefly attacks).
+- Crawler as the game's: along its floor or roof, turning (with its turn clip) at a wall ahead or where the ground
+  ends; no more crawlers flipping on the spot.
+- Bodies: about 20 000 enemies had no collider (tk2d gives them a box from their sprite at run time): they get it now
+  (the Crowman no longer falls out of Greymoor_15b). Bodies slide up small slopes and seams as Unity's do.
+- SetPosition2D with a vector ignores its X and Y (mosquitoes, Bell Goombas no longer sent to 0,0); iTween moves by
+  speed; GetPosition2dAs3d (the dragonflies' route).
+- Bosses: Moss Mother's swoop no longer runs away out of the arena (KeepFloatPositive); phases by HP (CompareHP); the
+  boss's name shown at the start of its fight as the game does (Titles.txt).
+- Scenes loaded on top of a room (SceneAdditiveLoadConditional: boss arenas, the Bellway beast, cutscenes; 35 of them,
+  text/additive.txt from tools/build_additive.py), when their PlayerData tests pass: the Bell Beast hangs in Bone_05,
+  freed by cutting its vines, then fights (submerge, emerge, charge). Their scenery and particles are not yet drawn.
+- Title screen measured on the game's: framed as its 16:9 screen (the logo centred, the needle three quarters across,
+  stuck in the bone pile on the bottom edge), its colour grading (red, darker sides and top, the lava's red glow),
+  the logo kept white above it, and its embers: particle boxes are scaled by their object as in Unity (every room's
+  ambient particles spread as wide as the game's), up to 150 live particles an emitter.
+
 ## 0.18.0 — the game's room entries, its down spike, its menus; the scenery cleaned up
 
 - Room entries as HeroController.EnterScene: walked in from the sides (0.33 s at run speed), dropped in from above,

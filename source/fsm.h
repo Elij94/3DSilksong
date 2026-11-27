@@ -7,6 +7,9 @@
 
 // loads the room's FSMs (none if the file is missing); links the objects to their nodes
 void fsm_load(const char *scene, Objects *os);
+// a scene the game loads on top of the room (SceneAdditiveLoadConditional: a boss arena...): its objects and FSMs, in
+// place, after fsm_load. False if it doesn't fit or is missing.
+bool fsm_load_additive(const char *scene);
 void fsm_free(void);
 // one frame: the FSMs of active nodes, hero triggers, timers
 void fsm_update(float dt, Hero *h, Objects *os, const struct Room_ *r);
@@ -36,6 +39,9 @@ void pd_clear(void);                // a new game
 // the buttons this frame, for the scripts that listen to them; the scripts' screen fade (black, 0..1)
 void fsm_input(u32 down, u32 held, u32 up);
 extern float g_fsm_fade;
+extern char g_boss_title[40];   // DisplayBossTitle: its Titles.txt key (game.c shows it), "" none
+extern float g_boss_title_t;    // seconds since it was shown
+extern bool g_boss_title_right;
 void pd_clear_semi(void);           // a bench rest
 int fsm_count(void);                // for the status screen
 int fsm_spawned(void);

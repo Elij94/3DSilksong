@@ -31,6 +31,7 @@ typedef struct {
     SpriteSet *corpse_set; // the corpse's animations when they are not in the enemy's own set
     float fling;           // the corpse's speed
     u8 eflags;             // EF_*
+    u8 recoil_block;       // Recoil's blocked directions (SetRecoilBlocked): bit 0 right, 1 up, 2 left, 3 down
     float recoil_v, recoil_dur, recoil_t, rdx, rdy;
     float flash_t;         // time since a hit flash started (< 0: none)
     float hit_cd;          // one hit per swing

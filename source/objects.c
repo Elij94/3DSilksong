@@ -190,7 +190,7 @@ int objects_strike(Objects *os, float x0, float y0, float x1, float y1, int dmg,
             fsm_node_send(o->node, "HIT");
             fsm_node_send(o->node, "TOOK DAMAGE");
             if (fx_flash(o->hitp)) o->flash_t = 0;
-            if (o->recoil_v > 0 && !(o->eflags & EF_FREEZE) && o->hp > 0) {
+            if (o->recoil_v > 0 && !(o->eflags & EF_FREEZE) && o->hp > 0 && !(o->recoil_block & (1 << (dir & 3)))) {
                 static const float DX[] = {1, 0, -1, 0}, DY[] = {0, 1, 0, -1};
                 o->rdx = DX[dir & 3];
                 o->rdy = DY[dir & 3];

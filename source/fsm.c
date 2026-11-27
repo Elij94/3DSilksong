@@ -119,7 +119,10 @@ static u16 s_ev_finished;
 static Delayed s_delayed[32];
 static int s_ndelayed;
 static float s_dt;
-static float s_clock;     // seconds since the engine started (Time.time)
+static float s_clock;
+char g_boss_title[40];
+float g_boss_title_t;
+bool g_boss_title_right;     // seconds since the engine started (Time.time)
 
 // ------------------------------------------------------------------ PlayerData
 
@@ -593,6 +596,7 @@ typedef struct {
     s16 pack;                // -1: free
     int nbase, fbase, obase;
     bool live;
+    bool fixed;              // an additive scene: part of the room, never recycled
     float t;
 } Inst;
 
@@ -662,6 +666,7 @@ static int spawn_pack(const char *name, float x, float y) {
             return N_NONE;
         in = &s_inst[s_ninst++];
         in->pack = pi;
+        in->fixed = false;
         in->nbase = s_node_top; in->fbase = s_fsm_top; in->obase = s_obj_top;
         s_node_top += pk->nn; s_fsm_top += pk->nf; s_obj_top += pk->no;
     }
@@ -678,6 +683,16 @@ static int spawn_pack(const char *name, float x, float y) {
     particles_fx(pk->name, x, y, 0, 0);
     objects_sorted(s_os);
     return pk->nn ? in->nbase : N_NONE;
+}
+
+bool fsm_load_additive(const char *scene) {
+    int pi = pack_get(scene);
+    if (pi < 0) return false;
+    int n0 = s_ninst;
+    if (spawn_pack(scene, s_packs[pi].rx, s_packs[pi].ry) == N_NONE) return false;
+    for (int i = 0; i < s_ninst; i++)
+        if (s_inst[i].pack == pi && (i >= n0 || s_inst[i].live)) s_inst[i].fixed = true;
+    return true;
 }
 
 // the instance a node belongs to, -1 if it is the room's own
@@ -703,7 +718,7 @@ static void recycle(int node) {
 static void spawn_update(float dt) {
     for (int i = 0; i < s_ninst; i++) {
         Inst *in = &s_inst[i];
-        if (!in->live) continue;
+        if (!in->live || in->fixed) continue;
         in->t += dt;
         if (inst_done(in)) { recycle(in->nbase); continue; }
         float x, y;
@@ -1730,6 +1745,69 @@ static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) 
         return true;
     }
     case OP_MultiplyGravity: { int nd = a_node(f, ARG(0)); if (nd >= 0) s_nodes[nd].grav *= a_f(f, ARG(1)); return true; }
+    case OP_MultiplyIntByFloat: {
+        float v = a_i(f, ARG(0)) * a_f(f, ARG(1));
+        set_i(f, ARG(2), a_i(f, ARG(3)) ? (int)ceilf(v) : (int)v);
+        return !ac->every;
+    }
+    case OP_CompareHP: {
+        Obj *o = node_obj(a_node(f, ARG(0)));
+        if (o) {
+            int hp = o->hp, b = a_i(f, ARG(1));
+            send_self(f, ARG(hp == b ? 2 : hp < b ? 3 : 4));
+        }
+        return !ac->every;
+    }
+    case OP_SendEventByNameV3:   // only while its bool is set (none: never)
+        if (!a_none(f, ARG(3)) && a_i(f, ARG(3))) send_target(f, ARG(0), ev_of(f, ARG(1)), a_f(f, ARG(2)));
+        return true;
+    case OP_SubtractHP: {
+        Obj *o = node_obj(a_node(f, ARG(0)));
+        if (o && !o->dead) o->hp -= a_i(f, ARG(1));
+        return true;
+    }
+    case OP_Vector2AddXY: {
+        Val *v = var_of(f, ARG(0));
+        if (v) {
+            if (v->t != T_VEC) { v->t = T_VEC; v->f[0] = v->f[1] = 0; }
+            float k = a_i(f, ARG(3)) ? s_dt : 1;
+            v->f[0] += a_f(f, ARG(1)) * k; v->f[1] += a_f(f, ARG(2)) * k;
+        }
+        return !ac->every;
+    }
+    case OP_IntTestToBool: {
+        int x = a_i(f, ARG(0)), y = a_i(f, ARG(1));
+        set_i(f, ARG(2), x == y); set_i(f, ARG(3), x < y); set_i(f, ARG(4), x > y);
+        return !ac->every;
+    }
+    case OP_ObjectJitter: {   // shakes about where it is: a new random offset each frame, the last one taken back
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return true;
+        float x, y, jx = a_f(f, ARG(1)), jy = a_f(f, ARG(2));
+        if (enter) { rt->dx = rt->dy = 0; if (jx == 0 && jy == 0) return true; }
+        node_pos(nd, &x, &y);
+        float nx = frand(-jx, jx), ny = frand(-jy, jy);
+        node_set_pos(nd, x - rt->dx + nx, y - rt->dy + ny);
+        rt->dx = nx; rt->dy = ny;
+        return false;
+    }
+    case OP_DisplayBossTitle:
+        snprintf(g_boss_title, sizeof g_boss_title, "%s", str_at(a_str(f, ARG(2))));
+        g_boss_title_t = 0;
+        g_boss_title_right = a_i(f, ARG(1)) != 0;
+        return true;
+    case OP_KeepFloatPositive:
+        if (a_f(f, ARG(0)) < 0) set_f(f, ARG(0), -a_f(f, ARG(0)));
+        return !ac->every;
+    case OP_SetRecoilBlocked: {
+        Obj *o = node_obj(a_node(f, ARG(0)));
+        if (o) {
+            const int bit[4] = {2, 8, 4, 1};   // up, down, left, right -> the hit directions' bits
+            for (int k = 0; k < 4; k++)
+                if (!a_none(f, ARG(1 + k))) o->recoil_block = a_i(f, ARG(1 + k)) ? (o->recoil_block | bit[k]) : (o->recoil_block & ~bit[k]);
+        }
+        return true;
+    }
     case OP_EnableFsmSelf: if (!a_i(f, ARG(0))) f->stopped = true; return true;
     case OP_GetPosition2d: {
         float x, y;
@@ -2029,7 +2107,7 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         if (o) o->hidden = !a_i(f, ARG(1));
         return !ac->every;
     }
-    case OP_SetCollider: {
+    case OP_SetCollider: case OP_SetPolygonCollider: {
         int nd = a_node(f, ARG(0));
         Obj *o = node_obj(nd);
         if (o) o->nocoll = !a_i(f, ARG(1));
