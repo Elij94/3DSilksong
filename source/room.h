@@ -60,6 +60,8 @@ typedef struct Room_ {
 
 bool room_load(Room *r, const char *scene);
 void room_free(Room *r);
+// a scene loaded on top of the room (additive): its scenery layers added to the room's (call before ordering them)
+bool room_append(Room *r, const char *scene);
 bool room_solid(const Room *r, float x, float y);
 bool room_box_solid(const Room *r, float x0, float y0, float x1, float y1);
 

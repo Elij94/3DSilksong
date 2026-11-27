@@ -3,6 +3,8 @@
 
 // the room's ambient particles (particles.c)
 void particles_load(const char *scene);
+// an added scene's emitters (rooms/<scene>.spt) after the room's: the first file index they take, -1 if none
+int particles_append(const char *scene);
 void particles_free(void);
 void particles_update(float dt);
 // draws the particles of the emitters with z in (zmin, zmax]

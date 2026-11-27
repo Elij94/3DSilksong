@@ -120,6 +120,7 @@ static Delayed s_delayed[32];
 static int s_ndelayed;
 static float s_dt;
 static float s_clock;
+static int s_part_base = -1;   // an added scene being read: its emitters' first index (particles_append), else -1
 char g_boss_title[40];
 float g_boss_title_t;
 bool g_boss_title_right;     // seconds since the engine started (Time.time)
@@ -546,6 +547,7 @@ static bool load_ssf(const u8 *data, size_t size, const char *scene, Objects *os
         int n = rd16(p); p += 2;
         for (int i = 0; i < n && p + 4 <= data + size; i++, p += 4)
             if (!pack) particles_bind(rd16(p), map_node(rds16(p + 2)));
+            else if (s_part_base >= 0) particles_bind(s_part_base + rd16(p), map_node(rds16(p + 2)));
     }
 done:
     if (pack) {
@@ -689,7 +691,10 @@ bool fsm_load_additive(const char *scene) {
     int pi = pack_get(scene);
     if (pi < 0) return false;
     int n0 = s_ninst;
-    if (spawn_pack(scene, s_packs[pi].rx, s_packs[pi].ry) == N_NONE) return false;
+    s_part_base = particles_append(scene);
+    int root = spawn_pack(scene, s_packs[pi].rx, s_packs[pi].ry);
+    s_part_base = -1;
+    if (root == N_NONE) return false;
     for (int i = 0; i < s_ninst; i++)
         if (s_inst[i].pack == pi && (i >= n0 || s_inst[i].live)) s_inst[i].fixed = true;
     return true;

@@ -152,6 +152,9 @@ static LightLock s_flock;      // the room's .ssl file: one reader at a time
 static FILE *s_file;
 static u8 *s_mem;              // the room's .ssl read whole at load (no card reads while walking), NULL if it didn't fit
 static size_t s_mem_size;
+#define MAX_OLD_MEM 8
+static u8 *s_old_mem[MAX_OLD_MEM];   // the room's earlier tile blocks (room_append): freed with the room
+static int s_nold_mem;
 static volatile u32 s_gen;     // which room the jobs are for
 static volatile bool s_quit;
 static __thread u8 *s_wbuf;    // a loader's read buffer
@@ -365,6 +368,8 @@ void room_free(Room *r) {
     s_mem_size = 0;
     LightLock_Unlock(&s_flock);
     free(mem);
+    for (int i = 0; i < s_nold_mem; i++) free(s_old_mem[i]);
+    s_nold_mem = 0;
     for (int i = 0; i < MAX_SLOTS; i++)
         if (s_slots[i].owner) slot_release(i);
     for (int i = 0; i < r->nlayers; i++) { free(r->layers[i].tiles); free(r->layers[i].lut); }
@@ -374,6 +379,83 @@ void room_free(Room *r) {
     free(r->grid);
     if (r->ssl) fclose(r->ssl);
     memset(r, 0, sizeof *r);
+}
+
+// n layer records from *pp (the .ssr's table) into dst, their tiles' offsets moved by base; false if it is cut short
+static bool read_layers(Layer *dst, int n, const u8 **pp, const u8 *end, u32 base) {
+    const u8 *p = *pp;
+    for (int i = 0; i < n; i++) {
+        if (p + 40 > end) return false;
+        Layer *L = &dst[i];
+        rdstr(L->name, p, 8);
+        L->z = rdf(p + 8); L->par = rdf(p + 12); L->ox = rdf(p + 16); L->oy = rdf(p + 20); L->ppu = rdf(p + 24);
+        L->tile = rd16(p + 28); L->ntx = rd16(p + 30); L->nty = rd16(p + 32); L->ntiles = rd16(p + 34);
+        L->fmt = p[36]; L->blend = p[37];
+        if (L->par <= 0) L->par = 1;
+        if (L->ppu <= 0) L->ppu = 64;
+        L->ppy = rd16(p + 38) / 256.0f;
+        if (L->ppy <= 0) L->ppy = L->ppu;
+        L->tsx = L->tile / L->ppu;
+        L->tsy = L->tile / L->ppy;
+        // the screen shows g_view.sx * par pixels per unit of this layer across and g_view.sy * par down (twice as
+        // many across in the 800 wide mode): keep about that much of its ppu each way
+        L->dx = L->dy = 1;
+        while (L->dx < 4 && L->tile / (L->dx * 2) >= 32 && L->ppu / (L->dx * 2) >= 0.75f * g_view.sx * L->par)
+            L->dx *= 2;
+        while (L->dy < 4 && L->tile / (L->dy * 2) >= 32 && L->ppy / (L->dy * 2) >= 0.75f * g_view.sy * L->par)
+            L->dy *= 2;
+        p += 40;
+        if (p + 12 * L->ntiles > end) return false;
+        L->tiles = calloc(L->ntiles + 1, sizeof(RTile));
+        L->lut = malloc(sizeof(s16) * (L->ntx * L->nty + 1));
+        for (int k = 0; k < L->ntx * L->nty; k++) L->lut[k] = -1;
+        for (int k = 0; k < L->ntiles; k++, p += 12) {
+            RTile *t = &L->tiles[k];
+            t->tx = rd16(p) & 0x7FFF; t->ty = rd16(p + 2); t->off = rd32(p + 4) + base; t->size = rd32(p + 8);
+            t->slot = -1;
+            t->fmt = (rd16(p) & 0x8000) ? GPU_RGB565 : L->fmt;
+            if (t->tx < L->ntx && t->ty < L->nty) L->lut[t->ty * L->ntx + t->tx] = k;
+        }
+    }
+    *pp = p;
+    return true;
+}
+
+
+// a scene loaded on top of the room (the game's additive scenes): its scenery layers after the room's, their tiles
+// in the same memory block (a new one: the loader threads may be reading the old one, kept till the room goes)
+bool room_append(Room *r, const char *scene) {
+    size_t size;
+    u8 *d = file_load(data_path("rooms/%s.ssr", scene), &size);
+    if (!d) return false;
+    int nl = size >= 36 && !memcmp(d, "SSRM", 4) ? rd16(d + 32) : 0;
+    if (!nl || !s_mem || s_nold_mem == MAX_OLD_MEM) { free(d); return false; }
+    int gw = rd16(d + 16), gh = rd16(d + 18), ng = rd16(d + 28), nt = rd16(d + 30);
+    const u8 *p = d + 36 + (size_t)((gw + 7) / 8) * gh + (size_t)ng * 92 + (size_t)nt * 68, *end = d + size;
+    FILE *f = fopen(data_path("rooms/%s.ssl", scene), "rb");
+    long n = f && !fseek(f, 0, SEEK_END) ? ftell(f) : 0;
+    u8 *mem = n > 0 ? malloc(s_mem_size + (size_t)n) : NULL;
+    bool ok = mem && !fseek(f, 0, SEEK_SET) && fread(mem + s_mem_size, 1, (size_t)n, f) == (size_t)n;
+    if (f) fclose(f);
+    Layer *nlay = ok ? realloc(r->layers, sizeof(Layer) * (r->nlayers + nl + 1)) : NULL;
+    if (!nlay) { free(mem); free(d); return false; }
+    r->layers = nlay;
+    memset(r->layers + r->nlayers, 0, sizeof(Layer) * (nl + 1));
+    u32 base = (u32)s_mem_size;
+    if (!read_layers(r->layers + r->nlayers, nl, &p, end, base)) {
+        for (int i = 0; i < nl; i++) { free(r->layers[r->nlayers + i].tiles); free(r->layers[r->nlayers + i].lut); }
+        free(mem); free(d);
+        return false;
+    }
+    r->nlayers += nl;
+    LightLock_Lock(&s_flock);
+    memcpy(mem, s_mem, s_mem_size);
+    s_old_mem[s_nold_mem++] = s_mem;
+    s_mem = mem;
+    s_mem_size += (size_t)n;
+    LightLock_Unlock(&s_flock);
+    free(d);
+    return true;
 }
 
 bool room_load(Room *r, const char *scene) {
@@ -423,38 +505,7 @@ bool room_load(Room *r, const char *scene) {
         rdstr(t->name, p + 36, 32);
     }
     r->layers = calloc(r->nlayers + 1, sizeof(Layer));
-    for (int i = 0; i < r->nlayers; i++) {
-        if (p + 40 > end) goto bad;
-        Layer *L = &r->layers[i];
-        rdstr(L->name, p, 8);
-        L->z = rdf(p + 8); L->par = rdf(p + 12); L->ox = rdf(p + 16); L->oy = rdf(p + 20); L->ppu = rdf(p + 24);
-        L->tile = rd16(p + 28); L->ntx = rd16(p + 30); L->nty = rd16(p + 32); L->ntiles = rd16(p + 34);
-        L->fmt = p[36]; L->blend = p[37];
-        if (L->par <= 0) L->par = 1;
-        if (L->ppu <= 0) L->ppu = 64;
-        L->ppy = rd16(p + 38) / 256.0f;
-        if (L->ppy <= 0) L->ppy = L->ppu;
-        L->tsx = L->tile / L->ppu;
-        L->tsy = L->tile / L->ppy;
-        // the screen shows g_view.sx * par pixels per unit of this layer across and g_view.sy * par down (twice as
-        // many across in the 800 wide mode): keep about that much of its ppu each way
-        L->dx = L->dy = 1;
-        while (L->dx < 4 && L->tile / (L->dx * 2) >= 32 && L->ppu / (L->dx * 2) >= 0.75f * g_view.sx * L->par)
-            L->dx *= 2;
-        while (L->dy < 4 && L->tile / (L->dy * 2) >= 32 && L->ppy / (L->dy * 2) >= 0.75f * g_view.sy * L->par)
-            L->dy *= 2;
-        p += 40;
-        if (p + 12 * L->ntiles > end) goto bad;
-        L->tiles = calloc(L->ntiles + 1, sizeof(RTile));
-        L->lut = malloc(sizeof(s16) * (L->ntx * L->nty + 1));
-        for (int k = 0; k < L->ntx * L->nty; k++) L->lut[k] = -1;
-        for (int k = 0; k < L->ntiles; k++, p += 12) {
-            RTile *t = &L->tiles[k];
-            t->tx = rd16(p) & 0x7FFF; t->ty = rd16(p + 2); t->off = rd32(p + 4); t->size = rd32(p + 8); t->slot = -1;
-            t->fmt = (rd16(p) & 0x8000) ? GPU_RGB565 : L->fmt;
-            if (t->tx < L->ntx && t->ty < L->nty) L->lut[t->ty * L->ntx + t->tx] = k;
-        }
-    }
+    if (!read_layers(r->layers, r->nlayers, &p, end, 0)) goto bad;
     free(d);
     r->ssl = fopen(data_path("rooms/%s.ssl", scene), "rb");
     // the whole file in memory when it fits (with room to spare for the rest), so tiles come without card reads

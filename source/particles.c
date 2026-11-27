@@ -85,24 +85,41 @@ void particles_free(void) {
     memset(s_fx_on, 0, sizeof s_fx_on);
 }
 
+static int s_nfile;   // file indices used: an added scene's emitters come after the room's
+
+static int load_spt(const char *scene, int base);
+
 void particles_load(const char *scene) {
     particles_free();
+    s_nfile = 0;
+    load_spt(scene, 0);
+}
+
+int particles_append(const char *scene) {
+    int base = s_nfile;
+    return load_spt(scene, base) ? base : -1;
+}
+
+static int load_spt(const char *scene, int base) {
     if (!s_tex) {
         s_tex = sprites_get("particles/textures.sss");
         if (s_tex) s_tex->pinned = true;
     }
     size_t size;
     u8 *d = file_load(data_path("rooms/%s.spt", scene), &size);
-    if (!d) return;
-    if (size < 8 || memcmp(d, "SSPT", 4) || !s_tex) { free(d); return; }
+    if (!d) return 0;
+    if (size < 8 || memcmp(d, "SSPT", 4) || !s_tex) { free(d); return 0; }
     int n = rd16(d + 6);
     if (8 + (size_t)n * 208 > size) n = (size - 8) / 208;
-    s_em = calloc(n + 1, sizeof(Emitter));
+    Emitter *ne = realloc(s_em, sizeof(Emitter) * (s_nem + n + 1));
+    if (!ne) { free(d); return 0; }
+    s_em = ne;
+    memset(s_em + s_nem, 0, sizeof(Emitter) * (n + 1));
     for (int i = 0; i < n; i++) {
         Emitter *e = &s_em[s_nem];
         if (parse(d + 8 + i * 208, e, true)) {
             e->ambient = e->on = true;
-            e->node = -1; e->file_i = (s16)i;
+            e->node = -1; e->file_i = (s16)(base + i);
             s_nem++;
         } else if (parse(d + 8 + i * 208, e, false)) {   // one a script plays (PlayParticleEmitter...)
             char name[33];
@@ -111,11 +128,13 @@ void particles_load(const char *scene) {
             // playing on awake: on, once its node is active (a burst-like one waits for its script)
             e->on = (e->flags & 4) && !one_off(name);
             e->once = !(e->flags & 1);
-            e->node = -1; e->file_i = (s16)i;
+            e->node = -1; e->file_i = (s16)(base + i);
             s_nem++;
         }
     }
     free(d);
+    if (base + n > s_nfile) s_nfile = base + n;
+    return 1;
 }
 
 void particles_bind(int file_i, int node) {

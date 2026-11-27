@@ -193,6 +193,7 @@ static void load_additive(const char *scene) {
         if (!room || !sub || strcmp(room, scene)) continue;
         bool ok = true;
         for (char *t = strtok_r(NULL, " \r", &s2); t && ok; t = strtok_r(NULL, " \r", &s2)) ok = additive_test(t);
+        if (ok) room_append(&s_room, sub);
         if (ok && !fsm_load_additive(sub)) autotest_note("additive scene didn't fit");
         else if (ok) autotest_note("additive scene loaded");
     }
