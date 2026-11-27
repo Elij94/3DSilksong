@@ -248,6 +248,9 @@ OPS = [
     ('AddHP', 'target amount healToMax'),
     ('InstaDeath', 'target direction'),
     ('GetPosition2dAs3d', 'SourceXY SourceZ StoreVector'),
+    ('FindClosest', 'gameObject withTag ignoreOwner mustBeVisible storeObject storeDistance'),
+    ('GetTag', 'gameObject storeResult'),
+    ('GameObjectCompareTag', 'gameObject tag trueEvent falseEvent storeResult'),
     ('GetColliderRange', 'gameObject minX maxX minY maxY'),
     ('DistanceBetweenPoints', 'distanceResult point1 point2 ignoreX ignoreY'),
     ('FloatAddRandom', 'floatVariable addMin addMax'),
@@ -620,11 +623,12 @@ def compile_room(romfs, scene, out_path):
         rect = g[6] if len(g) > 6 and g[6] else [0, 0, 0, 0]
         body = g[7] if len(g) > 7 and g[7] else [-1, 0]
         sx = g[8] if len(g) > 8 else 1.0
+        tag = g[9] if len(g) > 9 and g[9] != 'Untagged' else ''
         parent = node_of.get(father, -1)
         # u16 name, s16 parent, s16 object, f32 x, y, u8 active, s8 body type (-1 none, 0 dynamic, 1 kinematic,
-        # 2 static), 2 pad, f32 rect x, y, w, h, f32 gravity scale, f32 scale x
-        b_nodes += struct.pack('<HhhffBb2x6f', S(name), parent, obj_of.get(gid, -1), x, y, active, int(body[0]),
-                               *[float(v) for v in rect], float(body[1]), float(sx))
+        # 2 static), u16 tag (version 10; its string, 0: untagged), f32 rect x, y, w, h, f32 gravity scale, f32 scale x
+        b_nodes += struct.pack('<HhhffBbH6f', S(name), parent, obj_of.get(gid, -1), x, y, active, int(body[0]),
+                               S(tag) if tag else 0xFFFF, *[float(v) for v in rect], float(body[1]), float(sx))
     dyn_path = os.path.join(WORK, 'rooms', scene + '.dyn.json')
     dyn = json.load(open(dyn_path)) if os.path.exists(dyn_path) else []
     b_dyn = bytearray(struct.pack('<H', len(dyn)))
@@ -697,7 +701,7 @@ def compile_room(romfs, scene, out_path):
         b_pt = bytearray(struct.pack('<H', len(pairs)))
         for i, nd in pairs:
             b_pt += struct.pack('<Hh', i, nd)
-    out = b'SSFM' + struct.pack('<H', 9) + S.blob() + bytes(b_nodes) + struct.pack('<H', nf) + bytes(b_fsm) + bytes(b_dyn) + \
+    out = b'SSFM' + struct.pack('<H', 10) + S.blob() + bytes(b_nodes) + struct.pack('<H', nf) + bytes(b_fsm) + bytes(b_dyn) + \
         bytes(b_en) + bytes(b_st) + bytes(b_pt)
     open(out_path, 'wb').write(out)
     return stats, nf

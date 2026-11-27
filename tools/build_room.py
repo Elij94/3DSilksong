@@ -791,7 +791,7 @@ def build(name, out, a, scripts, sorting, path=None, prefab=False):
             sx = float(np.sign(m[0, 0]) * np.hypot(m[0, 0], m[1, 0]))
             tree.append([gid, str(sc.name(gid)), father['m_GameObject']['fileID'] if father else 0,
                          round(float(m[0, 3]), 3), round(float(m[1, 3]), 3), int(bool(sc.go[gid].get('m_IsActive', 1))),
-                         rect, body, round(sx, 3)])
+                         rect, body, round(sx, 3), str(sc.go[gid].get('m_TagString') or 'Untagged')])
         json.dump(tree, open(info_base + '.tree.json', 'w'), separators=(',', ':'))
         json.dump(getattr(sc, 'dyn_solids', []), open(info_base + '.dyn.json', 'w'), separators=(',', ':'))
     parts = [] if a.no_objects else particles.gather_particles(sc, material_blend)

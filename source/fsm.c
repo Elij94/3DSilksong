@@ -85,6 +85,7 @@ typedef struct {
     float grav, sx;        // gravity scale, scale x (when it has no object)
     u8 coll, coll_prev;    // the sides it touched this frame and the last: 1 top, 2 right, 4 bottom, 8 left
     s16 clip;              // SetAudioClip: this node's AudioSource, its clip's name (sfx/<name>.pcm), "" none
+    u16 tag;               // its Unity tag (a string), 0xFFFF: untagged
 } Node;
 
 typedef struct {
@@ -328,6 +329,8 @@ static bool load_ssf(const u8 *data, size_t size, const char *scene, Objects *os
         n->x = rdf(p + 6) + dx; n->y = rdf(p + 10) + dy; n->active = p[14];
         n->body = -1;
         n->sx = 1;
+        n->tag = 0xFFFF;
+        if (ver >= 10 && rd16(p + 16) != 0xFFFF) n->tag = map_s(rd16(p + 16));
         if (ver >= 4) {
             n->body = (s8)p[15];
             float rx = rdf(p + 18) + dx, ry = rdf(p + 22) + dy;
@@ -1127,6 +1130,10 @@ static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) 
         int nd = N_NONE;
         if (!strcmp(tag, "Player") || !strncmp(nm, "Hero", 4) || !strcmp(nm, "Knight")) nd = N_HERO;
         else if (nm[0]) { int s = str_find(nm); for (int i = 0; s >= 0 && i < s_nnodes; i++) if (s_nodes[i].name == s) { nd = i; break; } }
+        else if (tag[0] && strcmp(tag, "Untagged")) {
+            int s = str_find(tag);
+            for (int i = 0; s >= 0 && i < s_nnodes; i++) if (s_nodes[i].tag == s && fsm_node_active(i)) { nd = i; break; }
+        }
         set_node(f, ARG(2), nd);
         return true;
     }
@@ -1594,6 +1601,48 @@ static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) 
             enemy_kill(s_os, (int)(o - s_os->o), x, a_f(f, ARG(1)) > 90 && a_f(f, ARG(1)) < 270 ? -1 : 1);
         }
         return true;
+    }
+    case OP_FindClosest: {   // the nearest active node with the tag (Player: Hornet)
+        int from = a_node(f, ARG(0));
+        if (from == N_NONE) from = f->owner;
+        const char *tag = str_at(a_str(f, ARG(1)));
+        float x, y;
+        node_pos(from, &x, &y);
+        int best = N_NONE;
+        float bd = 1e30f;
+        if (!strcmp(tag, "Player")) { best = N_HERO; float hx, hy; node_pos(N_HERO, &hx, &hy); bd = hypotf(hx - x, hy - y); }
+        else {
+            int s = str_find(tag);
+            for (int i = 0; s >= 0 && i < s_nnodes; i++) {
+                if (s_nodes[i].tag != s || !fsm_node_active(i) || (a_i(f, ARG(2)) && i == f->owner)) continue;
+                float nx, ny;
+                node_pos(i, &nx, &ny);
+                float d = hypotf(nx - x, ny - y);
+                if (d < bd) { bd = d; best = i; }
+            }
+        }
+        set_node(f, ARG(4), best);
+        if (best != N_NONE) set_f(f, ARG(5), bd);
+        return !ac->every;
+    }
+    case OP_GetTag: {
+        int nd = a_node(f, ARG(0));
+        Val *v = var_of(f, ARG(1));
+        if (v) {
+            int s = nd == N_HERO ? str_find("Player") : (nd >= 0 && nd < s_nnodes ? s_nodes[nd].tag : 0xFFFF);
+            if (s == 0xFFFF || s < 0) s = str_find("Untagged");
+            if (s >= 0) { v->t = T_STR; v->s = s; }
+        }
+        return !ac->every;
+    }
+    case OP_GameObjectCompareTag: {
+        int nd = a_node(f, ARG(0));
+        const char *want = str_at(a_str(f, ARG(1)));
+        const char *has = nd == N_HERO ? "Player" : (nd >= 0 && nd < s_nnodes && s_nodes[nd].tag != 0xFFFF ? str_at(s_nodes[nd].tag) : "Untagged");
+        bool eq = !strcmp(want, has);
+        set_i(f, ARG(4), eq);
+        send_self(f, ARG(eq ? 2 : 3));
+        return !ac->every;
     }
     case OP_GetPosition2dAs3d: {
         float x, y;

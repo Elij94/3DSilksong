@@ -20,6 +20,7 @@
 #include "font.h"
 #include "shop.h"
 #include "inventory.h"
+#include "pickups.h"
 
 #define FIRST_ROOM "Tut_01"
 #define OLD_SAVE   "sdmc:" SS_DATADIR "save.txt"   // before the 4 slots: becomes slot 1
@@ -157,6 +158,7 @@ static bool enter(const char *scene) {
     particles_node_pos = fsm_node_pos;
     fsm_load(scene, &s_objs);
     load_additive(scene);
+    pickups_load(scene);
     room_dyn_solid = fsm_solid;
     enemies_init(&s_objs, &s_room);
     room_music(scene);
@@ -530,6 +532,7 @@ static void play(const Input *in_raw, float dt) {
     float x0 = h->x - HERO_HW, y0 = h->y + HERO_FOOT, x1 = h->x + HERO_HW, y1 = h->y + HERO_HEAD;
     if (s_save_in > 0 && (s_save_in -= dt) <= 0) game_save();
     if (h->state != HS_DEAD) currency_update(&s_room, dt, x0, y0, x1, y1);
+    if (h->state != HS_DEAD) pickups_update(dt, x0, y0, x1, y1);
 
     if (h->state == HS_DEAD) {
         s_dead_t += dt;
@@ -1009,6 +1012,7 @@ static void draw_all(void) {
             draw_band(-0.001f, zcur);
             zcur = -0.001f;
             currency_draw();
+            pickups_draw();
             if (s_mode != GS_TITLE) hero_draw(&s_hero);
             hero_done = true;
         }
@@ -1023,6 +1027,7 @@ static void draw_all(void) {
         draw_band(-0.001f, zcur);
         zcur = -0.001f;
         currency_draw();
+        pickups_draw();
         if (s_mode != GS_TITLE) hero_draw(&s_hero);
     }
     draw_band(-1e30f, zcur);
@@ -1055,6 +1060,7 @@ static void draw_all(void) {
     if (fade > 0)
         C2D_DrawRectSolid(0, 0, 0.9f, g_view.sw, g_view.sh, C2D_Color32(0, 0, 0, (u8)(clampf(fade, 0, 1) * 255)));
     if (g_boss_title[0] && s_mode == GS_PLAY) draw_boss_title();
+    if (s_mode == GS_PLAY) pickups_draw_popup(g_view.sw, g_view.sh);
     if (s_mode == GS_TITLE || s_mode == GS_PAUSE) menu_draw();
 }
 
