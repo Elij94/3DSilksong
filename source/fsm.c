@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include "fsm.h"
 #include "fsm_ops.h"
+#include "tools.h"
 #include "autotest.h"
 #include "dialogue.h"
 #include "audio.h"
@@ -1670,6 +1671,133 @@ static bool run_enemy(Fsm *f, Action *ac, ActRt *rt, bool enter, bool *handled) 
         set_i(f, ARG(4), eq);
         send_self(f, ARG(eq ? 2 : 3));
         return !ac->every;
+    }
+    case OP_CheckIsBlackThreaded:   // the Act 3 black thread: not in this port's world yet
+        set_i(f, ARG(3), 0);
+        send_self(f, ARG(2));
+        return !ac->every;
+    case OP_CanHeroTakeDamage: {
+        bool can = !s_hero || (s_hero->invuln <= 0 && s_hero->state != HS_DEAD);
+        send_target(f, ARG(0), ev_of(f, ARG(can ? 1 : 2)), 0);
+        return true;
+    }
+    case OP_GetGrandparent: case OP_GetGrandParent: {
+        int nd = a_node(f, ARG(0));
+        int p = nd >= 0 ? s_nodes[nd].parent : -1;
+        set_node(f, ARG(1), p >= 0 ? s_nodes[p].parent : N_NONE);
+        return true;
+    }
+    case OP_GetRandomChild: {
+        int nd = a_node(f, ARG(0)), cnt = 0, pick = N_NONE;
+        for (int i = 0; i < s_nnodes; i++)
+            if (s_nodes[i].parent == nd && nd >= 0 && rand() % (++cnt) == 0) pick = i;
+        set_node(f, ARG(1), pick);
+        return true;
+    }
+    case OP_SetBoxColliderTrigger: return true;   // a trigger or a solid: the engine tells them apart by layer
+    case OP_SetCircleCollider: { int nd = a_node(f, ARG(0)); if (nd >= 0) s_nodes[nd].nocoll = !a_i(f, ARG(1)); return true; }
+    case OP_GetSilk: set_i(f, ARG(0), s_hero ? s_hero->silk : 0); return true;
+    case OP_TakeSilk: case OP_TakeSilkV2:
+        if (s_hero) { s_hero->silk -= a_i(f, ARG(1)); if (s_hero->silk < 0) s_hero->silk = 0; }
+        return true;
+    case OP_EnumSwitch: case OP_StringSwitch: {
+        const Val *l = ARG(1), *e = ARG(2);
+        if (l->t == T_LIST && e->t == T_LIST)
+            for (int k = 0; k < l->n && k < e->n; k++) {
+                bool hit = ac->op == OP_EnumSwitch ? a_i(f, ARG(0)) == a_i(f, &l->list[k])
+                                                   : !strcmp(str_at(a_str(f, ARG(0))), str_at(a_str(f, &l->list[k])));
+                if (hit) { send_self(f, &e->list[k]); break; }
+            }
+        return !ac->every;
+    }
+    case OP_SetEnumValue: set_i(f, ARG(0), a_i(f, ARG(1))); return !ac->every;
+    case OP_GetName: {
+        int nd = a_node(f, ARG(0));
+        Val *v = var_of(f, ARG(1));
+        if (v && nd >= 0 && nd < s_nnodes) { v->t = T_STR; v->s = s_nodes[nd].name; }
+        return !ac->every;
+    }
+    case OP_SetGameObjectSelf: set_node(f, ARG(0), a_node(f, ARG(1)) == N_NONE ? f->owner : a_node(f, ARG(1))); return !ac->every;
+    case OP_SetIsDead: { Obj *o = node_obj(a_node(f, ARG(0))); if (o && a_i(f, ARG(1))) o->hp = 0; return true; }
+    case OP_SetDamageEnemyAmount: { Obj *o = node_obj(a_node(f, ARG(0))); if (o) o->hurt = a_i(f, ARG(1)); return true; }
+    case OP_CheckSceneName:
+        send_self(f, ARG(!strcmp(s_scene_name, str_at(a_str(f, ARG(0)))) ? 1 : 2));
+        return true;
+    case OP_AnimateXPositionTo: case OP_AnimateYPositionTo: {   // eased to the value over its time
+        int nd = a_node(f, ARG(0));
+        if (nd < 0) return true;
+        bool isx = ac->op == OP_AnimateXPositionTo;
+        float x, y;
+        node_pos(nd, &x, &y);
+        if (enter) { rt->x0 = isx ? x : y; rt->t = 0; } else rt->t += s_dt;
+        float to = a_f(f, ARG(1)), dur = a_f(f, ARG(3));
+        if (a_i(f, ARG(2)) && s_nodes[nd].parent >= 0) {
+            float px, py;
+            node_pos(s_nodes[nd].parent, &px, &py);
+            to += isx ? px : py;
+        }
+        float k = dur > 0 ? fminf(1, rt->t / dur) : 1, e = k * k * (3 - 2 * k);
+        float v = rt->x0 + (to - rt->x0) * e;
+        node_set_pos(nd, isx ? v : x, isx ? y : v);
+        if (k >= 1) { send_self(f, ARG(4)); return true; }
+        return false;
+    }
+    case OP_Tk2dPlayAnimationWait: {
+        int nd = a_node(f, ARG(0));
+        if (enter) play_clip(nd, ARG(1), f);
+        Obj *o = node_obj(nd);
+        if (!o || !o->anim.set || o->anim.done) { send_self(f, ARG(2)); return true; }
+        return false;
+    }
+    case OP_SendEventByNameV2:
+        send_target(f, ARG(0), ev_of(f, ARG(1)), a_f(f, ARG(2)));
+        return !ac->every;
+    case OP_SetFsmVector2: {
+        Val *v = fsm_var(fsm_on(a_node(f, ARG(0)), a_str(f, ARG(1))), a_str(f, ARG(2)));
+        const Val *src = deref(f, ARG(3));
+        if (v && src->t == T_VEC) { v->t = T_VEC; v->f[0] = src->f[0]; v->f[1] = src->f[1]; }
+        return !ac->every;
+    }
+    case OP_CheckCanSeeHero: {   // nothing solid between it and Hornet
+        float x, y, hx, hy;
+        node_pos(f->owner, &x, &y);
+        node_pos(N_HERO, &hx, &hy);
+        float d = hypotf(hx - x, hy - y);
+        bool see = ray(x, y + 0.5f, hx - x, hy + 0.5f - y - 0.5f, d) < 0;
+        set_i(f, ARG(0), see);
+        if (see) send_self(f, ARG(1));
+        return !ac->every;
+    }
+    case OP_EnableFSM: {
+        int nd = a_node(f, ARG(0));
+        if (nd == N_NONE) nd = f->owner;
+        int nm = a_str(f, ARG(1));
+        for (int k = 0; k < s_nfsm; k++)
+            if (s_fsm[k].owner == nd && (nm < 0 || !str_at(nm)[0] || s_fsm[k].name == nm)) s_fsm[k].stopped = !a_i(f, ARG(2));
+        return true;
+    }
+    case OP_CheckIfToolEquipped: {
+        bool eq = tools_equipped(str_at(a_str(f, ARG(0))));
+        set_i(f, ARG(4), eq);
+        send_self(f, ARG(eq ? 2 : 3));
+        return true;
+    }
+    case OP_RigidBody2DGetPosition: {
+        float x, y;
+        node_pos(a_node(f, ARG(0)), &x, &y);
+        Val *v = var_of(f, ARG(1));
+        if (v) { v->t = T_VEC; v->f[0] = x; v->f[1] = y; v->f[2] = 0; }
+        return !ac->every;
+    }
+    case OP_HasTakenDamage: {   // waits for a hit (the HIT event the object gets): sent on
+        if (enter) rt->done = 0;
+        Obj *o = node_obj(a_node(f, ARG(0)));
+        if (o && o->hit_cd > 0) {
+            set_i(f, ARG(1), 1);
+            send_target(f, ARG(2), ev_of(f, ARG(3)), 0);
+            return true;
+        }
+        return false;
     }
     case OP_GetPosition2dAs3d: {
         float x, y;

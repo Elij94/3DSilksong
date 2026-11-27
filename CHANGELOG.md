@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.20.0 — items on the ground, tools and crests, the boss arenas complete
+
+- Items lying in the rooms (CollectableItemPickup: 129 in 106 rooms, tools/build_pickups.py): drawn, picked up when
+  Hornet touches them, counted in the save (item:<name>, tool:<name>, the maps' and keys' PlayerData), never there
+  again, their name and icon shown a moment.
+- Tools and crests (tools/build_tools.py: 66 tools, 11 crests): a tool found or bought goes in a free slot of its
+  colour on her crest; red tools are thrown with R (up, neutral or down: the slot's binding), their stock taken and
+  refilled at benches, shown on the HUD; a Tools tab in the inventory (L, R) shows the crest, the tool in each slot
+  and its description, changed with A at a bench. "Every tool" in the Tests menu.
+- What hurts enemies (DamageEnemies: the thrown tools...) hits them.
+- Additive scenes: their scenery layers and particles too (the Bell Beast hanging in its silk in Bone_05).
+- Object tags (FindClosest, FindGameObject by tag, GetTag, GameObjectCompareTag): the digging pilgrims come up on
+  their Teleplanes.
+- SetIsKinematic2d(false) makes a kinematic body dynamic (Unity's); GetDefaultTk2dClipName (sleeping and ambushing
+  enemies start as the game's); about 35 more actions (silk, switches, map and scene checks, eased moves, tools
+  equipped, damage taken...): 964 000 of the rooms' actions run.
+- An emulator test folder (override) left from a test is no longer in the SD folder.
+
 ## 0.19.0 — enemies everywhere, the title screen as the game's, the first bosses
 
 - PlayMaker's global "Hero" variable (45 500 uses in the rooms' scripts) now points at Hornet: enemies face her, chase

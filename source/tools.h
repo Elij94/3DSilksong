@@ -13,6 +13,7 @@ void tools_give_all(void);   // the test menu
 // R with dir +1 up, -1 down, 0 neutral: the red tool bound there thrown from (x, y); false if none could be
 bool tools_use(float x, float y, int face, int dir);
 void tools_update(float dt);
+bool tools_equipped(const char *name);   // in a slot of her crest
 
 typedef struct { struct SpriteSet *set; const char *clip; int uses, binding; } ToolHud;
 int tools_hud(ToolHud *out, int max);

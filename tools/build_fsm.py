@@ -251,6 +251,36 @@ OPS = [
     ('FindClosest', 'gameObject withTag ignoreOwner mustBeVisible storeObject storeDistance'),
     ('GetTag', 'gameObject storeResult'),
     ('GetDefaultTk2dClipName', 'gameObject storeName'),
+    ('CheckIsBlackThreaded', 'Target TrueEvent FalseEvent StoreValue'),
+    ('CanHeroTakeDamage', 'eventTarget canTakeDmgEvent cannotTakeDmgEvent'),
+    ('GetGrandparent', 'gameObject storeResult'),
+    ('GetGrandParent', 'gameObject storeResult'),
+    ('GetRandomChild', 'gameObject storeResult'),
+    ('SetBoxColliderTrigger', 'gameObject trigger'),
+    ('SetCircleCollider', 'gameObject active'),
+    ('GetSilk', 'StoreAmount'),
+    ('TakeSilk', 'target amount'),
+    ('TakeSilkV2', 'Target Amount'),
+    ('EnumSwitch', 'enumVariable compareTo sendEvent'),
+    ('StringSwitch', 'stringVariable compareTo sendEvent'),
+    ('SetEnumValue', 'enumVariable enumValue'),
+    ('GetName', 'gameObject storeName'),
+    ('SetGameObjectSelf', 'variable gameObject'),
+    ('SetIsDead', 'target setValue'),
+    ('SetDamageEnemyAmount', 'target damageDealt'),
+    ('CheckSceneName', 'sceneName equalEvent notEqualEvent'),
+    ('AnimateXPositionTo', 'GameObject ToValue localSpace time finishEvent'),
+    ('AnimateYPositionTo', 'GameObject ToValue localSpace time finishEvent'),
+    ('Tk2dPlayAnimationWait', 'Target ClipName AnimationCompleteEvent'),
+    ('SendEventByNameV2', 'eventTarget sendEvent delay'),
+    ('SetFsmVector2', 'gameObject fsmName variableName setValue'),
+    ('IdleBuzzV4', 'gameObject waitMin waitMax speedMax accelerationMax roamingRangeX roamingRangeY'),
+    ('CheckCanSeeHero', 'storeResult sendEvent'),
+    ('EnableFSM', 'gameObject fsmName enable'),
+    ('CheckIfToolEquipped', 'Tool RequiredAmountLeft trueEvent falseEvent storeValue'),
+    ('RigidBody2DGetPosition', 'Target Position'),
+    ('HasTakenDamage', 'target takenDamageBool eventTarget takenDamageEvent'),
+    ('CheckTrackTriggerCountV2', 'Target Count Test SuccessEvent FailEvent SetBool'),
     ('GameObjectCompareTag', 'gameObject tag trueEvent falseEvent storeResult'),
     ('GetColliderRange', 'gameObject minX maxX minY maxY'),
     ('DistanceBetweenPoints', 'distanceResult point1 point2 ignoreX ignoreY'),
@@ -587,6 +617,11 @@ def compile_room(romfs, scene, out_path):
                 if t not in OP_ID:
                     stats['skipped ' + t] += 1
                     continue
+                if t == 'CheckIfToolEquipped':   # the tool asset: its name (tools.txt)
+                    g = ((a.get('params') or {}).get('Tool') or {}).get('guid')
+                    from sscommon import guidmap
+                    nm = os.path.basename(guidmap().get(g, '')).rsplit('.', 1)[0] if g else ''
+                    a = dict(a, params=dict(a.get('params') or {}, Tool=nm))
                 acts.append((t, a.get('params') or {}))
             b += struct.pack('<H', len(acts))
             for t, p in acts:

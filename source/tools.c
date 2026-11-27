@@ -180,6 +180,17 @@ bool tools_use(float x, float y, int face, int dir) {
     return true;
 }
 
+bool tools_equipped(const char *name) {
+    tools_init();
+    if (!s_ncrests) return false;
+    int c = crest_now();
+    for (int i = 0; i < s_crest[c].nslots; i++) {
+        int t = equipped(c, i);
+        if (t >= 0 && t < s_ntools && !strcmp(s_tool[t].name, name)) return true;
+    }
+    return false;
+}
+
 void tools_update(float dt) { if (s_cool > 0) s_cool -= dt; }
 
 // the HUD: the red tools in her slots, their icon and how many uses are left
