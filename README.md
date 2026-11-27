@@ -1,182 +1,128 @@
 # 3DSilksong
 
-Tools that convert **Hollow Knight: Silksong** into data for the **New 3DS / New 2DS XL** (400x240 top screen,
-124 MB of RAM), modelled on the tools of [HK3DS](https://github.com/silviognotti/HK3DS).
+**A Hollow Knight: Silksong engine for the New 3DS**, with the tools that convert **your own PC copy** of the game
+into data it can run. Hornet, the rooms, the enemies and the game's own scripts run natively on the console: it is
+not an emulator and not a video.
 
-> Unofficial project, **not affiliated with Team Cherry**. This repository holds **no game file** (no image, sound,
-> text or data): only tools that convert **your own PC copy** of the game, on your own machine. You need to own
-> Silksong to use them.
+![version](https://img.shields.io/badge/version-0.20.0-blue)
+![progress](https://img.shields.io/badge/progress-65%25-orange)
+![platform](https://img.shields.io/badge/platform-New%203DS%20%2F%20New%202DS%20XL-lightgrey)
+![license](https://img.shields.io/badge/license-MIT-green)
+
+> Unofficial fan project, **not affiliated with Team Cherry**. This repository holds **no game file** (no image,
+> sound, text or data): only code. The tools convert a copy of Silksong **you own**, on your own machine.
 >
 > **Do not share what the tools produce** (`3dsilksong.romfs`, `romfs/`, the exports): those files hold the game's
 > art, music and text. Everyone converts their own copy. Issues and pull requests that contain or ask for game files
 > will be closed.
 
-## What the tools do
+## Progress
 
-1. **Export**: `tools/export_game.sh` drives AssetRipper (headless) on the `_Data` folder of your copy.
-2. **Conversion** (`tools/`, Python):
-   - **rooms** (`build_room.py`): collision grid, gates (`TransitionPoint`), respawn points, hazards, camera locks,
-     and the scenery drawn in parallax layers (normal, additive, multiply), cut into 3DS GPU tiles;
-   - **objects** (`objects.py`, called by `build_room.py`): enemies, breakables, NPCs and interactables, animated
-     objects, with their position, HP, damage, tk2d animation and FSMs;
-   - **PlayMaker state machines** (`fsm_extract.py`, called by `build_room.py`): states, transitions, decoded actions
-     and variables, templates (`FsmTemplate`, `RunFSM`) included;
-   - **sprites** (`build_sprites.py`): any tk2d animation library as GPU texture pages with its clips, including every
-     library the room objects use;
-   - **particles** (`particles.py`, called by `build_room.py`, and `build_particles.py` for their textures): every
-     emitter of the rooms with its shape, rate, lifetime, speed, size and colours;
-   - **interface** (`build_ui.py`): the sprite atlases of the HUD, inventory, map, menus, prompts, journal…, one named
-     sprite per entry;
-   - **fonts** (`build_font.py`): the game's TextMeshPro fonts, glyphs and signed-distance-field atlas;
-   - **music and sound** (`build_music.py`, `build_music_pcm.py`, `music_map.py`): music and ambience cues mixed
-     down to Ogg Vorbis and to PCM for the engine, which room plays which, and every sound the state machines play,
-     with an index that links them to their actions;
-   - **text** (`build_text.py`): the game's language sheets, decrypted, as `KEY<TAB>text` files.
-3. **Package**: everything goes into one RomFS file, `3dsilksong.romfs`, to copy to `SD:/3ds/3dsilksong/`.
-
-`tools/build.sh` runs it all. The formats are described in [docs/FORMATS.md](docs/FORMATS.md), and
-`tools/inspect_data.py` reads back and checks the files produced.
-
-`source/` is the 3DS engine that reads these files (see [The engine](#the-engine)).
-
-## The engine
-
-`make` builds `3dsilksong.3dsx` (C, libctru + citro2d, no other library). Copy it with the data file to
-`SD:/3ds/3dsilksong/` and start it from the Homebrew Launcher on a New 3DS. Music needs the DSP firmware dump,
-`SD:/3ds/dspfirm.cdc` (DSP1); without it the game runs silent.
-
-What it does (0.15.0):
-- **Rooms** (`room.c`): the collision grid, gates, hazards, respawn points and camera locks; the scenery layers with
-  their parallax and blending, their tiles inflated (`inflate.c`, a zlib decoder of its own) and shrunk to what the
-  screen shows of their layer, into a texture cache as the camera reaches them.
-- **Sprites** (`sprite.c`): `.sss` sets with tk2d clips; a page is inflated into the GPU when a frame on it is first
-  drawn, the least recently drawn pages go when linear memory runs out.
-- **Hornet** (`hero.c`, animations from `sprites/knight.sss`): moves with her own values from the game (her
-  HeroController, the Hunter crest, her FSMs): run, jump (held rise, float at the top, release halves the rise), dash
-  into sprint with skids and turns, air dash glide, ledge grab, down spike, side and up needle attacks, silk and bind,
-  and the abilities found later, all unlocked: wall cling and wall jump, double jump, float, Clawline, Silk Soar.
-- **Enemies** (`enemy.c`): a behaviour picked from each one's animations while the FSMs don't run: walkers patrol
-  and charge, flyers hover and chase; knockback, death animation and corpse.
-- **Objects** (`objects.c`), **particles** (`particles.c`): drawn at their depth between the scenery layers; the
-  ambient emitters that loop.
-- **State machines** (`fsm.c`): the rooms' PlayMaker FSMs, compiled by `tools/build_fsm.py`, run with about a
-  hundred of the game's actions: breakable walls, gates and scene events follow the game's own logic, walls that
-  open leave the collision grid, PlayerData flags are saved. Enemies run theirs too, with bodies that fall and collide
-  and the game's walking components (Walker, WalkerV2, Crawler).
-- **Hits and kills** (`objects.c`, `enemy.c`, `fx.c`): as HealthManager does them: flash, the enemy's recoil, its hit
-  and death effects and sounds (`fx/`, `tools/build_fx.py`), freeze moments, the corpse flung and landing.
-- **Dialogues** (`dialogue.c`): the NPCs' lines in the game's text (French on a French console), page by page;
-  Up near an NPC or anything waiting for it starts it.
-- **Music and sounds** (`audio.c`): each room's music and ambience (`music/rooms.txt`), streamed as PCM, with fades;
-  the FSMs' sound effects on 8 more channels, by distance.
-- **Rosaries and shell shards** (`currency.c`): flung out of kills, picked up, counted in PlayerData.
-- **Game** (`game.c`, `menu.c`): the title screen from the game's Menu_Title scene, its menus in its own text and
-  fonts, 4 save slots (`SD:/3ds/3dsilksong/save<N>.txt`), options, the pause menu, the camera framing, gates between
-  rooms, the game's HUD at the game's size (bind orb, masks, silk spool, counters), benches.
-- **Spawned prefabs** (`fsm.c`, `tools/build_prefabs.py`): projectiles, effects and summons from the game's pool.
-- **Map** (`map.c`, `tools/build_map.py`): on the bottom screen once the area's map is bought, rooms mapped at a
-  bench with the quill, as the game's GameMap does; before that the area's name.
-- **Shops** (`shop.c`, `tools/build_shops.py`): the merchants' stocks, bought with rosaries or shards.
-- **Inventory** (`inventory.c`, `tools/build_inventory.py`): the Inv pane on the bottom screen (SELECT).
-
-Controls (the Switch version's): pad or Circle Pad to move (and look up/down), B jump, Y needle (up+Y, down+Y in
-the air), ZR dash (held on: sprint), ZL Clawline, X Needolin, A bind, Up for doors, benches, NPCs and shops (A: next
-line, buy; B: leave), SELECT inventory (on the bottom screen), START pause. Abilities come as the game gives them.
-
-The pause menu's "Tests" gives abilities, rosaries, shards, maps, health. Testing switches on the SD card, in `SD:/3ds/3dsilksong/`: `allabilities`, `allmaps`, `nowide`, `nofsm`,
-`autotest.txt` (scripted input, see `source/autotest.c`).
-
-Not there yet: tools and crests, picking up items in the rooms, map pins and markers, bosses' special parts, cutscenes.
-
-### Testing in an emulator
-
-`tools/emu_run.ps1` runs the engine in [Azahar](https://github.com/azahar-emu/azahar) (portable, in `../Azahar`)
-without taking the focus and saves a screenshot of its window. With `SD:/3ds/3dsilksong/autotest.txt` the engine
-reads its input from a script and writes Hornet's state and the FSMs' transitions to `log.txt` (see
-`source/autotest.c`); files under `SD:/3ds/3dsilksong/override/` replace the data file's (a room's `.ssf`, say). `tools/render_ref.py` draws a room from the converted files with the
-engine's math, to tell an engine bug from a data one.
-
-## Requirements
-
-- A PC copy of Silksong (Steam or Game Pass; Game Pass files are readable).
-- Python 3.11+ with the packages of [requirements.txt](requirements.txt) (`python -m pip install -r requirements.txt`);
-  `ffmpeg` on PATH.
-- [AssetRipper](https://github.com/AssetRipper/AssetRipper) 2.0.0, on PATH or given by `ASSETRIPPER`.
-- For the RomFS file: `mkromfs3ds` (devkitPro) if installed, else `tools/mkromfs.py` (Python, included).
-- To build `source/`: devkitPro with `3ds-dev` (and `makerom`, `bannertool` for the CIA).
-- Disk: ~60 GB for the full export. Memory: 16 to 24 GB free during the AssetRipper export.
-
-## Usage
-
-```sh
-export SILKSONG="C:/XboxGames/Hollow Knight- Silksong"   # the install folder
-tools/build.sh                                             # everything: inventory, export, index, conversion, RomFS
+```
+Overall   █████████████░░░░░░░  65 %
 ```
 
-Or step by step:
+| Part | Progress | Where it stands |
+|---|---|---|
+| Data conversion (tools/) | `███████████████████░` 95 % | 590 rooms, ~17,000 scripts, 409 sprite sets, music, sounds, text, fonts |
+| Rooms and scenery | `███████████████████░` 95 % | Parallax layers streamed from memory, collisions, gates, room entries, water |
+| Hornet | `█████████████████░░░` 85 % | Movement with the game's values, needle attacks, dash/sprint, bind, all abilities, swimming |
+| Game scripts (PlayMaker) | `██████████████████░░` 91 % | 964,000 of the rooms' 1,062,000 actions run; the rest are mostly sound and visual effects |
+| Enemies | `████████████████░░░░` 80 % | Their own scripts, walking/crawling/flying components, hits, recoil, deaths, corpses |
+| Bosses | `██████░░░░░░░░░░░░░░` 30 % | Additive boss scenes load; Moss Mother and the Bell Beast fight; the others are untested |
+| Menus, saves, HUD | `█████████████████░░░` 85 % | Title and profile screens as the game's, 4 save slots, pause, options, HUD |
+| Map, inventory, shops, items | `██████████████░░░░░░` 70 % | Map and inventory on the bottom screen, shops, items picked up in the rooms |
+| Tools and crests | `████████░░░░░░░░░░░░` 40 % | Slots, equipping at benches, red tools thrown with R; passive tools and crest changes missing |
+| NPCs and quests | `████████░░░░░░░░░░░░` 40 % | Dialogues in the game's text, scripted events; quest tracking partial |
+| Audio | `████████████████░░░░` 80 % | Room music and ambience, script sounds by distance |
+| Cutscenes | `░░░░░░░░░░░░░░░░░░░░` 0 % | The game's videos are not converted |
+
+The overall figure is a weighted estimate of how much of the game can be played as on PC. See
+[CHANGELOG.md](CHANGELOG.md) for what each version brought.
+
+## What it is
+
+Two parts:
+
+1. **`tools/`** (Python): read the game's files exported by AssetRipper and turn them into compact formats for the
+   3DS: rooms cut into GPU tiles, objects, PlayMaker state machines compiled to bytecode, tk2d sprite sets, particles,
+   fonts, text, music and sounds. Everything ends up in one file, `3dsilksong.romfs` (about 2.4 GB).
+2. **`source/`** (C, libctru + citro2d): the engine. It reads those files and runs the game: Hornet's controller with
+   her values from the game, the rooms' and enemies' PlayMaker scripts (about 300 of the game's action types), the
+   physics, the camera, the HUD, menus and saves. The top screen runs in the New 3DS's 800-pixel mode; the bottom
+   screen holds the map and the inventory.
+
+## Playing
+
+You need a **New 3DS or New 2DS XL** with the Homebrew Launcher, and a PC copy of Silksong.
+
+1. Convert your copy (see [Building the data](#building-the-data)); this gives `3dsilksong.romfs`.
+2. Build the engine with `make` (or take `3dsilksong.3dsx` from a release, when there is one).
+3. Copy both to `SD:/3ds/3dsilksong/` and start **3DSilksong** from the Homebrew Launcher.
+   Music needs the DSP firmware dump `SD:/3ds/dspfirm.cdc`; without it the game runs silent.
+
+Controls (as the Switch version's): pad or Circle Pad to move, **B** jump, **Y** needle (with up/down), **ZR** dash
+(held: sprint), **ZL** Clawline, **X** Needolin, **A** bind, **R** throw a tool (with up/down), **Up** for doors,
+benches, NPCs and shops, **SELECT** inventory (L/R: Inventory / Tools tab), **START** pause. The pause menu has a
+**Tests** page (abilities, rosaries, shards, maps, tools, health) for trying things out.
+
+## Building the data
+
+Requirements:
+- A PC copy of Silksong (Steam or Game Pass).
+- Python 3.11+ with [requirements.txt](requirements.txt), and `ffmpeg` on PATH.
+- [AssetRipper](https://github.com/AssetRipper/AssetRipper) 2.0.0 (on PATH or given by `ASSETRIPPER`).
+- `mkromfs3ds` (devkitPro) or `tools/mkromfs.py` (included).
+- About 60 GB of disk and 16 to 24 GB of free memory during the export.
 
 ```sh
-python tools/inventory.py "$SILKSONG"                      # a few-second overview, no export needed
-tools/export_game.sh "$SILKSONG"                           # AssetRipper export into ../ssdata (long)
-python tools/index_export.py
-python tools/build_room.py romfs Tut_01 --preview tut01.png   # one room (and a picture of its geometry)
-python tools/build_sprites.py --list                       # the animation libraries of the export
-python tools/build_sprites.py romfs/sprites/hero.sss "Hornet Anim"
-python tools/build_music.py romfs
-python tools/build_text.py romfs EN FR
-python tools/inspect_data.py romfs/rooms/Tut_01.ssr romfs/sprites/hero.sss
+export SILKSONG="C:/XboxGames/Hollow Knight- Silksong"   # the game's install folder
+tools/build.sh                                             # export, conversion, RomFS: everything
 ```
 
-To try a single room without exporting everything (~700 MB, a few minutes):
+A full conversion takes about 1.5 hours on a 16-thread PC. `tools/build.sh` resumes where it stopped. On Windows the
+scripts run in Git Bash. Step-by-step commands, options and the file formats are in
+[docs/FORMATS.md](docs/FORMATS.md) and [docs/EXPLORATION.md](docs/EXPLORATION.md).
 
-```sh
-python tools/bundle_deps.py --depth 1 --extra hero --subset ../test_tut01 Tut_01
-SSDATA=../test_tut01_out tools/export_game.sh ../test_tut01
-echo Tut_01 > rooms.txt
-SSDATA=../test_tut01_out tools/build.sh --rooms rooms.txt
-```
+## Building the engine
 
-On Windows the scripts run in Git Bash. `SSDATA` sets the exports folder (default `../ssdata`, next to the
-repository). That folder, `work/`, `romfs/` and everything produced are ignored by git.
+devkitPro with `3ds-dev`, then `make` in the repository. `make cia` builds a CIA (with `makerom` and `bannertool`, and
+your own `cia/icon.png`, `banner.png` and `banner.wav`).
 
-### Good to know
+## Testing without a console
 
-- Silksong's bundles don't record their Unity version: `export_game.sh` sets `DefaultVersion = 6000.0.50f1` in
-  AssetRipper, without which no room gets exported (see [docs/EXPLORATION.md](docs/EXPLORATION.md)).
-- The options of `build_room.py` (`--ppu`, `--cpu`, `--fmt`) set the detail of the scenery and collisions, and so the
-  size of the data. With the defaults, `Tut_01` has 6.1 MB of scenery (1184 RGBA4 tiles).
-- A full conversion, roughly (16 threads, 32 GB): export ~15 min, rooms ~30 min with `JOBS=6`. Result: 590 rooms,
-  575 with particles, ~17,000 FSMs, 397 sprite sets, 56 interface atlases, 11 fonts, 2071 sounds, 109 music tracks,
-  a RomFS of about 2.25 GB (under the 4 GB per-file limit of FAT32 SD cards).
-- `tools/build.sh` resumes where it stopped; a room that fails is listed in `work/rooms_failed.txt` and doesn't stop
-  the rest.
+The engine runs in the [Azahar](https://github.com/azahar-emu/azahar) emulator. `tools/emu_run.ps1` starts it and
+takes a screenshot. With `SD:/3ds/3dsilksong/autotest.txt` the engine reads its input from a script (warps to rooms,
+held buttons, screenshots) and logs Hornet's state, the enemies and the scripts' transitions to `log.txt` (see
+`source/autotest.c`). That is how most of the work is checked.
+
+## How to help
+
+The project is paused, and help is very welcome. The most useful things, roughly in order:
+
+- **Bosses**: play each boss fight, compare with the PC game, and fix what differs. Most of them run on PlayMaker
+  actions the engine already knows; the log shows which states they reach.
+- **Missing script actions**: `python tools/build_fsm.py romfs` prints the actions it skips, most frequent first.
+  Each one is a `case` in `source/fsm.c`, written from the game's C# (decompiled by AssetRipper).
+- **Tools**: the passive (blue and yellow) tools' effects, the red tools without a projectile, changing crests.
+- **NPCs and quests**: quest tracking, the journal, the quest board.
+- **Testing on hardware**: performance in the heavy rooms, anything that looks different from the PC game.
+- **Cutscenes**: converting the game's videos to something the 3DS can play.
+
+Before starting on something big, open an issue to say so. Keep pull requests free of any game file.
 
 ## Layout
 
 ```
-tools/         export, conversion, packaging (Python / bash)
-tools/data/    all_rooms.txt (the 590 scenes), sprites.txt (sprite sets on top of the objects' ones)
-source/        the 3DS engine (rooms, sprites, Hornet, objects, game loop)
-cia/           the CIA's RSF (for `make cia`, add icon.png 48x48, banner.png 256x128 and banner.wav, your own)
-docs/          EXPLORATION.md (what the game holds), FORMATS.md (the files produced)
+tools/        export, conversion and packaging (Python, bash)
+source/       the 3DS engine (C)
+cia/          the CIA's RSF
+docs/         FORMATS.md (the files produced), EXPLORATION.md (what the game holds)
 ```
-
-## Known limits
-
-- The engine runs about 200 of the game's script actions (see [The engine](#the-engine)); the others are skipped.
-  Shop items that give tools or collectables are counted in PlayerData until those systems exist; the ones needing
-  another item or a quest are not offered yet. Tested on a New 3DS and in Azahar.
-- Cutscenes (videos) are not converted.
-- Particles: Unity's curves (speed, size, colour over lifetime) are reduced to their start and end values; the rarer
-  modules (noise, collisions, sub-emitters, trails) are not read.
-- Fonts: the Chinese, Japanese and Korean fonts are only converted with `FONTS_ALL=1`.
-- A few animation frames can't be cut out of their atlas (they are `-1` in the clips), and two FSMs out of about
-  17,000 can't be decoded (they are marked `error`).
-- Tested with the Game Pass version of the game (Unity 6000.0.50f1) on Windows 11 and Git Bash.
 
 ## License
 
-MIT for the code of this repository (see [LICENSE](LICENSE)). Part of the structure (Makefile, RSF, the textures'
-Morton order, `sscommon.py`, `index_export.py`, the text decryption, `fsm_extract.py`) is adapted from HK3DS, also
-under the MIT license. `tools/mkromfs.py` replaces devkitPro's `mkromfs3ds`. Hollow Knight: Silksong belongs to
+MIT for the code of this repository (see [LICENSE](LICENSE)). Part of the tools' structure (Makefile, RSF, the
+textures' Morton order, `sscommon.py`, `index_export.py`, the text decryption, `fsm_extract.py`) is adapted from
+[HK3DS](https://github.com/silviognotti/HK3DS), also under the MIT license. Hollow Knight: Silksong belongs to
 Team Cherry.
