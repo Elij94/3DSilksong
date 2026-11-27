@@ -15,3 +15,9 @@ void sfx_play(const char *guid, float vol, float pan);
 void sfx_play_name(const char *name, float vol, float pan);   // sfx/<name>.pcm
 int sfx_loop_name(const char *name, float vol);   // played on a loop: its voice, -1 if none; sfx_stop ends it
 void sfx_stop(int voice);
+void sfx_stop_all(void);                          // a room change: no loop should carry into the next one
+void sfx_set_vol(int voice, float vol);           // sets its volume (0..1) right away, no stop at zero
+void sfx_fade(int voice, float to, float time);   // ramps its volume (0..1) over 'time' s; stops it once silent
+// a caller-defined tag (the FSM node that started it, say) kept on a voice so a later action can find it back
+void sfx_set_owner(int voice, int owner);
+int sfx_find_owner(int owner);                    // the still-playing voice tagged with this owner, -1 if none

@@ -100,7 +100,7 @@ point into the `.ssl` at the data of one `tile`×`tile` tile, zlib-compressed.
   `s16 object` (index in the `.sso`, -1), `f32 x, y` (world), `u8 active` (its own flag), 3 bytes pad.
 - FSMs: `u16 n`, then each: `s16 owner` (node), `u16 name`, `u16 start state`; `u16 nvars` × (`u16 name`, value);
   `u16 nglobal` × (`u16 event`, `u16 state`); `u16 nstates` × (`u16 name`, `u16 ntransitions` × (`u16 event`,
-  `u16 state`), `u16 nactions` × (`u8 op`, `u8 everyFrame`, `u8 nparams`, values)). The ops and the order of their
+  `u16 state`), `u16 nactions` × (`u16 op`, `u8 everyFrame`, `u8 nparams`, values)). The ops and the order of their
   parameters are `OPS` in `build_fsm.py` (and `source/fsm_ops.h`); other actions are dropped.
 - walls the FSMs control (version 2): `u16 n` × (`s16 node`, `f32 x0, y0, x1, y1`). These colliders (terrain
   colliders on objects with an FSM or a `Breakable`, or on their children, or inactive at load) are left out of the

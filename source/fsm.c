@@ -32,7 +32,8 @@ typedef struct Val {
 } Val;
 
 typedef struct {
-    u8 op, every, nargs;
+    u16 op;
+    u8 every, nargs;
     Val *a;
 } Action;
 
@@ -83,6 +84,7 @@ typedef struct {
     bool kin;              // made kinematic by an FSM
     float grav, sx;        // gravity scale, scale x (when it has no object)
     u8 coll, coll_prev;    // the sides it touched this frame and the last: 1 top, 2 right, 4 bottom, 8 left
+    s16 clip;              // SetAudioClip: this node's AudioSource, its clip's name (sfx/<name>.pcm), "" none
 } Node;
 
 typedef struct {
@@ -237,6 +239,7 @@ static void free_fsm(Fsm *f) {
 static void spawn_reset(void);
 
 void fsm_free(void) {
+    sfx_stop_all();   // no node-owned loop (SetAudioClip, AudioPlayInState) carries into the next room
     for (int k = 0; k < s_nfsm; k++) free_fsm(&s_fsm[k]);
     free(s_fsm); s_fsm = NULL; s_nfsm = 0;
     free(s_solids); s_solids = NULL; s_nsolids = 0;
@@ -376,7 +379,7 @@ static bool load_ssf(const u8 *data, size_t size, const char *scene, Objects *os
             if (st->nact > f->maxact) f->maxact = st->nact;
             for (int a = 0; a < st->nact; a++) {
                 Action *ac = &st->act[a];
-                ac->op = p[0]; ac->every = p[1]; ac->nargs = p[2]; p += 3;
+                ac->op = rd16(p); ac->every = p[2]; ac->nargs = p[3]; p += 4;
                 ac->a = calloc(ac->nargs + 1, sizeof(Val));
                 for (int j = 0; j < ac->nargs; j++) p = rd_val(p, &ac->a[j]);
                 // RunFSM: its template FSM's index, in this file's FSMs
@@ -2475,6 +2478,47 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
     case OP_AudioPlayerOneShot:
         play_sfx(f, pick(f, ARG(0), ARG(1)), a_none(f, ARG(3)) ? 1 : a_f(f, ARG(3)), a_node(f, ARG(2)));
         return true;
+    case OP_SetAudioClip: {   // sets a node's AudioSource clip; autoPlay starts it looping right away
+        int node = a_node(f, ARG(0));
+        int clip = a_str(f, ARG(1));
+        if (node >= 0 && node < s_nnodes) {
+            s_nodes[node].clip = (s16)clip;
+            if (a_i(f, ARG(2))) {
+                int old = sfx_find_owner(node);
+                if (old >= 0) sfx_stop(old);
+                int v = sfx_loop_name(str_at(clip), 1);
+                if (v >= 0) sfx_set_owner(v, node);
+            }
+        }
+        return true;
+    }
+    case OP_AudioPlayInState: {   // plays the node's clip (an earlier SetAudioClip) while this state is active
+        int node = a_node(f, ARG(0));
+        float vol = a_none(f, ARG(1)) ? 1 : a_f(f, ARG(1));
+        if (node >= 0 && node < s_nnodes && sfx_find_owner(node) < 0) {
+            int v = sfx_loop_name(str_at(s_nodes[node].clip), vol);
+            if (v >= 0) sfx_set_owner(v, node);
+        }
+        return true;
+    }
+    case OP_AudioStop: case OP_AudioStopV2: {
+        int node = a_node(f, ARG(0));
+        int v = node >= 0 ? sfx_find_owner(node) : -1;
+        if (v >= 0) sfx_fade(v, 0, a_none(f, ARG(1)) ? 0 : a_f(f, ARG(1)));
+        return true;
+    }
+    case OP_FadeAudio: {
+        int node = a_node(f, ARG(0));
+        int v = node >= 0 ? sfx_find_owner(node) : -1;
+        if (v >= 0) { sfx_set_vol(v, a_f(f, ARG(1))); sfx_fade(v, a_f(f, ARG(2)), a_f(f, ARG(3))); }
+        return true;
+    }
+    case OP_SendEventByNameUpwards: {
+        int ev = ev_of(f, ARG(1));
+        if (ev >= 0) for (int g = a_node(f, ARG(0)), n = 0; g >= 0 && g < s_nnodes && n < 64; g = s_nodes[g].parent, n++)
+            node_event(g, 0, ev);
+        return true;
+    }
     case OP_RunDialogue: case OP_RunDialogueV2: case OP_RunDialogueV3: case OP_RunDialogueV4:
         // the text box; the FSM gets CONVO_END when it closes
         if (enter) {

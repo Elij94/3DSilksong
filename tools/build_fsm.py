@@ -17,6 +17,7 @@ OPS = [
     ('NextFrameEvent', 'sendEvent'),
     ('SendEvent', 'eventTarget sendEvent delay'),
     ('SendEventByName', 'eventTarget sendEvent delay'),
+    ('SendEventByNameUpwards', 'Target EventName'),
     ('SendRandomEvent', 'events weights'),
     ('SendRandomEventV3', 'events weights'),
     ('SendRandomEventV4', 'events weights'),
@@ -116,6 +117,13 @@ OPS = [
     ('AudioPlaySimple', 'oneShotClip volume gameObject'),
     ('AudioPlayRandom', 'audioClips weights gameObject'),
     ('AudioPlayerOneShot', 'audioClips weights spawnPoint volume'),
+    # a node's own AudioSource: a clip set on it (and started, looping, if autoPlay), played while a state holds it,
+    # stopped or faded out, faded to another volume
+    ('SetAudioClip', 'gameObject audioClip autoPlay stopOnExit'),
+    ('AudioPlayInState', 'gameObject volume'),
+    ('AudioStop', 'gameObject fadeTime'),
+    ('AudioStopV2', 'gameObject fadeTime cancelOnEarlyExit'),
+    ('FadeAudio', 'gameObject startVolume endVolume time'),
     # enemies
     ('FindGameObject', 'objectName withTag store'),
     ('GetHero', 'storeResult'),
@@ -569,7 +577,7 @@ def compile_room(romfs, scene, out_path):
                 p = flatten(t, p)
                 keys = OPS[OP_ID[t]][1].split()
                 every = bool(p.get('everyFrame') or p.get('EveryFrame'))
-                b += struct.pack('<BBB', OP_ID[t], int(every), len(keys))
+                b += struct.pack('<HBB', OP_ID[t], int(every), len(keys))
                 for k in keys:
                     v = None
                     for alt in k.split('|'):

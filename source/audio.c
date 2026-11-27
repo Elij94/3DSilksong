@@ -104,6 +104,8 @@ static void fill(int c) {
     }
 }
 
+static void sfx_fade_update(float dt);
+
 void audio_update(float dt) {
     if (!s_on) return;
     for (int c = 0; c < 2; c++) {
@@ -116,6 +118,7 @@ void audio_update(float dt) {
         set_vol(c, s->vol * s->maxvol);
         fill(c);
     }
+    sfx_fade_update(dt);
 }
 
 static void sfx_free(void);
@@ -150,6 +153,10 @@ static size_t s_cache_used;
 static u32 s_clock;
 static ndspWaveBuf s_vwb[SFX_VOICES];
 static s16 *s_vdata[SFX_VOICES];
+static float s_vvol[SFX_VOICES], s_vpan[SFX_VOICES];
+static int s_vowner[SFX_VOICES];
+typedef struct { float t, dur, from, to; bool active; } VFade;
+static VFade s_vfade[SFX_VOICES];
 
 static int cmp_idx(const void *a, const void *b) { return strcmp(((const SfxIdx *)a)->guid, ((const SfxIdx *)b)->guid); }
 
@@ -250,6 +257,52 @@ void sfx_stop(int v) {
     if (s_on && v >= 0 && v < SFX_VOICES) {
         ndspChnWaveBufClear(SFX_CH0 + v);
         s_vwb[v].status = NDSP_WBUF_DONE;
+        s_vfade[v].active = false;
+    }
+}
+
+static void sfx_apply_mix(int v) {
+    float mix[12] = {0};
+    float vol = s_vvol[v] * g_sfx_vol, pan = s_vpan[v];
+    mix[0] = vol * (pan > 0 ? 1 - pan : 1);
+    mix[1] = vol * (pan < 0 ? 1 + pan : 1);
+    ndspChnSetMix(SFX_CH0 + v, mix);
+}
+
+void sfx_set_vol(int v, float vol) {
+    if (v < 0 || v >= SFX_VOICES) return;
+    s_vvol[v] = vol;
+    s_vfade[v].active = false;
+    sfx_apply_mix(v);
+}
+
+void sfx_fade(int v, float to, float time) {
+    if (v < 0 || v >= SFX_VOICES) return;
+    if (time <= 0.0001f) {
+        sfx_set_vol(v, to);
+        if (to <= 0.01f) sfx_stop(v);
+        return;
+    }
+    s_vfade[v] = (VFade){0, time, s_vvol[v], to, true};
+}
+
+void sfx_set_owner(int v, int owner) { if (v >= 0 && v < SFX_VOICES) s_vowner[v] = owner; }
+
+int sfx_find_owner(int owner) {
+    for (int v = 0; v < SFX_VOICES; v++)
+        if (s_vowner[v] == owner && s_vwb[v].status != NDSP_WBUF_DONE && s_vwb[v].status != NDSP_WBUF_FREE) return v;
+    return -1;
+}
+
+static void sfx_fade_update(float dt) {
+    for (int v = 0; v < SFX_VOICES; v++) {
+        VFade *vf = &s_vfade[v];
+        if (!vf->active) continue;
+        vf->t += dt;
+        float k = vf->t >= vf->dur ? 1 : vf->t / vf->dur;
+        s_vvol[v] = vf->from + (vf->to - vf->from) * k;
+        sfx_apply_mix(v);
+        if (k >= 1) { vf->active = false; if (vf->to <= 0.01f) sfx_stop(v); }
     }
 }
 
@@ -269,12 +322,11 @@ static int sfx_start(const char *name, float vol, float pan, bool loop) {
     ndspChnSetInterp(c, NDSP_INTERP_LINEAR);
     ndspChnSetRate(c, RATE);
     ndspChnSetFormat(c, NDSP_FORMAT_MONO_PCM16);
-    float mix[12] = {0};
-    pan = clampf(pan, -1, 1);
-    vol *= g_sfx_vol;
-    mix[0] = vol * (pan > 0 ? 1 - pan : 1);
-    mix[1] = vol * (pan < 0 ? 1 + pan : 1);
-    ndspChnSetMix(c, mix);
+    s_vvol[v] = vol;
+    s_vpan[v] = clampf(pan, -1, 1);
+    s_vowner[v] = -1;
+    s_vfade[v].active = false;
+    sfx_apply_mix(v);
     memset(&s_vwb[v], 0, sizeof s_vwb[v]);
     s_vwb[v].data_vaddr = b->data;
     s_vwb[v].nsamples = b->n;
@@ -288,6 +340,8 @@ static void sfx_free(void) {
     for (int v = 0; v < SFX_VOICES; v++) ndspChnWaveBufClear(SFX_CH0 + v);
     for (int i = 0; i < SFX_CACHE; i++) if (s_cache[i].data) { linearFree(s_cache[i].data); s_cache[i].data = NULL; }
 }
+
+void sfx_stop_all(void) { for (int v = 0; v < SFX_VOICES; v++) sfx_stop(v); }
 
 bool audio_on(void) { return s_on; }
 const char *audio_track(int c) { return s_on ? s_st[c].track : ""; }
