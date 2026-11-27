@@ -115,11 +115,18 @@ def gather_particles(sc, material_blend):
             life=minmax(im.get('startLifetime'), 1), speed=minmax(im.get('startSpeed')), size=minmax(im.get('startSize'), 1),
             rotation=[math.degrees(x) for x in minmax(im.get('startRotation'))],
             gravity=minmax(im.get('gravityModifier'))[1], radius=f(sh.get('radius', {}).get('value') if isinstance(sh.get('radius'), dict) else sh.get('radius')),
-            angle=f(sh.get('angle')), box=[f(sc_.get('x', 1)), f(sc_.get('y', 1))],
+            angle=f(sh.get('angle')), box=box_world(m, sc_),
             color0=c0, color1=c1, end_color=end, end_size=end_size,
             tiles=[int(f(uv.get('tilesX')) or 1), int(f(uv.get('tilesY')) or 1)] if f(uv.get('enabled')) else [1, 1],
             texture=safe(tex_name), texture_guid=tex or ''))
     return out
+
+
+def box_world(m, sc_):
+    """a box shape's size in the world (x, y): its own scale through the transform (Unity scales the shape by the
+    object's scale and turns it with it, whatever the scaling mode)"""
+    sv = [f(sc_.get('x', 1)), f(sc_.get('y', 1)), f(sc_.get('z', 1))]
+    return [float(sum(abs(m[0, j] * sv[j]) for j in range(3))), float(sum(abs(m[1, j] * sv[j]) for j in range(3)))]
 
 
 def s(txt, n):

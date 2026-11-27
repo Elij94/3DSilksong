@@ -923,7 +923,7 @@ static void draw_text(const char *str, float cx, float y, float size, u32 color)
 
 static void draw_band(float zmin, float zmax) {
     objects_draw(&s_objs, zmin, zmax);
-    particles_draw(zmin, zmax);
+    if (s_mode != GS_TITLE) particles_draw(zmin, zmax);   // the title's embers: over its colour grading
 }
 
 static void draw_all(void);
@@ -971,7 +971,18 @@ static void draw_all(void) {
     }
     draw_band(-1e30f, zcur);
     if (s_mode == GS_TITLE) title_grade();
-    if (logo >= 0) room_draw_layer(&s_room, logo, false);
+    if (logo >= 0) {   // in front of the grading (depth tested)
+        float d = g_draw_depth;
+        g_draw_depth = 0.86f;
+        room_draw_layer(&s_room, logo, false);
+        g_draw_depth = d;
+    }
+    if (s_mode == GS_TITLE) {   // the embers stay bright in the game's grading
+        float d = g_draw_depth;
+        g_draw_depth = 0.86f;
+        particles_draw(-1e30f, 1e30f);
+        g_draw_depth = d;
+    }
     gfx_blend(BLEND_NORMAL);
     if (s_mode != GS_TITLE) draw_hud();
     dlg_draw();

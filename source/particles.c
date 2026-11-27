@@ -8,7 +8,7 @@
 #include "sprite.h"
 
 #define MAX_PARTS 480
-#define PER_EMITTER 48
+#define PER_EMITTER 150
 #define PAR_D 38.1f
 
 typedef struct {
