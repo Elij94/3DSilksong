@@ -18,24 +18,22 @@ not an emulator and not a video.
 
 ## Progress
 
-```
-Overall   █████████████░░░░░░░  65 %
-```
+<img src="docs/progress/overall.svg" width="480" height="18" alt="65 %"> &nbsp;**65 %** overall
 
-| Part | Progress | Where it stands |
-|---|---|---|
-| Data conversion (tools/) | `███████████████████░` 95 % | 590 rooms, ~17,000 scripts, 409 sprite sets, music, sounds, text, fonts |
-| Rooms and scenery | `███████████████████░` 95 % | Parallax layers streamed from memory, collisions, gates, room entries, water |
-| Hornet | `█████████████████░░░` 85 % | Movement with the game's values, needle attacks, dash/sprint, bind, all abilities, swimming |
-| Game scripts (PlayMaker) | `██████████████████░░` 91 % | 964,000 of the rooms' 1,062,000 actions run; the rest are mostly sound and visual effects |
-| Enemies | `████████████████░░░░` 80 % | Their own scripts, walking/crawling/flying components, hits, recoil, deaths, corpses |
-| Bosses | `██████░░░░░░░░░░░░░░` 30 % | Additive boss scenes load; Moss Mother and the Bell Beast fight; the others are untested |
-| Menus, saves, HUD | `█████████████████░░░` 85 % | Title and profile screens as the game's, 4 save slots, pause, options, HUD |
-| Map, inventory, shops, items | `██████████████░░░░░░` 70 % | Map and inventory on the bottom screen, shops, items picked up in the rooms |
-| Tools and crests | `████████░░░░░░░░░░░░` 40 % | Slots, equipping at benches, red tools thrown with R; passive tools and crest changes missing |
-| NPCs and quests | `████████░░░░░░░░░░░░` 40 % | Dialogues in the game's text, scripted events; quest tracking partial |
-| Audio | `████████████████░░░░` 80 % | Room music and ambience, script sounds by distance |
-| Cutscenes | `░░░░░░░░░░░░░░░░░░░░` 0 % | The game's videos are not converted |
+| Part | Progress | | Where it stands |
+|---|---|--:|---|
+| Data conversion (tools/) | <img src="docs/progress/95.svg" width="160" height="10" alt="95 %"> | **95 %** | 590 rooms, ~17,000 scripts, 409 sprite sets, music, sounds, text, fonts |
+| Rooms and scenery | <img src="docs/progress/95.svg" width="160" height="10" alt="95 %"> | **95 %** | Parallax layers streamed from memory, collisions, gates, room entries, water |
+| Hornet | <img src="docs/progress/85.svg" width="160" height="10" alt="85 %"> | **85 %** | Movement with the game's values, needle attacks, dash/sprint, bind, all abilities, swimming |
+| Game scripts (PlayMaker) | <img src="docs/progress/91.svg" width="160" height="10" alt="91 %"> | **91 %** | 964,000 of the rooms' 1,062,000 actions run; the rest are mostly sound and visual effects |
+| Enemies | <img src="docs/progress/80.svg" width="160" height="10" alt="80 %"> | **80 %** | Their own scripts, walking/crawling/flying components, hits, recoil, deaths, corpses |
+| Bosses | <img src="docs/progress/30.svg" width="160" height="10" alt="30 %"> | **30 %** | Additive boss scenes load; Moss Mother and the Bell Beast fight; the others are untested |
+| Menus, saves, HUD | <img src="docs/progress/85.svg" width="160" height="10" alt="85 %"> | **85 %** | Title and profile screens as the game's, 4 save slots, pause, options, HUD |
+| Map, inventory, shops, items | <img src="docs/progress/70.svg" width="160" height="10" alt="70 %"> | **70 %** | Map and inventory on the bottom screen, shops, items picked up in the rooms |
+| Tools and crests | <img src="docs/progress/40.svg" width="160" height="10" alt="40 %"> | **40 %** | Slots, equipping at benches, red tools thrown with R; passive tools and crest changes missing |
+| NPCs and quests | <img src="docs/progress/40.svg" width="160" height="10" alt="40 %"> | **40 %** | Dialogues in the game's text, scripted events; quest tracking partial |
+| Audio | <img src="docs/progress/80.svg" width="160" height="10" alt="80 %"> | **80 %** | Room music and ambience, script sounds by distance |
+| Cutscenes | <img src="docs/progress/0.svg" width="160" height="10" alt="0 %"> | **0 %** | The game's videos are not converted |
 
 The overall figure is a weighted estimate of how much of the game can be played as on PC. See
 [CHANGELOG.md](CHANGELOG.md) for what each version brought.
@@ -119,6 +117,9 @@ source/       the 3DS engine (C)
 cia/          the CIA's RSF
 docs/         FORMATS.md (the files produced), EXPLORATION.md (what the game holds)
 ```
+
+By size: **C 64 %** (the engine, about 510 KB), **Python 33 %** (the tools, about 265 KB), shell, Makefile and
+PowerShell 3 %.
 
 ## License
 
