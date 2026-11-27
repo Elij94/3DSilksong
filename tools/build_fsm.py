@@ -124,6 +124,7 @@ OPS = [
     ('AudioStop', 'gameObject fadeTime'),
     ('AudioStopV2', 'gameObject fadeTime cancelOnEarlyExit'),
     ('FadeAudio', 'gameObject startVolume endVolume time'),
+    ('GetHeroCState', 'VariableName StoreValue'),
     # enemies
     ('FindGameObject', 'objectName withTag store'),
     ('GetHero', 'storeResult'),

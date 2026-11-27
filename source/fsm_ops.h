@@ -111,153 +111,154 @@
 #define OP_AudioStop                      107   // gameObject fadeTime
 #define OP_AudioStopV2                    108   // gameObject fadeTime cancelOnEarlyExit
 #define OP_FadeAudio                      109   // gameObject startVolume endVolume time
-#define OP_FindGameObject                 110   // objectName withTag store
-#define OP_GetHero                        111   // storeResult
-#define OP_CheckAlertRangeByName          112   // eventTarget alertRangeName storeResult sendEvent outOfRangeEvent
-#define OP_CheckAlertRange                113   // alertRange storeResult InRangeEvent OutOfRangeEvent
-#define OP_FindAlertRange                 114   // target storeResult childName
-#define OP_RayCast2d                      115   // fromGameObject fromPosition direction space distance hitEvent noHitEvent storeDidHit storeHitPoint storeDistance
-#define OP_RayCast2dV2                    116   // fromGameObject fromPosition direction space distance hitEvent noHitEvent storeDidHit storeHitPoint storeDistance
-#define OP_CheckCollisionSide             117   // collidingObject topHit rightHit bottomHit leftHit topHitEvent rightHitEvent bottomHitEvent leftHitEvent
-#define OP_CheckCollisionSideEnter        118   // collidingObject topHit rightHit bottomHit leftHit topHitEvent rightHitEvent bottomHitEvent leftHitEvent
-#define OP_CheckIsCharacterGrounded       119   // Target GroundDistance StoreResult GroundedEvent NotGroundedEvent SkinHeight
-#define OP_FaceDirection                  120   // gameObject spriteFacesRight
-#define OP_FaceObject                     121   // objectA objectB spriteFacesRight
-#define OP_FlipScale                      122   // gameObject flipHorizontally flipVertically
-#define OP_RandomlyFlipScale              123   // gameObject
-#define OP_GetScale                       124   // gameObject xScale yScale
-#define OP_SendEventByScale               125   // gameObject eventTarget positiveEvent negativeEvent
-#define OP_CheckFacingTarget              126   // facingObject target spriteFacesRight facingEvent notFacingEvent facingBool notFacingBool
-#define OP_GetXDistance                   127   // gameObject target storeResult
-#define OP_GetYDistance                   128   // gameObject target storeResult allowNegatives
-#define OP_GetAngleToTarget2D             129   // gameObject target offsetX offsetY storeAngle
-#define OP_SetVelocityAsAngle             130   // gameObject angle speed
-#define OP_DistanceFly                    131   // gameObject target distance speedMax acceleration minAboveHero
-#define OP_IdleBuzz                       132   // gameObject waitMin waitMax speedMax accelerationMax roamingRange roamingRange
-#define OP_IdleBuzzV3                     133   // gameObject waitMin waitMax speedMax accelerationMax roamingRangeX roamingRangeY
-#define OP_ChaseObject                    134   // gameObject target speedMax acceleration offsetX offsetY
-#define OP_ChaseObjectV2                  135   // gameObject target speedMax accelerationForce offsetX offsetY
-#define OP_ChaseObjectGround              136   // gameObject target xOffset speedMax acceleration
-#define OP_AccelerateToY                  137   // gameObject accelerationFactor targetSpeed
-#define OP_SetPositionToObject            138   // gameObject targetObject xOffset yOffset
-#define OP_SetPositionToObject2D          139   // gameObject targetObject xOffset yOffset
-#define OP_FloatTestToBool                140   // float1 float2 tolerance equalBool lessThanBool greaterThanBool
-#define OP_FloatInRange                   141   // floatVariable lowerValue upperValue boolVariable trueEvent falseEvent
-#define OP_Tk2dPlayFrame                  142   // gameObject frame
-#define OP_SetIsKinematic2d               143   // gameObject isKinematic
-#define OP_SetInvincible                  144   // target Invincible
-#define OP_SetRecoilSpeed                 145   // target newRecoilSpeed
-#define OP_DoCameraShake                  146   // VisibleRenderer
-#define OP_SetDamageHeroAmount            147   // target damageDealt
-#define OP_StartWalker                    148   // target walkRight
-#define OP_StartWalkerV2                  149   // Target
-#define OP_StopWalker                     150   // target
-#define OP_FireAtTarget                   151   // gameObject target speed
-#define OP_GetPosition2d                  152   // gameObject vector_2d x y
-#define OP_StartCrawler                   153   // Target
-#define OP_StopCrawler                    154   // Target
-#define OP_CallMethodProper               155   // gameObject behaviour methodName p_num p_bool
-#define OP_HeroControllerMethods          156   // method p_bool
-#define OP_SendMessage                    157   // gameObject fn p_num
-#define OP_ScreenFader                    158   // start_a end_a duration
-#define OP_ListenForCast                  159   // wasPressed wasReleased isPressed isNotPressed
-#define OP_ListenForJump                  160   // wasPressed wasReleased isPressed isNotPressed
-#define OP_ListenForAttack                161   // wasPressed wasReleased isPressed isNotPressed
-#define OP_ListenForDash                  162   // wasPressed wasReleased isPressed isNotPressed
-#define OP_ListenForUp                    163   // wasPressed wasReleased isPressed isNotPressed
-#define OP_ListenForDown                  164   // wasPressed wasReleased isPressed isNotPressed
-#define OP_ListenForLeft                  165   // wasPressed wasReleased isPressed isNotPressed
-#define OP_ListenForRight                 166   // wasPressed wasReleased isPressed isNotPressed
-#define OP_ListenForDreamNail             167   // wasPressed wasReleased isPressed isNotPressed
-#define OP_ListenForQuickCast             168   // wasPressed wasReleased isPressed isNotPressed
-#define OP_SendEventToRegister            169   // eventName
-#define OP_iTweenMoveBy                   170   // gameObject vector time delay finishEvent speed
-#define OP_iTweenMoveTo                   171   // gameObject transformPosition vectorPosition time delay finishEvent speed
-#define OP_ActivateGameObjectDelay        172   // gameObject activate delay
-#define OP_RandomFloatEither              173   // value1 value2 storeResult
-#define OP_GetPlayerDataVariable          174   // VariableName StoreValue
-#define OP_SetPlayerDataVariable          175   // VariableName SetValue
-#define OP_SpawnObjectFromGlobalPool      176   // prefab spawnPoint position rotation storeObject
-#define OP_CreateObject                   177   // prefab spawnPoint position rotation storeObject
-#define OP_SpawnObjectFromGlobalPoolDelay 178   // prefab spawnPoint position rotation storeObject delayMin delayMax
-#define OP_FlingObjectsFromGlobalPool     179   // prefab spawnPoint position spawnMin spawnMax speedMin speedMax angleMin angleMax originVariationX originVariationY
-#define OP_RecycleSelf                    180   // 
-#define OP_PlayParticleEmitter            181   // gameObject emit
-#define OP_SetRotation                    182   // gameObject zAngle
-#define OP_EaseFloat                      183   // fromValue toValue floatVariable time delay easeType reverse finishEvent
-#define OP_Rotate                         184   // gameObject zAngle perSecond
-#define OP_FaceAngle                      185   // gameObject angleOffset
-#define OP_PlayRandomAudioClipTable       186   // clips SpawnPoint
-#define OP_PlayRandomAudioClipTableV2     187   // clips SpawnPoint
-#define OP_AudioPlayRandomVoiceFromTable  188   // clips gameObject
-#define OP_AudioPlayRandomVoiceFromTableV2 189   // clips gameObject
-#define OP_PlayParticleEmitterInState     190   // gameObject
-#define OP_StopParticleEmitter            191   // gameObject
-#define OP_SetParticleEmission            192   // gameObject emission
-#define OP_RecycleObject                  193   // gameObject
-#define OP_RunFSM                         194   // sub inputs finishEvent
-#define OP_CheckQuestState                195   // quest NotTrackedEvent TrackedEvent CompletedEvent
-#define OP_CheckTrackTriggerCount         196   // target count test successEvent
-#define OP_GetShopObject                  197   // StoreObject Target
-#define OP_ShopHasStock                   198   // Target trueEvent falseEvent storeValue
-#define OP_ShopHasStockNotInfinite        199   // Target trueEvent falseEvent storeValue
-#define OP_ShopWasItemPurchased           200   // Target trueEvent falseEvent storeValue
-#define OP_PlayerDataVariableTest         201   // VariableName expect IsExpectedEvent IsNotExpectedEvent
-#define OP_WalkLeftRight                  202   // gameObject walkSpeed spriteFacesLeft turnDelay wallLookAhead walkAnimName turnAnimName moveWhileTurning startLeft startRight keepDirection flipBeforeTurn
-#define OP_DistanceFlyV2                  203   // gameObject target distance speedMax acceleration targetsHeight height maxHeight stayLeft stayRight
-#define OP_CheckXPosition                 204   // gameObject compareTo compareToOffset tolerance equal equalBool lessThan lessThanBool greaterThan greaterThanBool space activeBool
-#define OP_CheckYPosition                 205   // gameObject compareTo compareToOffset tolerance equal lessThan greaterThan space activeBool
-#define OP_CheckPassedTarget              206   // Self Target IsActive DefaultFacingRight DistancePast StoreResult PassedEvent NotPassedEvent
-#define OP_SetVelocity2dBool              207   // gameObject activeBool vector x y
-#define OP_AddForce2d                     208   // gameObject forceMode vector x y vector3
-#define OP_ShoveFromWall                  209   // gameObject shoveForce rayLength checkUp checkDown checkLeft checkRight
-#define OP_Decelerate                     210   // gameObject deceleration
-#define OP_StopWalkerV2                   211   // Target
-#define OP_WaitBool                       212   // boolTest time finishEvent
-#define OP_BoolFlipEveryFrame             213   // boolVariable
-#define OP_SelectRandomString             214   // strings weights storeString
-#define OP_ConvertBoolToString            215   // boolVariable stringVariable falseString trueString
-#define OP_SetFsmGameObject               216   // gameObject fsmName variableName setValue
-#define OP_TimeLimitSetV2                 217   // TimeDelay StoreValue CanSet
-#define OP_TimeLimitCheck                 218   // storedValue aboveEvent belowEvent
-#define OP_TimeLimitCheckV2               219   // StoredValue AboveEvent BelowEvent StoreBool
-#define OP_AddHP                          220   // target amount healToMax
-#define OP_InstaDeath                     221   // target direction
-#define OP_GetPosition2dAs3d              222   // SourceXY SourceZ StoreVector
-#define OP_GetColliderRange               223   // gameObject minX maxX minY maxY
-#define OP_DistanceBetweenPoints          224   // distanceResult point1 point2 ignoreX ignoreY
-#define OP_FloatAddRandom                 225   // floatVariable addMin addMax
-#define OP_RandomBool                     226   // storeResult
-#define OP_FloatSign                      227   // Value StoreValue
-#define OP_FloatSignToBool                228   // Value StoreIsPositive
-#define OP_RandomlyFlipFloat              229   // storeResult
-#define OP_BoolAnyTrue                    230   // boolVariables sendEvent storeResult
-#define OP_Vector2Multiply                231   // vector2Variable multiplyBy
-#define OP_Vector3Add                     232   // vector3Variable addVector perSecond
-#define OP_Vector3AddXYZ                  233   // vector3Variable addX addY addZ perSecond
-#define OP_SetVector2Value                234   // vector2Variable vector2Value
-#define OP_RandomFloatV2                  235   // min max storeResult
-#define OP_FloatAddV2                     236   // floatVariable add perSecond activeBool
-#define OP_SetFloatValueV2                237   // floatVariable floatValue activeBool
-#define OP_IntSwitch                      238   // intVariable compareTo sendEvent
-#define OP_FloatSwitch                    239   // floatVariable lessThan sendEvent
-#define OP_IntCompareToBool               240   // integer1 integer2 equalBool lessThanBool greaterThanBool
-#define OP_GetSpeed2d                     241   // gameObject storeResult
-#define OP_ClampVelocity2D                242   // gameObject xMin xMax yMin yMax
-#define OP_ClampSpeed                     243   // gameObject speedMin speedMax
-#define OP_SetHP                          244   // target hp
-#define OP_GetHP                          245   // target storeValue
-#define OP_MatchScaleSign                 246   // Target MatchTo
-#define OP_DestroySelf                    247   // detachChildren
-#define OP_GetDistanceV2                  248   // gameObject target targetOffsetX targetOffsetY storeResult
-#define OP_ChaseObjectVertical            249   // gameObject target offset speedMax acceleration
-#define OP_IdleBuzzV2                     250   // gameObject waitMin waitMax speedMax accelerationMax roamingRangeX roamingRangeY
-#define OP_FaceObjectV3                   251   // ObjectA ObjectB SpriteFacesRight
-#define OP_TranslateRandom                252   // gameObject translateMin translateMax
-#define OP_GetCurrentTk2dClipName         253   // gameObject storeName
-#define OP_SendRandomEventV2              254   // events weights
-#define OP_MultiplyGravity                255   // gameObject multiplyBy
-#define OP_EnableFsmSelf                  256   // SetEnabled
-#define OP_CheckHeroPerformanceRegion     257   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_CheckHeroPerformanceRegionV2   258   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
-#define OP_COUNT 259
+#define OP_GetHeroCState                  110   // VariableName StoreValue
+#define OP_FindGameObject                 111   // objectName withTag store
+#define OP_GetHero                        112   // storeResult
+#define OP_CheckAlertRangeByName          113   // eventTarget alertRangeName storeResult sendEvent outOfRangeEvent
+#define OP_CheckAlertRange                114   // alertRange storeResult InRangeEvent OutOfRangeEvent
+#define OP_FindAlertRange                 115   // target storeResult childName
+#define OP_RayCast2d                      116   // fromGameObject fromPosition direction space distance hitEvent noHitEvent storeDidHit storeHitPoint storeDistance
+#define OP_RayCast2dV2                    117   // fromGameObject fromPosition direction space distance hitEvent noHitEvent storeDidHit storeHitPoint storeDistance
+#define OP_CheckCollisionSide             118   // collidingObject topHit rightHit bottomHit leftHit topHitEvent rightHitEvent bottomHitEvent leftHitEvent
+#define OP_CheckCollisionSideEnter        119   // collidingObject topHit rightHit bottomHit leftHit topHitEvent rightHitEvent bottomHitEvent leftHitEvent
+#define OP_CheckIsCharacterGrounded       120   // Target GroundDistance StoreResult GroundedEvent NotGroundedEvent SkinHeight
+#define OP_FaceDirection                  121   // gameObject spriteFacesRight
+#define OP_FaceObject                     122   // objectA objectB spriteFacesRight
+#define OP_FlipScale                      123   // gameObject flipHorizontally flipVertically
+#define OP_RandomlyFlipScale              124   // gameObject
+#define OP_GetScale                       125   // gameObject xScale yScale
+#define OP_SendEventByScale               126   // gameObject eventTarget positiveEvent negativeEvent
+#define OP_CheckFacingTarget              127   // facingObject target spriteFacesRight facingEvent notFacingEvent facingBool notFacingBool
+#define OP_GetXDistance                   128   // gameObject target storeResult
+#define OP_GetYDistance                   129   // gameObject target storeResult allowNegatives
+#define OP_GetAngleToTarget2D             130   // gameObject target offsetX offsetY storeAngle
+#define OP_SetVelocityAsAngle             131   // gameObject angle speed
+#define OP_DistanceFly                    132   // gameObject target distance speedMax acceleration minAboveHero
+#define OP_IdleBuzz                       133   // gameObject waitMin waitMax speedMax accelerationMax roamingRange roamingRange
+#define OP_IdleBuzzV3                     134   // gameObject waitMin waitMax speedMax accelerationMax roamingRangeX roamingRangeY
+#define OP_ChaseObject                    135   // gameObject target speedMax acceleration offsetX offsetY
+#define OP_ChaseObjectV2                  136   // gameObject target speedMax accelerationForce offsetX offsetY
+#define OP_ChaseObjectGround              137   // gameObject target xOffset speedMax acceleration
+#define OP_AccelerateToY                  138   // gameObject accelerationFactor targetSpeed
+#define OP_SetPositionToObject            139   // gameObject targetObject xOffset yOffset
+#define OP_SetPositionToObject2D          140   // gameObject targetObject xOffset yOffset
+#define OP_FloatTestToBool                141   // float1 float2 tolerance equalBool lessThanBool greaterThanBool
+#define OP_FloatInRange                   142   // floatVariable lowerValue upperValue boolVariable trueEvent falseEvent
+#define OP_Tk2dPlayFrame                  143   // gameObject frame
+#define OP_SetIsKinematic2d               144   // gameObject isKinematic
+#define OP_SetInvincible                  145   // target Invincible
+#define OP_SetRecoilSpeed                 146   // target newRecoilSpeed
+#define OP_DoCameraShake                  147   // VisibleRenderer
+#define OP_SetDamageHeroAmount            148   // target damageDealt
+#define OP_StartWalker                    149   // target walkRight
+#define OP_StartWalkerV2                  150   // Target
+#define OP_StopWalker                     151   // target
+#define OP_FireAtTarget                   152   // gameObject target speed
+#define OP_GetPosition2d                  153   // gameObject vector_2d x y
+#define OP_StartCrawler                   154   // Target
+#define OP_StopCrawler                    155   // Target
+#define OP_CallMethodProper               156   // gameObject behaviour methodName p_num p_bool
+#define OP_HeroControllerMethods          157   // method p_bool
+#define OP_SendMessage                    158   // gameObject fn p_num
+#define OP_ScreenFader                    159   // start_a end_a duration
+#define OP_ListenForCast                  160   // wasPressed wasReleased isPressed isNotPressed
+#define OP_ListenForJump                  161   // wasPressed wasReleased isPressed isNotPressed
+#define OP_ListenForAttack                162   // wasPressed wasReleased isPressed isNotPressed
+#define OP_ListenForDash                  163   // wasPressed wasReleased isPressed isNotPressed
+#define OP_ListenForUp                    164   // wasPressed wasReleased isPressed isNotPressed
+#define OP_ListenForDown                  165   // wasPressed wasReleased isPressed isNotPressed
+#define OP_ListenForLeft                  166   // wasPressed wasReleased isPressed isNotPressed
+#define OP_ListenForRight                 167   // wasPressed wasReleased isPressed isNotPressed
+#define OP_ListenForDreamNail             168   // wasPressed wasReleased isPressed isNotPressed
+#define OP_ListenForQuickCast             169   // wasPressed wasReleased isPressed isNotPressed
+#define OP_SendEventToRegister            170   // eventName
+#define OP_iTweenMoveBy                   171   // gameObject vector time delay finishEvent speed
+#define OP_iTweenMoveTo                   172   // gameObject transformPosition vectorPosition time delay finishEvent speed
+#define OP_ActivateGameObjectDelay        173   // gameObject activate delay
+#define OP_RandomFloatEither              174   // value1 value2 storeResult
+#define OP_GetPlayerDataVariable          175   // VariableName StoreValue
+#define OP_SetPlayerDataVariable          176   // VariableName SetValue
+#define OP_SpawnObjectFromGlobalPool      177   // prefab spawnPoint position rotation storeObject
+#define OP_CreateObject                   178   // prefab spawnPoint position rotation storeObject
+#define OP_SpawnObjectFromGlobalPoolDelay 179   // prefab spawnPoint position rotation storeObject delayMin delayMax
+#define OP_FlingObjectsFromGlobalPool     180   // prefab spawnPoint position spawnMin spawnMax speedMin speedMax angleMin angleMax originVariationX originVariationY
+#define OP_RecycleSelf                    181   // 
+#define OP_PlayParticleEmitter            182   // gameObject emit
+#define OP_SetRotation                    183   // gameObject zAngle
+#define OP_EaseFloat                      184   // fromValue toValue floatVariable time delay easeType reverse finishEvent
+#define OP_Rotate                         185   // gameObject zAngle perSecond
+#define OP_FaceAngle                      186   // gameObject angleOffset
+#define OP_PlayRandomAudioClipTable       187   // clips SpawnPoint
+#define OP_PlayRandomAudioClipTableV2     188   // clips SpawnPoint
+#define OP_AudioPlayRandomVoiceFromTable  189   // clips gameObject
+#define OP_AudioPlayRandomVoiceFromTableV2 190   // clips gameObject
+#define OP_PlayParticleEmitterInState     191   // gameObject
+#define OP_StopParticleEmitter            192   // gameObject
+#define OP_SetParticleEmission            193   // gameObject emission
+#define OP_RecycleObject                  194   // gameObject
+#define OP_RunFSM                         195   // sub inputs finishEvent
+#define OP_CheckQuestState                196   // quest NotTrackedEvent TrackedEvent CompletedEvent
+#define OP_CheckTrackTriggerCount         197   // target count test successEvent
+#define OP_GetShopObject                  198   // StoreObject Target
+#define OP_ShopHasStock                   199   // Target trueEvent falseEvent storeValue
+#define OP_ShopHasStockNotInfinite        200   // Target trueEvent falseEvent storeValue
+#define OP_ShopWasItemPurchased           201   // Target trueEvent falseEvent storeValue
+#define OP_PlayerDataVariableTest         202   // VariableName expect IsExpectedEvent IsNotExpectedEvent
+#define OP_WalkLeftRight                  203   // gameObject walkSpeed spriteFacesLeft turnDelay wallLookAhead walkAnimName turnAnimName moveWhileTurning startLeft startRight keepDirection flipBeforeTurn
+#define OP_DistanceFlyV2                  204   // gameObject target distance speedMax acceleration targetsHeight height maxHeight stayLeft stayRight
+#define OP_CheckXPosition                 205   // gameObject compareTo compareToOffset tolerance equal equalBool lessThan lessThanBool greaterThan greaterThanBool space activeBool
+#define OP_CheckYPosition                 206   // gameObject compareTo compareToOffset tolerance equal lessThan greaterThan space activeBool
+#define OP_CheckPassedTarget              207   // Self Target IsActive DefaultFacingRight DistancePast StoreResult PassedEvent NotPassedEvent
+#define OP_SetVelocity2dBool              208   // gameObject activeBool vector x y
+#define OP_AddForce2d                     209   // gameObject forceMode vector x y vector3
+#define OP_ShoveFromWall                  210   // gameObject shoveForce rayLength checkUp checkDown checkLeft checkRight
+#define OP_Decelerate                     211   // gameObject deceleration
+#define OP_StopWalkerV2                   212   // Target
+#define OP_WaitBool                       213   // boolTest time finishEvent
+#define OP_BoolFlipEveryFrame             214   // boolVariable
+#define OP_SelectRandomString             215   // strings weights storeString
+#define OP_ConvertBoolToString            216   // boolVariable stringVariable falseString trueString
+#define OP_SetFsmGameObject               217   // gameObject fsmName variableName setValue
+#define OP_TimeLimitSetV2                 218   // TimeDelay StoreValue CanSet
+#define OP_TimeLimitCheck                 219   // storedValue aboveEvent belowEvent
+#define OP_TimeLimitCheckV2               220   // StoredValue AboveEvent BelowEvent StoreBool
+#define OP_AddHP                          221   // target amount healToMax
+#define OP_InstaDeath                     222   // target direction
+#define OP_GetPosition2dAs3d              223   // SourceXY SourceZ StoreVector
+#define OP_GetColliderRange               224   // gameObject minX maxX minY maxY
+#define OP_DistanceBetweenPoints          225   // distanceResult point1 point2 ignoreX ignoreY
+#define OP_FloatAddRandom                 226   // floatVariable addMin addMax
+#define OP_RandomBool                     227   // storeResult
+#define OP_FloatSign                      228   // Value StoreValue
+#define OP_FloatSignToBool                229   // Value StoreIsPositive
+#define OP_RandomlyFlipFloat              230   // storeResult
+#define OP_BoolAnyTrue                    231   // boolVariables sendEvent storeResult
+#define OP_Vector2Multiply                232   // vector2Variable multiplyBy
+#define OP_Vector3Add                     233   // vector3Variable addVector perSecond
+#define OP_Vector3AddXYZ                  234   // vector3Variable addX addY addZ perSecond
+#define OP_SetVector2Value                235   // vector2Variable vector2Value
+#define OP_RandomFloatV2                  236   // min max storeResult
+#define OP_FloatAddV2                     237   // floatVariable add perSecond activeBool
+#define OP_SetFloatValueV2                238   // floatVariable floatValue activeBool
+#define OP_IntSwitch                      239   // intVariable compareTo sendEvent
+#define OP_FloatSwitch                    240   // floatVariable lessThan sendEvent
+#define OP_IntCompareToBool               241   // integer1 integer2 equalBool lessThanBool greaterThanBool
+#define OP_GetSpeed2d                     242   // gameObject storeResult
+#define OP_ClampVelocity2D                243   // gameObject xMin xMax yMin yMax
+#define OP_ClampSpeed                     244   // gameObject speedMin speedMax
+#define OP_SetHP                          245   // target hp
+#define OP_GetHP                          246   // target storeValue
+#define OP_MatchScaleSign                 247   // Target MatchTo
+#define OP_DestroySelf                    248   // detachChildren
+#define OP_GetDistanceV2                  249   // gameObject target targetOffsetX targetOffsetY storeResult
+#define OP_ChaseObjectVertical            250   // gameObject target offset speedMax acceleration
+#define OP_IdleBuzzV2                     251   // gameObject waitMin waitMax speedMax accelerationMax roamingRangeX roamingRangeY
+#define OP_FaceObjectV3                   252   // ObjectA ObjectB SpriteFacesRight
+#define OP_TranslateRandom                253   // gameObject translateMin translateMax
+#define OP_GetCurrentTk2dClipName         254   // gameObject storeName
+#define OP_SendRandomEventV2              255   // events weights
+#define OP_MultiplyGravity                256   // gameObject multiplyBy
+#define OP_EnableFsmSelf                  257   // SetEnabled
+#define OP_CheckHeroPerformanceRegion     258   // Target MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_CheckHeroPerformanceRegionV2   259   // Target Radius MinReactDelay MaxReactDelay None ActiveInner ActiveOuter IgnoreNeedolinRange
+#define OP_COUNT 260

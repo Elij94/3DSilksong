@@ -2513,6 +2513,19 @@ static bool run(Fsm *f, Action *ac, ActRt *rt, bool enter) {
         if (v >= 0) { sfx_set_vol(v, a_f(f, ARG(1))); sfx_fade(v, a_f(f, ARG(2)), a_f(f, ARG(3))); }
         return true;
     }
+    case OP_GetHeroCState: {   // HeroControllerStates by name: only the fields the game's FSMs actually ask for
+        const char *cs = str_at(a_str(f, ARG(0)));
+        bool v = false;
+        if (s_hero) {
+            if (!strcmp(cs, "onGround")) v = s_hero->ground;
+            else if (!strcmp(cs, "swimming")) v = s_hero->swim_loop >= 0;
+            else if (!strcmp(cs, "needolinPlayingMemory")) v = s_hero->performing;
+            else if (!strcmp(cs, "isInCutsceneMovement")) v = s_hero->ctrl_off || s_hero->enter_t > 0 || s_hero->enter_land;
+            else if (!strcmp(cs, "dead")) v = s_hero->state == HS_DEAD;
+        }
+        set_i(f, ARG(1), v);
+        return !ac->every;
+    }
     case OP_SendEventByNameUpwards: {
         int ev = ev_of(f, ARG(1));
         if (ev >= 0) for (int g = a_node(f, ARG(0)), n = 0; g >= 0 && g < s_nnodes && n < 64; g = s_nodes[g].parent, n++)
